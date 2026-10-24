@@ -1,3 +1,5 @@
-from .ui.plate_editor import main
+import sys
 
-main()
+from .app import main
+
+sys.exit(main())

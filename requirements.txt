@@ -1,2 +1,4 @@
 PyQt5>=5.15  # or PySide6
+numpy
+matplotlib>=3.5
 pytest  # tests only

@@ -4,8 +4,9 @@ import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 qt = pytest.importorskip("quickalignment.ui._qt")
-from quickalignment.geometry import Sample, SampleLayout  # noqa: E402
-from quickalignment.ui.plate_editor import MainWindow  # noqa: E402
+from quickalignment.geometry import Device, Sample, SampleLayout  # noqa: E402
+from quickalignment.session import Session  # noqa: E402
+from quickalignment.app import MainWindow  # noqa: E402
 
 QtCore, QtGui, QtWidgets = qt.QtCore, qt.QtGui, qt.QtWidgets
 
@@ -15,7 +16,7 @@ Qt = QtCore.Qt
 @pytest.fixture
 def window():
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    win = MainWindow(SampleLayout())
+    win = MainWindow()
     win.show()
     app.processEvents()
     yield win
@@ -62,15 +63,15 @@ def test_draw_move_resize_and_edit(window):
     assert abs(s.length - 4) < 0.15
 
     # table edit updates the model and the item
-    ed.table.item(0, 5).setText("1.25")
-    ed.table.item(0, 1).setText("0")
+    ed.table.item(0, 6).setText("1.25")
+    ed.table.item(0, 2).setText("0")
     assert s.height == 1.25 and s.u == 0
     assert ed.items[id(s)].pos().x() == 0
-    assert ed.table.item(0, 6).text() == "ok"
+    assert ed.table.item(0, 7).text() == "ok"
 
     # second, overlapping sample is flagged
     ed.add_sample(Sample("X", u=0, v=s.v, length=1, width=1))
-    assert "overlaps X" in ed.table.item(0, 6).text()
+    assert "overlaps X" in ed.table.item(0, 7).text()
 
     ed.view.setFocus()
     ed.scene.clearSelection()
@@ -86,5 +87,97 @@ def test_replace_layout_with_selection(window, tmp_path):
     ed.layout_model.save(path)
     ed.set_layout(SampleLayout.load(path))
     assert [s.name for s in ed.layout_model.samples] == ["A"]
-    window.new_layout()
+    window.new_session()
     assert ed.layout_model.samples == [] and ed.table.rowCount() == 0
+
+
+def test_devices_follow_substrate_and_edges(window):
+    ed = window.editor
+    s = ed.add_sample(Sample("Sub", u=0, v=0, length=6, width=4, height=0.3))
+    d = ed.add_device(s, Device("D1", "right", 1.0, "top", 0.5))
+    assert d.position(s) == (2.0, 1.5)
+    assert ed.table.item(0, 1).text() == "substrate (1)"
+    assert ed.dev_table.item(0, 6).text() == "2.000" and ed.dev_table.item(0, 7).text() == "1.500"
+
+    # moving the substrate in the table moves the device with it
+    ed.table.item(0, 2).setText("1.0")
+    assert d.position(s) == (3.0, 1.5)
+    assert ed.device_items[id(d)].pos().x() == pytest.approx(3.0)
+
+    # switching the reference edge keeps the device in place
+    ed.dev_table.cellWidget(0, 2).setCurrentText("left")
+    assert d.x_edge == "left" and d.dx == pytest.approx(5.0)
+    assert d.position(s) == pytest.approx((3.0, 1.5))
+
+    # typing a distance moves it
+    ed.dev_table.item(0, 5).setText("1.0")
+    assert d.position(s) == pytest.approx((3.0, 1.0))
+    ed.dev_table.item(0, 3).setText("9")
+    assert ed.dev_table.item(0, 8).text() == "outside substrate"
+
+    # dragging the marker updates the distances
+    vp = ed.view.viewport()
+    ed.dev_table.item(0, 3).setText("2")
+    u, v = d.position(s)
+    drag(vp, to_view(window, u, v), to_view(window, u + 1, v - 0.5))
+    assert d.dx == pytest.approx(3.0, abs=0.15) and d.dy == pytest.approx(1.5, abs=0.15)
+    assert s.u == 1.0  # the substrate did not move
+
+    # deleting the substrate removes its devices
+    ed.scene.clearSelection()
+    ed.items[id(s)].setSelected(True)
+    ed.delete_selected()
+    assert ed.dev_table.rowCount() == 0 and not ed.device_items
+
+
+def test_stage_panel_bring_to_focus_and_optics(window):
+    ed, st = window.editor, window.stage
+    s = ed.add_sample(Sample("Sub", u=2, v=-1, length=4, width=4, height=0.5))
+    ed.add_device(s, Device("D1", "left", 1.0, "bottom", 1.0, 0.5, 0.5))
+    st.refresh_targets()
+    st.target_combo.setCurrentText("Sub/D1")
+    st.motors.boxes["srz"].setValue(-5)
+    st.bring_target_to_focus()
+    res = st.last_result
+    assert res.target == "Sub/D1"
+    assert abs(res.hit[1]) < 1e-3 and abs(res.delta) < 1e-3
+    assert "no move needed" in st.result_label.text()
+    sn = st.motors.boxes["sn"].value()
+    assert sn == pytest.approx(5.5, abs=0.2)
+
+    st.motors.boxes["sn"].setValue(sn + 1.0)
+    st.update_view()
+    assert st.last_result.delta > 1.0
+    assert "TOWARDS the sample" in st.result_label.text()
+
+    # calibrated: optic position follows with the chosen sign
+    st.cal_enabled.setChecked(True)
+    st.cal_motors.set_value(st.motors.value())
+    st.cal_sample_combo.setCurrentText("Sub")
+    st._on_cal_sample()
+    st.optic_pos.setValue(10.0)
+    st.optic_dir.setCurrentIndex(1)  # + = upstream
+    st.motors.boxes["sn"].setValue(sn)
+    st.update_view()
+    res = st.last_result
+    assert res.delta < 0 and res.new_optic_position == pytest.approx(10.0 - res.delta, abs=1e-3)
+    assert "AWAY from the sample" in st.result_label.text()
+
+
+def test_session_roundtrip(window, tmp_path):
+    ed, st = window.editor, window.stage
+    s = ed.add_sample(Sample("Sub", u=1, v=1, length=3, width=3))
+    ed.add_device(s, Device("D9", "right", 0.5, "top", 0.7))
+    st.cfg_boxes["srz_offset_n"].setValue(0.25)
+    st.cal_enabled.setChecked(True)
+    st.optic_pos.setValue(3.5)
+    st.motors.boxes["srn"].setValue(131)
+    path = tmp_path / "session.json"
+    window.session().save(path)
+    window.new_session()
+    assert ed.layout_model.samples == []
+    window.set_session(Session.load(path))
+    assert ed.layout_model.samples[0].devices[0].name == "D9"
+    assert st.config().srz_offset_n == 0.25
+    assert st.calibration().enabled and st.calibration().optic_position == 3.5
+    assert st.motors.value().srn == 131

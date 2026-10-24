@@ -68,6 +68,40 @@ class PlateGeometry:
         return (-self.riser_width / 2, -self.height / 2, self.riser_width / 2, self.height / 2)
 
 
+X_EDGES = ("left", "right")
+Y_EDGES = ("bottom", "top")
+
+
+@dataclass
+class Device:
+    """A small device on a substrate, located from two substrate edges.
+
+    Edges are named as seen from the analyzer at SRn = 120: dx is the
+    distance from the chosen left/right edge, dy from the chosen bottom/top
+    edge, both to the device centre. length/width are only for display.
+    """
+
+    name: str
+    x_edge: str = "left"
+    dx: float = 0.0
+    y_edge: str = "bottom"
+    dy: float = 0.0
+    length: float = 0.2
+    width: float = 0.2
+
+    def position(self, substrate: Sample) -> Point:
+        u0, v0, u1, v1 = substrate.bounds()
+        u = u0 + self.dx if self.x_edge == "left" else u1 - self.dx
+        v = v0 + self.dy if self.y_edge == "bottom" else v1 - self.dy
+        return u, v
+
+    def set_position(self, substrate: Sample, u: float, v: float) -> None:
+        """Update dx, dy (keeping the chosen edges) so the centre is at (u, v)."""
+        u0, v0, u1, v1 = substrate.bounds()
+        self.dx = u - u0 if self.x_edge == "left" else u1 - u
+        self.dy = v - v0 if self.y_edge == "bottom" else v1 - v
+
+
 @dataclass
 class Sample:
     """A rectangular sample on the riser face.
@@ -82,6 +116,11 @@ class Sample:
     length: float = 2.0
     width: float = 2.0
     height: float = 0.5
+    devices: list[Device] = field(default_factory=list)
+
+    @property
+    def kind(self) -> str:
+        return "substrate" if self.devices else "sample"
 
     def bounds(self) -> tuple[float, float, float, float]:
         return (
@@ -120,6 +159,33 @@ class SampleLayout:
                 out.append(f"overlaps {other.name}")
         return out
 
+    def device_warnings(self, sample: Sample, device: Device) -> list[str]:
+        out = []
+        if device.x_edge not in X_EDGES or device.y_edge not in Y_EDGES:
+            out.append("invalid edge")
+        u, v = device.position(sample)
+        u0, v0, u1, v1 = sample.bounds()
+        if not (u0 <= u <= u1 and v0 <= v <= v1):
+            out.append("outside substrate")
+        return out
+
+    def targets(self) -> list[tuple[str, float, float, float]]:
+        """All selectable targets: (label, u, v, sample height H)."""
+        out = []
+        for s in self.samples:
+            out.append((s.name, s.u, s.v, s.height))
+            for d in s.devices:
+                u, v = d.position(s)
+                out.append((f"{s.name}/{d.name}", u, v, s.height))
+        return out
+
+    def unique_device_name(self, prefix: str = "D") -> str:
+        names = {d.name for s in self.samples for d in s.devices}
+        i = 1
+        while f"{prefix}{i}" in names:
+            i += 1
+        return f"{prefix}{i}"
+
     def unique_name(self, prefix: str = "S") -> str:
         names = {s.name for s in self.samples}
         i = 1
@@ -138,7 +204,12 @@ class SampleLayout:
     @classmethod
     def from_dict(cls, data: dict) -> SampleLayout:
         plate = PlateGeometry(**data.get("plate", {}))
-        return cls(plate=plate, samples=[Sample(**s) for s in data.get("samples", [])])
+        samples = []
+        for raw in data.get("samples", []):
+            raw = dict(raw)
+            devices = [Device(**d) for d in raw.pop("devices", [])]
+            samples.append(Sample(**raw, devices=devices))
+        return cls(plate=plate, samples=samples)
 
     def save(self, path: str | Path) -> None:
         Path(path).write_text(json.dumps(self.to_dict(), indent=2))
