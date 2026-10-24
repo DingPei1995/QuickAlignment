@@ -41,3 +41,28 @@ def test_found_here_absorbs_a_small_configuration_error():
     for srn, srz in ((150.0, 0.0), (90.0, 0.0), (120.0, -15.0), (140.0, 10.0)):
         p, t = model.motors_for_target(*corrected, srn=srn, srz=srz), truth.motors_for_target(*real, srn=srn, srz=srz)
         assert max(abs(p.st - t.st), abs(p.sz - t.sz), abs(p.sn - t.sn)) < 0.05
+
+
+def test_gating_capillary_configuration_reproduces_its_measurements():
+    """configs/calibration_2026-10-24_234000_capillary.json: the device of Data for config/ (gating plate,
+    capillary) measured at SRn 120 / SRz -12 is found again at SRn 92 / SRz -24 with SN kept (Rotate tab)."""
+    import pytest
+
+    from quickalignment.calibration import DEFAULT_FOLDER
+    from quickalignment.rotation import relocate
+    from quickalignment.session import Session
+    from quickalignment.stage import MotorPositions, StageModel
+
+    record = next(r for r in CalibrationStore().records() if r.path.name == "calibration_2026-10-24_234000_capillary.json")
+    assert CalibrationStore().latest("capillary").path == record.path
+    session = Session.load(DEFAULT_FOLDER.parent / "Data for config" / "RG_GMC_gating_session.json")
+    model = StageModel(record.config, session.layout.plate)
+    first = MotorPositions(st=-3.498671875, sz=37.796, sn=0.000446875, srn=119.999828184, srz=-11.999708577)
+    rel = relocate(model, session.layout, first, 91.999192533, -24.000078618, record.optics, 60.3, keep_sn=True)
+    assert rel.target == "RG_GMC/R7G"
+    assert rel.new.st == pytest.approx(-6.047871875, abs=1e-3)
+    assert rel.new.sz == pytest.approx(38.988, abs=1e-3)
+    assert rel.optic_new == pytest.approx(61.74, abs=1e-3)
+    # and back, with the configuration's own capillary reference
+    back = relocate(model, session.layout, rel.new, first.srn, first.srz, record.optics, keep_sn=True)
+    assert back.optic_new == pytest.approx(60.3, abs=1e-3) and back.new.st == pytest.approx(first.st, abs=1e-3)
