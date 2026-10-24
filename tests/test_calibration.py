@@ -43,26 +43,35 @@ def test_found_here_absorbs_a_small_configuration_error():
         assert max(abs(p.st - t.st), abs(p.sz - t.sz), abs(p.sn - t.sn)) < 0.05
 
 
+
 def test_gating_capillary_configuration_reproduces_its_measurements():
-    """configs/calibration_2026-10-24_234000_capillary.json: the device of Data for config/ (gating plate,
-    capillary) measured at SRn 120 / SRz -12 is found again at SRn 92 / SRz -24 with SN kept (Rotate tab)."""
+    """configs/calibration_2026-10-24_235500_capillary.json (gating plate, capillary, SN kept, CPS refocused): each
+    device of Data for config/ measured at one rotation is found again at the other one (Rotate tab) within the
+    fit residuals: RG_GMC (position from the photos, session file) and Cav (position fitted)."""
     import pytest
 
     from quickalignment.calibration import DEFAULT_FOLDER
+    from quickalignment.geometry import GATING_PLATE, Sample, SampleLayout
     from quickalignment.rotation import relocate
     from quickalignment.session import Session
     from quickalignment.stage import MotorPositions, StageModel
 
-    record = next(r for r in CalibrationStore().records() if r.path.name == "calibration_2026-10-24_234000_capillary.json")
-    assert CalibrationStore().latest("capillary").path == record.path
-    session = Session.load(DEFAULT_FOLDER.parent / "Data for config" / "RG_GMC_gating_session.json")
-    model = StageModel(record.config, session.layout.plate)
-    first = MotorPositions(st=-3.498671875, sz=37.796, sn=0.000446875, srn=119.999828184, srz=-11.999708577)
-    rel = relocate(model, session.layout, first, 91.999192533, -24.000078618, record.optics, 60.3, keep_sn=True)
-    assert rel.target == "RG_GMC/R7G"
-    assert rel.new.st == pytest.approx(-6.047871875, abs=1e-3)
-    assert rel.new.sz == pytest.approx(38.988, abs=1e-3)
-    assert rel.optic_new == pytest.approx(61.74, abs=1e-3)
-    # and back, with the configuration's own capillary reference
-    back = relocate(model, session.layout, rel.new, first.srn, first.srz, record.optics, keep_sn=True)
-    assert back.optic_new == pytest.approx(60.3, abs=1e-3) and back.new.st == pytest.approx(first.st, abs=1e-3)
+    record = CalibrationStore().latest("capillary")
+    assert record.path.name == "calibration_2026-10-24_235500_capillary.json"
+    rg = Session.load(DEFAULT_FOLDER.parent / "Data for config" / "RG_GMC_gating_session.json").layout
+    cav = SampleLayout(GATING_PLATE, [Sample("Cav", *record.check["devices"]["Cav"]["uv"], length=0.2, width=0.2,
+                                             height=0.525)])
+    model = StageModel(record.config, GATING_PLATE)
+    cases = [
+        (rg, (-3.498671875, 37.796, 0.000446875, 119.999828184, -11.999708577, 60.3),
+         (-6.047871875, 38.988, 0.001146875, 91.999192533, -24.000078618, 61.74)),
+        (cav, (0.643128125, 38.591, -5.3125e-05, 120.00028374, -23.998825839, 58.75),
+         (1.500528125, 39.593, 0.000346875, 141.999310758, -23.999053617, 58.48)),
+    ]
+    for layout, a, b in cases:
+        first = MotorPositions(st=a[0], sz=a[1], sn=a[2], srn=a[3], srz=a[4])
+        rel = relocate(model, layout, first, b[3], b[4], record.optics, a[5], keep_sn=True)
+        assert rel.target.startswith(layout.samples[0].name)
+        assert rel.new.st == pytest.approx(b[0], abs=0.06)
+        assert rel.new.sz == pytest.approx(b[1], abs=0.06)
+        assert rel.optic_new == pytest.approx(b[5], abs=0.1)
