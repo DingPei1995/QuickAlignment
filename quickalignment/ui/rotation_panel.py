@@ -222,14 +222,16 @@ class RotationPanel(QtWidgets.QWidget):
                 return int(self.settings.value(f"rotation/{key}", default))
             except (TypeError, ValueError):
                 return default
-        self.slit.setCurrentIndex(get("slit", 0))
+        slit = self.settings.value("rotation/slit_orientation", SLIT_ORIENTATIONS[0])
+        self.slit.setCurrentText(slit if slit in SLIT_ORIENTATIONS else SLIT_ORIENTATIONS[0])
         self._on_slit(self.slit.currentText())
         self.slit_sign.setCurrentIndex(get("slit_sign", 0))
         self.defl_sign.setCurrentIndex(get("deflector_sign", 0))
         self.rot_sign.setCurrentIndex(get("rotation_sign", 0))
 
     def _save_settings(self, *_) -> None:
-        for key, box in (("slit", self.slit), ("slit_sign", self.slit_sign), ("deflector_sign", self.defl_sign),
+        self.settings.setValue("rotation/slit_orientation", self.slit.currentText())
+        for key, box in (("slit_sign", self.slit_sign), ("deflector_sign", self.defl_sign),
                          ("rotation_sign", self.rot_sign)):
             self.settings.setValue(f"rotation/{key}", box.currentIndex())
 

@@ -35,21 +35,21 @@ from .stage import (
     B, N_HAT, T_HAT, Z_HAT, MotorPositions, OpticsCalibration, StageModel, beam_on_layout, rot_2d, rot_z,
 )
 
-SLIT_ORIENTATIONS = ("vertical", "horizontal")
+SLIT_ORIENTATIONS = ("horizontal", "vertical")  # ANTARES: horizontal slit
 
 
 @dataclass
 class AnalyzerGeometry:
     """How the analyzer angles sit in the lab, seen from the analyzer.
 
-    slit: "vertical" (slit along Z) or "horizontal" (along ST).
+    slit: "horizontal" (along ST, ANTARES) or "vertical" (along Z).
     slit_sign: +1 if a positive slit angle (phi) points up (vertical slit) or
       to the right (horizontal slit), seen from the analyzer; -1 otherwise.
     deflector_sign: likewise for a positive deflector angle (theta): to the
       right (vertical slit) or up (horizontal slit).
     """
 
-    slit: str = "vertical"
+    slit: str = "horizontal"
     slit_sign: int = 1
     deflector_sign: int = 1
 

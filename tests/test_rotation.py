@@ -43,6 +43,13 @@ def test_to_center(geo):
     if geo.slit == "vertical":
         c = to_center(model, geo, m, 10.0, 0.0)[0]
         assert c.srn == pytest.approx(120) and abs(c.srz) == pytest.approx(10)
+    else:  # horizontal slit: a point along the slit only needs SRz
+        c = to_center(model, geo, m, 0.0, 10.0)[0]
+        assert c.srn == pytest.approx(120) and abs(c.srz) == pytest.approx(10)
+
+
+def test_default_slit_is_horizontal():
+    assert AnalyzerGeometry().slit == "horizontal"
 
 
 @pytest.mark.parametrize("geo", GEOMETRIES)

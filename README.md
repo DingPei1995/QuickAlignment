@@ -77,7 +77,7 @@ All inputs come from ARPES viewer:
 By default the sample point is kept where it was during the Map (motor differences from the model), so
 errors of ST0 / SZ0 / SN_f largely cancel and the optic stays as it was; the accuracy depends mainly on the
 calibrated SRn / SRz axis positions. *Put the point on the analyzer focus* behaves like *Bring target to focus*
-instead, and then the optic moves accordingly. **Analyzer geometry** (slit vertical/horizontal, signs of θ
+instead, and then the optic moves accordingly. **Analyzer geometry** (slit horizontal at ANTARES = default, signs of θ
 and φ seen from the analyzer, rotation sense) is a setting remembered between sessions: check it once on a
 known sample (e.g. turn by the computed ΔSRn and see whether the direction lands on the slit, else flip the sign).
 
