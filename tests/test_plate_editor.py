@@ -1,0 +1,313 @@
+import os
+
+import pytest
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+qt = pytest.importorskip("quickalignment.ui._qt")
+from dataclasses import replace  # noqa: E402
+
+from quickalignment.geometry import Device, Sample, SampleLayout  # noqa: E402
+from quickalignment.session import Session  # noqa: E402
+from quickalignment.app import MainWindow  # noqa: E402
+
+QtCore, QtGui, QtWidgets = qt.QtCore, qt.QtGui, qt.QtWidgets
+
+Qt = QtCore.Qt
+
+
+@pytest.fixture
+def window(monkeypatch, tmp_path):
+    import quickalignment.app as app_module
+    from quickalignment.calibration import CalibrationStore
+    from quickalignment.geometry import STANDARD_PLATE
+
+    monkeypatch.setattr(app_module, "ask_plate", lambda *a, **k: STANDARD_PLATE)
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    win = MainWindow(store=CalibrationStore(tmp_path / "configs"))
+    win.show()
+    app.processEvents()
+    yield win
+    win.close()
+
+
+def to_view(win, u, v):
+    return win.editor.view.mapFromScene(QtCore.QPointF(u, -v))
+
+
+def send(widget, kind, pos, button, buttons):
+    # QGraphicsScene hit-tests with the screen position, so it must be consistent
+    local = QtCore.QPointF(pos)
+    screen = QtCore.QPointF(widget.mapToGlobal(pos))
+    event = QtGui.QMouseEvent(kind, local, local, screen, button, buttons, Qt.NoModifier)
+    QtWidgets.QApplication.sendEvent(widget, event)
+
+
+def drag(widget, p0, p1):
+    send(widget, QtCore.QEvent.MouseButtonPress, p0, Qt.LeftButton, Qt.LeftButton)
+    for t in (0.25, 0.5, 0.75, 1.0):
+        p = QtCore.QPoint(int(p0.x() + (p1.x() - p0.x()) * t), int(p0.y() + (p1.y() - p0.y()) * t))
+        send(widget, QtCore.QEvent.MouseMove, p, Qt.NoButton, Qt.LeftButton)
+    send(widget, QtCore.QEvent.MouseButtonRelease, p1, Qt.LeftButton, Qt.NoButton)
+
+
+def test_draw_move_resize_and_edit(window):
+    ed = window.editor
+    vp = ed.view.viewport()
+    drag(vp, to_view(window, -4, 4), to_view(window, -1, 2))
+    assert len(ed.layout_model.samples) == 1
+    s = ed.layout_model.samples[0]
+    assert abs(s.length - 3) < 0.15 and abs(s.width - 2) < 0.15
+    assert abs(s.u + 2.5) < 0.15 and abs(s.v - 3) < 0.15
+
+    # move by dragging the middle
+    drag(vp, to_view(window, s.u, s.v), to_view(window, s.u + 4, s.v - 5))
+    assert abs(s.u - 1.5) < 0.15 and abs(s.v + 2) < 0.15
+    assert abs(s.length - 3) < 0.15
+
+    # resize from the right edge
+    right = s.u + s.length / 2
+    drag(vp, to_view(window, right, s.v), to_view(window, right + 1, s.v))
+    assert abs(s.length - 4) < 0.15
+
+    # table edit updates the model and the item
+    ed.table.item(0, 6).setText("1.25")
+    ed.table.item(0, 2).setText("0")
+    assert s.height == 1.25 and s.u == 0
+    assert ed.items[id(s)].pos().x() == 0
+    assert ed.table.item(0, 7).text() == "ok"
+
+    # second, overlapping sample is flagged
+    ed.add_sample(Sample("X", u=0, v=s.v, length=1, width=1))
+    assert "overlaps X" in ed.table.item(0, 7).text()
+
+    ed.view.setFocus()
+    ed.scene.clearSelection()
+    ed.items[id(s)].setSelected(True)
+    ed.delete_selected()
+    assert [x.name for x in ed.layout_model.samples] == ["X"]
+
+
+def test_replace_layout_with_selection(window, tmp_path):
+    ed = window.editor
+    ed.add_sample(Sample("A", u=-2, v=0, length=1, width=1))  # selected after add
+    path = tmp_path / "layout.json"
+    ed.layout_model.save(path)
+    ed.set_layout(SampleLayout.load(path))
+    assert [s.name for s in ed.layout_model.samples] == ["A"]
+    window.new_session()
+    assert ed.layout_model.samples == [] and ed.table.rowCount() == 0
+
+
+def test_devices_follow_substrate_and_edges(window):
+    ed = window.editor
+    s = ed.add_sample(Sample("Sub", u=0, v=0, length=6, width=4, height=0.3))
+    d = ed.add_device(s, Device("D1", "right", 1.0, "top", 0.5))
+    assert d.position(s) == (2.0, 1.5)
+    assert ed.table.item(0, 1).text() == "substrate (1)"
+    # plate coordinates of the device centre
+    assert ed.dev_table.item(0, 6).text() == "2.000" and ed.dev_table.item(0, 7).text() == "1.500"
+
+    # moving the substrate in the table moves the device with it
+    ed.table.item(0, 2).setText("1.0")
+    assert d.position(s) == (3.0, 1.5)
+    assert ed.device_items[id(d)].pos().x() == pytest.approx(3.0)
+
+    # switching the reference edge keeps the device in place
+    ed.dev_table.cellWidget(0, 2).setCurrentText("left")
+    assert d.x_edge == "left" and d.dx == pytest.approx(5.0)
+    assert d.position(s) == pytest.approx((3.0, 1.5))
+
+    # typing a distance moves it
+    ed.dev_table.item(0, 5).setText("1.0")
+    assert d.position(s) == pytest.approx((3.0, 1.0))
+    ed.dev_table.item(0, 3).setText("9")
+    assert ed.dev_table.item(0, 8).text() == "outside substrate"
+
+    # dragging the marker updates the distances
+    vp = ed.view.viewport()
+    ed.dev_table.item(0, 3).setText("2")
+    u, v = d.position(s)
+    drag(vp, to_view(window, u, v), to_view(window, u + 1, v - 0.5))
+    assert d.dx == pytest.approx(3.0, abs=0.15) and d.dy == pytest.approx(1.5, abs=0.15)
+    assert s.u == 1.0  # the substrate did not move
+
+    # deleting the substrate removes its devices
+    ed.scene.clearSelection()
+    ed.items[id(s)].setSelected(True)
+    ed.delete_selected()
+    assert ed.dev_table.rowCount() == 0 and not ed.device_items
+
+
+def test_stage_panel_bring_to_focus_and_optics(window):
+    ed, st = window.editor, window.stage
+    s = ed.add_sample(Sample("Sub", u=2, v=-1, length=4, width=4, height=0.5))
+    ed.add_device(s, Device("D1", "left", 1.0, "bottom", 1.0, 0.5, 0.5))
+    st.refresh_targets()
+    st.target_combo.setCurrentText("Sub/D1")
+    st.motors.boxes["srz"].setValue(-5)
+    st.bring_target_to_focus()
+    res = st.last_result
+    assert res.target == "Sub/D1"
+    assert abs(res.hit[1]) < 1e-3 and abs(res.delta) < 1e-3
+    assert "no move needed" in st.result_label.text()
+    sn = st.motors.boxes["sn"].value()
+    assert sn == pytest.approx(0.5, abs=0.2)  # SN = SN_f + H
+
+    st.motors.boxes["sn"].setValue(sn + 1.0)
+    st.update_view()
+    assert st.last_result.delta > 1.0
+    assert "TOWARDS the sample" in st.result_label.text()
+
+    # calibrated: optic position follows with the chosen sign
+    from dataclasses import replace
+
+    from quickalignment.calibration import CalibrationRecord
+    from quickalignment.stage import OpticsCalibration
+
+    cal = OpticsCalibration(enabled=True, motors=st.motors.value(), surface_w=5.5, optic_position=10.0, optic_sign=-1)
+    window._on_record(replace(CalibrationRecord(), optics=cal))
+    st.motors.boxes["sn"].setValue(sn)
+    st.update_view()
+    res = st.last_result
+    assert res.delta < 0 and res.new_optic_position == pytest.approx(10.0 - res.delta, abs=1e-3)
+    assert "AWAY from the sample" in st.result_label.text()
+
+
+def test_session_roundtrip(window, tmp_path):
+    ed, st = window.editor, window.stage
+    s = ed.add_sample(Sample("Sub", u=1, v=1, length=3, width=3))
+    ed.add_device(s, Device("D9", "right", 0.5, "top", 0.7))
+    st.motors.boxes["srn"].setValue(131)
+    path = tmp_path / "session.json"
+    window.session().save(path)
+    window.new_session()
+    assert ed.layout_model.samples == []
+    window.set_session(Session.load(path))
+    assert ed.layout_model.samples[0].devices[0].name == "D9"
+    assert st.motors.value().srn == 131
+
+
+def test_stage_results_use_absolute_coordinates(window):
+    ed, st = window.editor, window.stage
+    ed.add_sample(Sample("A", u=1.0, v=2.0, length=2, width=2, height=0.4))
+    st.refresh_targets()
+    st.target_combo.setCurrentText("A")
+    st.bring_target_to_focus()
+    m = st.motors.value()
+    # ST = ST0 - x, SZ = SZ0 - y, SN = SN_f + H
+    assert (m.st, m.sz, m.sn) == pytest.approx((-1.0, 38.0, 0.4), abs=1e-4)
+    assert "ST = -1.000, SZ = 38.000, SN = 0.400" in st.result_label.text()
+
+
+def test_gating_plate(window):
+    from quickalignment.geometry import GATING_PLATE
+
+    window.set_session(Session(layout=SampleLayout(plate=GATING_PLATE)))
+    ed, st = window.editor, window.stage
+    assert "Gating" in window.plate_label.text()
+    ok = ed.add_sample(Sample("ok", u=0, v=2, length=3, width=3))
+    low = ed.add_sample(Sample("low", u=0, v=-4, length=2, width=2))
+    assert ed.layout_model.warnings(ok) == []
+    assert "outside riser" in ed.layout_model.warnings(low)
+    # beam on the contact block
+    m = st.model().motors_for_target(-4.0, -7.0, GATING_PLATE.contact_block_top, srn=120, srz=0)
+    st.motors.set_value(m)
+    st.update_view()
+    assert st.last_result.target == "contact block"
+
+
+def test_change_plate_keeps_samples(window):
+    from quickalignment.geometry import GATING_PLATE
+    import quickalignment.app as app_module
+
+    window.editor.add_sample(Sample("A", u=0, v=-5, length=2, width=2))
+    app_module.ask_plate = lambda *a, **k: GATING_PLATE
+    window.change_plate()
+    assert window.editor.layout_model.plate.key == "gating"
+    assert [s.name for s in window.editor.layout_model.samples] == ["A"]
+    assert window.editor.table.item(0, 7).text() == "outside riser"
+
+
+def test_calibration_check_and_accept(window):
+    ed, st, dlg = window.editor, window.stage, window.cal_dialog
+    ed.add_sample(Sample("Au", u=-2.0, v=3.0, length=2, width=2, height=0.5))
+    st.refresh_targets()
+    window.open_calibration()
+    assert dlg.isVisible() and "default" in window.cal_label.text()
+    # constants locked unless expert mode
+    assert not dlg.cfg_boxes["st0"].isEnabled()
+    dlg.expert.setChecked(True)
+    assert dlg.cfg_boxes["st0"].isEnabled()
+    dlg.expert.setChecked(False)
+
+    # reference found 0.1 mm off in ST and SN
+    dlg.ref_combo.setCurrentText("Au")
+    nominal = st.model().motors_for_target(-2.0, 3.0, 5.5, srn=120, srz=0)
+    found = replace(nominal, st=nominal.st + 0.1, sn=nominal.sn + 0.1)
+    dlg.measured.set_value(found)
+    dlg.measured_optic.setValue(7.5)
+    dlg.run_check()
+    assert dlg.accept_btn.isEnabled()
+    assert "+0.1000" in dlg.check_label.text()
+    assert st.record.config.st0 == 0.0  # nothing changes before accepting
+    dlg.accept_check()
+    rec = st.record
+    assert rec.path is not None and rec.path.exists()
+    assert rec.config.st0 == pytest.approx(0.1, abs=1e-4) and rec.config.sn_f == pytest.approx(0.1, abs=1e-4)
+    assert rec.optics.enabled and rec.optics.optic_position == 7.5
+    assert rec.created in window.cal_label.text()
+    # the new file is what a fresh start loads
+    assert window.store.latest().created == rec.created
+
+    # expert edit saves another configuration
+    dlg.expert.setChecked(True)
+    dlg.cfg_boxes["srz_offset_n"].setValue(0.3)
+    dlg.save_expert()
+    assert st.record.config.srz_offset_n == 0.3 and not dlg.expert.isChecked()
+    assert len(window.store.records()) == 2
+
+
+def test_initial_calibration_window(tmp_path):
+    from quickalignment.calibration import CalibrationStore
+    from quickalignment.geometry import STANDARD_PLATE
+    from quickalignment.stage import StageConfig, StageModel
+    from quickalignment.ui.initial_calibration_window import InitialCalibrationWindow
+
+    QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    store = CalibrationStore(tmp_path / "configs")
+    win = InitialCalibrationWindow(store)
+    assert win.table.rowCount() == 5
+
+    # empty table: incomplete sets are reported, nothing to save
+    win.compute()
+    assert "Incomplete" in win.result_label.text() and not win.save_btn.isEnabled()
+
+    truth = StageModel(StageConfig(st0=0.2, sz0=40.3, sn_f=-0.1, srn_axis_u=0.5, srz_offset_n=-0.3), STANDARD_PLATE)
+    win.ref_x.setValue(1.0)
+    win.ref_y.setValue(-0.5)
+    win.ref_h.setValue(0.3)
+    for row in range(5):
+        srn, srz = float(win.table.item(row, 2).text()), float(win.table.item(row, 3).text())
+        m = truth.motors_for_target(1.0, -0.5, 5.3, srn=srn, srz=srz)
+        for col, value in ((4, m.st), (5, m.sz), (6, m.sn)):
+            win.table.item(row, col).setText(f"{value:.6f}")
+
+    # only 2 sets ticked -> not enough data
+    for row in range(2, 5):
+        win.table.item(row, 0).setCheckState(Qt.Unchecked)
+    win.compute()
+    assert "Not enough data" in win.result_label.text()
+
+    for row in range(2, 5):
+        win.table.item(row, 0).setCheckState(Qt.Checked)
+    win.optic_pos.setValue(4.2)
+    win.compute()
+    assert win.save_btn.isEnabled()
+    assert win.result.config.st0 == pytest.approx(0.2, abs=1e-5)
+    assert win.result.config.srz_offset_n == pytest.approx(-0.3, abs=1e-5)
+    win.save()
+    rec = store.latest()
+    assert rec.config.srn_axis_u == pytest.approx(0.5, abs=1e-5)
+    assert rec.optics.enabled and rec.optics.optic_position == 4.2
+    assert "Saved" in win.result_label.text()
+    win.close()
