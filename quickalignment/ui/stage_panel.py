@@ -189,7 +189,8 @@ class StagePanel(QtWidgets.QWidget):
 
         left = QtWidgets.QWidget()
         lv = QtWidgets.QVBoxLayout(left)
-        for w in (self.start_box, motor_box, optic_box, update_btn, self.result_label, self.cal_status):
+        # result_label / cal_status are kept up to date but not shown (too long for the panel)
+        for w in (self.start_box, motor_box, optic_box, update_btn):
             lv.addWidget(w)
         lv.addStretch(1)
         scroll = QtWidgets.QScrollArea()

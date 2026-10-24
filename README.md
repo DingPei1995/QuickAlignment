@@ -57,10 +57,9 @@ Positions here are **absolute motor values** (ST, SZ, SN, …, optic).
   from the configuration and can be typed in. The result gives the **absolute optic position** for focus
   on the illuminated surface; *Use required position* copies it into the field. After focusing by hand,
   *Set as optics reference* takes the current state as the new optics reference.
-- result: what the beam lands on (with the ST / SZ / SN of that point at SRn = 120, SRz = 0) and the
-  optic position needed
-- schematic: top view (plate orientation, analyzer and its focal plane, beam, optic with its position) and
-  the sample plane in front view (SRn rotation, beam spot; axes in absolute ST / SZ)
+- schematic: top view (plate orientation, analyzer and its focal plane, beam, optic with its position and the
+  position needed for focus) and the sample plane in front view (SRn rotation; beam spot, analyzer focus and
+  SRn axis with a legend in the same colours; axes in absolute ST / SZ)
 
 ### Rotate sample tab (`docs/app_rotate_tab.png`)
 

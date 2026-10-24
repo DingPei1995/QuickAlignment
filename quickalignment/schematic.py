@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import numpy as np
+from matplotlib.lines import Line2D
 from matplotlib.patches import Circle, Polygon
 
 from .geometry import SampleLayout
@@ -22,7 +23,7 @@ Y_HAT = np.array([0.0, 1.0, 0.0])
 
 C_BASE, C_RISER, C_BLOCK, C_PAD, C_SCREW = "#bdbdbd", "#e3e3e3", "#d0d0d0", "#e8c400", "#4a3c36"
 C_SAMPLE, C_DEVICE = "#ff9a2e", "#1f4fd6"
-C_BEAM, C_ANALYZER, C_OPTIC = "#d62728", "#1f77b4", "#8c564b"
+C_BEAM, C_ANALYZER, C_OPTIC, C_SRN_AXIS = "#d62728", "#1f77b4", "#8c564b", "tab:purple"
 OPTIC_DRAW_DISTANCE = 22.0  # mm upstream of the focus, schematic only
 
 
@@ -105,10 +106,6 @@ def _draw_top_view(ax, model: StageModel, m: MotorPositions, layout: SampleLayou
     ax.set_xlim(c[0] - span / 2, c[0] + span / 2)
     ax.set_ylim(c[1] - span / 2, c[1] + span / 2)
     ax.set_aspect("equal")
-    # scale bar instead of (relative) axis numbers
-    x0, y0 = c[0] + span / 2 - 14, c[1] - span / 2 + 3
-    ax.plot([x0, x0 + 10], [y0, y0], "k-", lw=2)
-    ax.text(x0 + 5, y0 + 1, "10 mm", ha="center", fontsize=8)
     ax.set_xticks([])
     ax.set_yticks([])
     ax.set_title(f"Top view (beam ↑)\nST = {m.st:.4f}   SN = {m.sn:.4f}   SRz = {m.srz:g}°", fontsize=9)
@@ -149,7 +146,7 @@ def _draw_sample_plane(ax, model: StageModel, m: MotorPositions, layout: SampleL
             ax.text(p[0], p[1], f"  {d.name}", color=C_DEVICE, fontsize=7, va="bottom")
 
     # SRn axis, analyzer focus (projected along the surface normal) and beam spot
-    ax.plot(*to_xy(c.srn_axis_u, c.srn_axis_v), "o", mfc="none", mec="tab:purple", ms=9, mew=1.5)
+    ax.plot(*to_xy(c.srn_axis_u, c.srn_axis_v), "o", mfc="none", mec=C_SRN_AXIS, ms=9, mew=1.5)
     focus_uv = model.lab_to_plate(m, np.zeros(3))[:2]
     ax.plot(*to_xy(*focus_uv), "+", color=C_ANALYZER, ms=14, mew=2)
     if result.plate_uv is not None:
@@ -168,10 +165,17 @@ def _draw_sample_plane(ax, model: StageModel, m: MotorPositions, layout: SampleL
     ax.set_ylabel("SZ (mm)")
     ax.grid(alpha=0.25)
     ax.set_title(
-        f"Sample plane, front view   SRn = {m.srn:g}°\nSZ = {m.sz:.4f}   PIX = {m.pix:g}   PIY = {m.piy:g}"
-        "\n× beam spot   + analyzer focus (projected)   ○ SRn axis",
+        f"Sample plane, front view   SRn = {m.srn:g}°\nSZ = {m.sz:.4f}   PIX = {m.pix:g}   PIY = {m.piy:g}",
         fontsize=9,
     )
+    # legend with the same markers and colours as drawn
+    handles = [
+        Line2D([], [], ls="none", marker="x", color=C_BEAM, ms=8, mew=2, label="beam spot"),
+        Line2D([], [], ls="none", marker="+", color=C_ANALYZER, ms=10, mew=2, label="analyzer focus (projected)"),
+        Line2D([], [], ls="none", marker="o", mfc="none", mec=C_SRN_AXIS, ms=8, mew=1.5, label="SRn axis"),
+    ]
+    ax.legend(handles=handles, loc="upper center", bbox_to_anchor=(0.5, -0.12), ncol=3, fontsize=7, frameon=False,
+              handletextpad=0.3, columnspacing=1.0)
 
 
 def draw_schematic(
