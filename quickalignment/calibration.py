@@ -2,7 +2,8 @@
 
 Files in the configuration folder (default: ``configs/`` next to the program):
 
-* ``calibration_YYYY-MM-DD_HHMMSS.json``: one file per calibration made by
+* ``calibration_YYYY-MM-DD_HHMMSS_<optic>.json`` (optic: ``capillary`` or
+  ``zone_plate``): one file per calibration made by
   beamline staff (initial calibration, accepted reference check, expert edit).
 * ``user_config.json``: the single user configuration, overwritten each time
   the user saves on closing the program; its first entry is the save time.
@@ -44,9 +45,14 @@ class CalibrationRecord:
 
     @property
     def label(self) -> str:
+        """Name shown in the program: save time and optic type only."""
         if not self.created:
             return "default"
-        return f"{self.created} (user)" if self.kind == "user" else self.created
+        return f"{self.created} {self.optic_name}"
+
+    @property
+    def optic_name(self) -> str:
+        return "capillary" if "capillary" in self.optics.optic_type else "zone plate"
 
     def to_dict(self) -> dict:
         return {
@@ -111,10 +117,11 @@ class CalibrationStore:
         now = now or datetime.now()
         self.folder.mkdir(parents=True, exist_ok=True)
         record = replace(record, created=now.strftime(TIME_FORMAT), kind="staff")
-        path = self.folder / f"calibration_{now:%Y-%m-%d_%H%M%S}.json"
+        stem = f"calibration_{now:%Y-%m-%d_%H%M%S}_{record.optic_name.replace(' ', '_')}"
+        path = self.folder / f"{stem}.json"
         i = 1
         while path.exists():
-            path = self.folder / f"calibration_{now:%Y-%m-%d_%H%M%S}_{i}.json"
+            path = self.folder / f"{stem}_{i}.json"
             i += 1
         path.write_text(json.dumps(record.to_dict(), indent=2))
         return replace(record, path=path)

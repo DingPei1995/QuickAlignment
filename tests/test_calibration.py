@@ -12,7 +12,7 @@ def test_store_latest_and_roundtrip(tmp_path):
     assert store.latest().created == ""  # built-in default
     a = store.save(CalibrationRecord(comment="a", config=StageConfig(st0=0.1)), now=datetime(2026, 1, 2, 3, 4, 5))
     b = store.save(CalibrationRecord(comment="b", config=StageConfig(st0=0.2)), now=datetime(2026, 3, 1, 0, 0, 0))
-    assert a.path.name == "calibration_2026-01-02_030405.json"
+    assert a.path.name == "calibration_2026-01-02_030405_zone_plate.json"
     latest = store.latest()
     assert latest.comment == "b" and latest.config.st0 == 0.2 and latest.created == "2026-03-01 00:00:00"
     assert [r.comment for r in store.records()] == ["b", "a"]

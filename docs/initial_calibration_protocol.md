@@ -63,4 +63,4 @@ Larger rotations give a more precise axis: |SRn − 120| ≥ 20°, |SRz| as larg
    With 5 sets the residuals should be ≲ 0.01–0.02 mm; one large residual usually means that set was
    measured on another point or out of focus – re-measure it.
 4. Add a comment (date, reason) and press **Save as new configuration**. The file
-   `configs/calibration_YYYY-MM-DD_HHMMSS.json` is loaded by QuickAlignment at the next start.
+   `configs/calibration_YYYY-MM-DD_HHMMSS_<optic>.json` is loaded by QuickAlignment at the next start.

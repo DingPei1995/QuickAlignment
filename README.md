@@ -17,7 +17,7 @@ devices, motor positions) in one JSON file.
 
 ### Configuration files (`configs/`)
 
-- `calibration_YYYY-MM-DD_HHMMSS.json`: written by beamline staff, one file per calibration
+- `calibration_YYYY-MM-DD_HHMMSS_<optic>.json`: written by beamline staff, one file per calibration
   (initial calibration, accepted reference check, expert edit).
 - `user_config.json`: one single file, overwritten when the user answers *Save* to the question asked on
   closing the program; its first entry is the save time. It holds the configuration in use with the optic
@@ -90,7 +90,7 @@ measured so far). So the tab works from the sample's own first real position (th
 this sample's SRn axis** takes the position where the same point was found after the first SRn turn (the next
 Map's metadata): *Fit SRn axis*, then *Use for this sample* puts it into the configuration in use (kept in
 `user_config.json` if saved on closing). Further turns of that sample are then predicted from both.
-`configs/calibration_2026-10-24_170000.json` only gives a starting axis (standard plate, zone plate data
+`configs/calibration_2026-10-24_170000_zone_plate.json` only gives a starting axis (standard plate, zone plate data
 WWS2 2025-10-01/02: ΔSRn = −14°, ΔST = +0.496, ΔSZ = −0.301, 2.38 mm from the axis) and the zone plate
 reference (ZP_ZS 53.21985 in focus at the first Map; ZP_ZS increasing moves the zone plate towards the sample).
 The SRz axis is not calibrated yet for the standard plate.

@@ -187,7 +187,7 @@ def test_keep_sn_slides_along_the_beam_with_srz():
 
 
 def test_starting_configuration_zone_plate_reference():
-    """configs/calibration_2026-10-24_170000.json: ZP_ZS 53.21985 focuses on the first WWS2 Map (+ = towards the sample)."""
+    """configs/calibration_2026-10-24_170000_zone_plate.json: ZP_ZS 53.21985 focuses on the first WWS2 Map (+ = towards the sample)."""
     from pathlib import Path
 
     from quickalignment.calibration import CalibrationStore

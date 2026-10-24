@@ -31,6 +31,9 @@ class CalibrationDialog(QtWidgets.QDialog):
 
         # -- configuration files ------------------------------------------------
         self.history = QtWidgets.QComboBox()
+        # long entries must not widen the dialog
+        self.history.setSizeAdjustPolicy(QtWidgets.QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self.history.setMinimumContentsLength(28)
         load_btn = QtWidgets.QPushButton("Use selected")
         load_btn.clicked.connect(self.use_selected)
         self.current_label = QtWidgets.QLabel()
@@ -130,8 +133,9 @@ class CalibrationDialog(QtWidgets.QDialog):
         self.current_label.setText(f"In use: <b>{rec.label}</b> ({where})<br>{rec.comment}")
         self._records = self.store.records()
         self.history.clear()
-        for r in self._records:
-            self.history.addItem(f"{r.created} — {r.comment}")
+        for i, r in enumerate(self._records):
+            self.history.addItem(r.label)
+            self.history.setItemData(i, r.comment, Qt.ToolTipRole)
         if not self._records:
             self.history.addItem("(no configuration files yet)")
         for name, box in self.cfg_boxes.items():
