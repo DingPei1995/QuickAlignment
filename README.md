@@ -52,6 +52,35 @@ Positions here are **absolute motor values** (ST, SZ, SN, …, optic).
 - schematic: top view (plate orientation, analyzer and its focal plane, beam, optic with its position) and
   the sample plane in front view (SRn rotation, beam spot; axes in absolute ST / SZ)
 
+### Rotate sample tab (`docs/app_rotate_tab.png`)
+
+For a sample that was found and measured (Map) but has the wrong in-plane orientation: it gives the new
+SRn (and SRz), the ST / SN / SZ that bring the same sample point back onto the beam, and the optic position.
+All inputs come from ARPES viewer:
+
+1. **Measurement**: the Map's metadata. In ARPES viewer, right-click the Map → *Show information* →
+   *Export metadata (.csv)*, then *Load metadata CSV…* here (or *Paste metadata…* with the rows).
+   Read: `Motor.roughY` (ST), `Motor.roughX` (SZ), `Motor.focus` (SN), `Motor.SRn`, `Motor.SRz`,
+   `Motor.fine_x/y` (PIX/PIY) and `Motor.ZP_ZS` (optic in focus during the Map). These are the values
+   ARPES viewer shows (position − offset); missing rows are taken from the Stage tab and listed in red.
+2. **Angles**: from the k-conversion window: *Theta offset* (deflector) and *Phi offset* (slit) of the
+   origin point, and the *Sample rotation* found with *Set rotation from contour…*.
+3. **Goal**:
+   - *Direction along the slit*: ΔSRn = the viewer's sample rotation (e.g. Γ–K or Γ–M along the slit).
+     The line has no direction, so the turn 180° away is offered too (and ±60° are equivalent on a 6-fold lattice).
+   - *Direction along the deflector*: the same + 90°.
+   - *Origin point onto the slit (SRn)*: brings the point (θ, φ), e.g. a K point / Dirac cone, onto θ = 0.
+   - *Origin point to the centre (SRn + SRz)*: brings the point (θ, φ) to the analyzer centre (θ = φ = 0).
+   - *Manual ΔSRn / SRz*.
+4. *Compute new position*, choose a solution, *Send to Stage & Optics tab*.
+
+By default the sample point is kept where it was during the Map (motor differences from the model), so
+errors of ST0 / SZ0 / SN_f largely cancel and the optic stays as it was; the accuracy depends mainly on the
+calibrated SRn / SRz axis positions. *Put the point on the analyzer focus* behaves like *Bring target to focus*
+instead, and then the optic moves accordingly. **Analyzer geometry** (slit vertical/horizontal, signs of θ
+and φ seen from the analyzer, rotation sense) is a setting remembered between sessions: check it once on a
+known sample (e.g. turn by the computed ΔSRn and see whether the direction lands on the slit, else flip the sign).
+
 ### Initial calibration (`InitialCalibration.py`, `docs/initial_calibration.png`)
 
 Separate program for the first start or after re-homing the motors: beamline staff measure one reference
