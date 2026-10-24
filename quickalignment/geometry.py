@@ -245,14 +245,22 @@ class SampleLayout:
         return out
 
     def targets(self) -> list[tuple[str, float, float, float]]:
-        """All selectable targets: (label, u, v, sample height H)."""
+        """All selectable targets: (label, u, v, sample height H); a substrate is represented by its devices."""
         out = []
         for s in self.samples:
-            out.append((s.name, s.u, s.v, s.height))
+            if not s.devices:
+                out.append((s.name, s.u, s.v, s.height))
             for d in s.devices:
                 u, v = d.position(s)
                 out.append((f"{s.name}/{d.name}", u, v, s.height))
         return out
+
+    def shift(self, du: float, dv: float, dh: float = 0.0) -> None:
+        """Move every sample (devices follow their substrate) by (du, dv) and change every height by dh."""
+        for s in self.samples:
+            s.u += du
+            s.v += dv
+            s.height = max(s.height + dh, 0.0)
 
     def unique_device_name(self, prefix: str = "D") -> str:
         names = {d.name for s in self.samples for d in s.devices}

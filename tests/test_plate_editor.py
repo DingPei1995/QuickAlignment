@@ -529,3 +529,46 @@ def test_motor_ranges(window, monkeypatch):
     panel.correct_sn.setChecked(False)
     panel.send_to_stage()  # SN kept is not reachable
     assert warned and "SZ = 33.2000" in warned[0]
+
+
+def test_found_device_corrects_all_positions(window, monkeypatch):
+    ed, st = window.editor, window.stage
+    sub = ed.add_sample(Sample("Sub", u=1.0, v=-1.0, length=4, width=4, height=0.5))
+    ed.add_device(sub, Device("D1", "left", 1.0, "bottom", 1.0))
+    ed.add_device(sub, Device("D2", "right", 1.0, "top", 1.0))
+    other = ed.add_sample(Sample("B", u=-3.0, v=3.0, length=1, width=1, height=0.3))
+    st.refresh_targets()
+    # a substrate with devices is represented by its devices only
+    assert st.target_labels() == ["Sub/D1", "Sub/D2", "B"]
+    monkeypatch.setattr(QtWidgets.QMessageBox, "question", lambda *a, **k: QtWidgets.QMessageBox.Yes)
+    ed.confirm_samples_placed()
+    text = st.start_label.text()
+    assert "<td>Sub/D1</td>" in text and "<td>Sub</td>" not in text
+
+    # D1 really is 0.2 mm further right, 0.1 mm lower and 0.05 mm higher than drawn
+    true = replace(window.editor.layout_model.samples[0])
+    found = st.model().motors_for_target(0.0 + 0.2, -2.0 - 0.1, 5.5 + 0.05, srn=120, srz=0)
+    assert true.devices[0].position(true) == (0.0, -2.0)
+    st.motors.set_value(found)
+    st.optic_pos.setValue(12.5)  # in focus there
+    st.found_combo.setCurrentText("Sub/D1")
+    du, dv, dw = st.correct_from_found()
+    # the configuration in use takes this as optics reference and is saved
+    user = window.store.latest()
+    assert user.kind == "user" and user.optics.enabled and user.optics.optic_position == 12.5
+    assert user.optics.motors.st == pytest.approx(found.st) and user.optics.surface_w == pytest.approx(5.55, abs=1e-4)
+    assert st.record.kind == "user"
+    st.update_view()
+    assert st.last_result.target == "Sub/D1" and st.last_result.required_optic_position == pytest.approx(12.5, abs=1e-4)
+    assert (du, dv, dw) == pytest.approx((0.2, -0.1, 0.05), abs=1e-4)
+    # everything moved by the same amount, and the editor shows it
+    assert (sub.u, sub.v, sub.height) == pytest.approx((1.2, -1.1, 0.55), abs=1e-4)
+    assert (other.u, other.v, other.height) == pytest.approx((-2.8, 2.9, 0.35), abs=1e-4)
+    assert ed.items[id(other)].pos().x() == pytest.approx(-2.8, abs=1e-4)
+    assert ed.table.item(1, 2).text() == "-2.800"
+    # the corrected list now predicts the found position for D1
+    st.target_combo.setCurrentText("Sub/D1")
+    st.bring_target_to_focus()
+    m = st.motors.value()
+    assert (m.st, m.sz, m.sn) == pytest.approx((found.st, found.sz, found.sn), abs=1e-4)
+    monkeypatch.setattr(QtWidgets.QMessageBox, "question", lambda *a, **k: QtWidgets.QMessageBox.Discard)

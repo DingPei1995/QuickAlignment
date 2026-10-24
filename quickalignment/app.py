@@ -27,6 +27,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.stage = StagePanel(lambda: self.editor.layout_model)
         self.editor.layoutChanged.connect(self.stage.refresh_targets)
         self.editor.samplesPlaced.connect(self.go_to_stage)
+        self.stage.layoutCorrected.connect(self._on_layout_corrected)
         self.rotation = RotationPanel(self.stage, lambda: self.editor.layout_model, self.editor.default_height)
         self.store = store or CalibrationStore()
         self.cal_dialog = CalibrationDialog(self.store, self.stage, self)
@@ -123,6 +124,16 @@ class MainWindow(QtWidgets.QMainWindow):
         self.set_session(Session(layout=SampleLayout(plate=plate)))
         if new_optic != optic:
             self._on_record(self.store.latest(new_optic))
+
+    def _on_layout_corrected(self) -> None:
+        self.editor.set_layout(self.editor.layout_model)
+        try:
+            saved = self.save_user_config()
+        except OSError as exc:
+            QtWidgets.QMessageBox.critical(self, "Save failed", str(exc))
+            return
+        self.statusBar().showMessage(f"All sample / device positions corrected from the found one; "
+                                     f"optics reference saved to {saved.path}.")
 
     def go_to_stage(self) -> None:
         """Samples are placed: show where they are at the reference orientation in the Stage tab."""

@@ -43,8 +43,15 @@ y up, front view (sample side) with the tab up), not motor positions; the plate 
 - *Status* column: `ok`, or what is wrong with the placement (outside the sample area / substrate, overlapping).
 - wheel = zoom, middle drag = pan, right click = whole plate again
 - **Samples placed → Stage**: asks whether all samples are marked on the plate; *Yes* opens the Stage & Optics tab
-  with a list of the ST / SZ / SN that put each sample (and device) on the analyzer focus at the initial rotation
-  (SRn = 120, SRz = 0, PIX = PIY = 150 µm).
+  with a list of the ST / SZ / SN that put each sample on the analyzer focus at the initial rotation
+  (SRn = 120, SRz = 0, PIX = PIY = 150 µm). A substrate carrying devices is listed by its devices only (also in
+  the target lists).
+- **Found here: correct all** (in that list): once the first device is found on the beam in the analyzer focus,
+  enter its stage positions and the optic position in focus in the Stage tab, choose the device and press the
+  button. The device is moved on the plate to where it really is (Δx, Δy, ΔH), every other sample / device by the
+  same amount, and the list is recomputed. The found state becomes the optics reference of the configuration in
+  use, which is saved to `user_config.json` at once. ST0 / SZ0 / SN_f are not changed (that would correct the
+  same offset twice).
 
 ### Stage & Optics tab (`docs/app_stage_tab.png`)
 

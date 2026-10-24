@@ -12,10 +12,12 @@ from matplotlib.figure import Figure
 
 from dataclasses import replace
 
-from ._qt import QtCore, QtWidgets
+from ._qt import QtCore, QtWidgets, Signal
 from ..calibration import CalibrationRecord
 from ..schematic import draw_schematic
-from ..stage import OPTIC_TYPES, MotorPositions, OpticsCalibration, StageConfig, StageModel, focus_correction
+from ..stage import (
+    OPTIC_TYPES, MotorPositions, OpticsCalibration, StageConfig, StageModel, focus_correction, found_offset,
+)
 
 Qt = QtCore.Qt
 
@@ -120,6 +122,8 @@ class MotorForm(QtWidgets.QWidget):
 
 
 class StagePanel(QtWidgets.QWidget):
+    layoutCorrected = Signal()  # all samples were moved after a target was found
+
     def __init__(self, layout_getter, parent=None):
         super().__init__(parent)
         self._layout_getter = layout_getter
@@ -184,7 +188,18 @@ class StagePanel(QtWidgets.QWidget):
         self.start_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.start_box = QtWidgets.QGroupBox("Where the samples are at the initial rotation")
         self.start_box.setStyleSheet("QGroupBox { background: #eef6ee; }")
-        QtWidgets.QVBoxLayout(self.start_box).addWidget(self.start_label)
+        self.found_combo = QtWidgets.QComboBox()
+        found_btn = QtWidgets.QPushButton("Found here: correct all")
+        found_btn.setToolTip("The chosen device is on the beam, in the analyzer focus, at the stage positions\n"
+                             "entered below: move it there on the plate and every other sample / device by the same amount.")
+        found_btn.clicked.connect(self.correct_from_found)
+        sb = QtWidgets.QVBoxLayout(self.start_box)
+        sb.addWidget(self.start_label)
+        found_row = QtWidgets.QHBoxLayout()
+        found_row.addWidget(QtWidgets.QLabel("Found"))
+        found_row.addWidget(self.found_combo, 1)
+        found_row.addWidget(found_btn)
+        sb.addLayout(found_row)
         self.start_box.hide()
 
         left = QtWidgets.QWidget()
@@ -284,6 +299,10 @@ class StagePanel(QtWidgets.QWidget):
             self.target_combo.addItem(label)
         self.target_combo.setCurrentIndex(max(self.target_combo.findText(current), 0))
         self.target_combo.blockSignals(False)
+        found = self.found_combo.currentText()
+        self.found_combo.clear()
+        self.found_combo.addItems(self.target_labels())
+        self.found_combo.setCurrentIndex(max(self.found_combo.findText(found), 0))
         if not self.start_box.isHidden():
             self.show_start_positions()
 
@@ -305,6 +324,36 @@ class StagePanel(QtWidgets.QWidget):
             "in the analyzer focal plane.) Use <i>Bring target to focus</i> to enter one of them."
         )
         self.start_box.show()
+
+    def correct_from_found(self) -> tuple[float, float, float] | None:
+        """The chosen target is on the analyzer focus at the entered positions: shift the whole layout."""
+        label = self.found_combo.currentText()
+        t = self.target_point(label) if label else None
+        if t is None:
+            return None
+        m = self.motors.value()
+        du, dv, dw = found_offset(self.model(), m, *t)
+        answer = QtWidgets.QMessageBox.question(
+            self, "Correct all positions?",
+            f"{label} is on the beam, in the analyzer focus, at ST = {m.st:.4f}, SZ = {m.sz:.4f}, SN = {m.sn:.4f} "
+            f"(SRn = {m.srn:g}°, SRz = {m.srz:g}°)?\n\n"
+            f"Then it is at Δx = {du:+.3f}, Δy = {dv:+.3f} mm on the plate and ΔH = {dw:+.3f} mm from where it was "
+            "drawn. All samples and devices are moved by the same amount.\n\n"
+            f"The {self.record.optic_name} position {self.optic_pos.value():.4f} is taken as in focus there: it becomes "
+            "the optics reference and the configuration is saved (user_config.json).",
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No, QtWidgets.QMessageBox.Yes,
+        )
+        if answer != QtWidgets.QMessageBox.Yes:
+            return None
+        self._layout_getter().shift(du, dv, dw)
+        optics = replace(self.record.optics, enabled=True, motors=m, surface_w=t[2] + dw,
+                         optic_position=self.optic_pos.value())
+        self.record = replace(self.record, optics=optics)
+        self._show_record()
+        self.layoutCorrected.emit()  # the main window saves the configuration
+        self.refresh_targets()
+        self.update_view()
+        return du, dv, dw
 
     def target_labels(self) -> list[str]:
         return [label for label, *_ in self._layout_getter().targets()]
