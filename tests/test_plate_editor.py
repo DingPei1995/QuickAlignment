@@ -265,3 +265,49 @@ def test_calibration_check_and_accept(window):
     dlg.save_expert()
     assert st.record.config.srz_offset_n == 0.3 and not dlg.expert.isChecked()
     assert len(window.store.records()) == 2
+
+
+def test_initial_calibration_window(tmp_path):
+    from quickalignment.calibration import CalibrationStore
+    from quickalignment.geometry import STANDARD_PLATE
+    from quickalignment.stage import StageConfig, StageModel
+    from quickalignment.ui.initial_calibration_window import InitialCalibrationWindow
+
+    QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    store = CalibrationStore(tmp_path / "configs")
+    win = InitialCalibrationWindow(store)
+    assert win.table.rowCount() == 5
+
+    # empty table: incomplete sets are reported, nothing to save
+    win.compute()
+    assert "Incomplete" in win.result_label.text() and not win.save_btn.isEnabled()
+
+    truth = StageModel(StageConfig(st0=0.2, sz0=40.3, sn_f=-0.1, srn_axis_u=0.5, srz_offset_n=-0.3), STANDARD_PLATE)
+    win.ref_x.setValue(1.0)
+    win.ref_y.setValue(-0.5)
+    win.ref_h.setValue(0.3)
+    for row in range(5):
+        srn, srz = float(win.table.item(row, 2).text()), float(win.table.item(row, 3).text())
+        m = truth.motors_for_target(1.0, -0.5, 5.3, srn=srn, srz=srz)
+        for col, value in ((4, m.st), (5, m.sz), (6, m.sn)):
+            win.table.item(row, col).setText(f"{value:.6f}")
+
+    # only 2 sets ticked -> not enough data
+    for row in range(2, 5):
+        win.table.item(row, 0).setCheckState(Qt.Unchecked)
+    win.compute()
+    assert "Not enough data" in win.result_label.text()
+
+    for row in range(2, 5):
+        win.table.item(row, 0).setCheckState(Qt.Checked)
+    win.optic_pos.setValue(4.2)
+    win.compute()
+    assert win.save_btn.isEnabled()
+    assert win.result.config.st0 == pytest.approx(0.2, abs=1e-5)
+    assert win.result.config.srz_offset_n == pytest.approx(-0.3, abs=1e-5)
+    win.save()
+    rec = store.latest()
+    assert rec.config.srn_axis_u == pytest.approx(0.5, abs=1e-5)
+    assert rec.optics.enabled and rec.optics.optic_position == 4.2
+    assert "Saved" in win.result_label.text()
+    win.close()

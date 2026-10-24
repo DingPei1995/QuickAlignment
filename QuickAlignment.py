@@ -4,6 +4,7 @@
 On Windows you can also double-click QuickAlignment.pyw (no console window).
 """
 
+import importlib
 import os
 import sys
 import traceback
@@ -25,14 +26,19 @@ def _show_error(text: str) -> None:
         input("Press Enter to close...")
 
 
-if __name__ == "__main__":
+def launch(module: str) -> int:
+    """Import `module` and run its main(), reporting missing packages in a dialog."""
     try:
-        from quickalignment.app import main
+        main = importlib.import_module(module).main
     except ImportError:
         _show_error(
             "Could not start QuickAlignment, a package is missing:\n\n"
             + traceback.format_exc(limit=1)
             + "\nInstall the requirements with:\n    pip install PyQt5 numpy matplotlib"
         )
-        sys.exit(1)
-    sys.exit(main())
+        return 1
+    return main()
+
+
+if __name__ == "__main__":
+    sys.exit(launch("quickalignment.app"))

@@ -37,6 +37,12 @@ Positions here are **absolute motor values** (ST, SZ, SN, …).
 - schematic: top view (plate orientation, analyzer, beam, optic and its required move) and the sample
   plane seen from the analyzer (SRn rotation, beam spot; axes in absolute ST / SZ)
 
+### Initial calibration (`InitialCalibration.py`, `docs/initial_calibration.png`)
+
+Separate program for the first start or after re-homing the motors: beamline staff measure one reference
+feature in 3 (minimum) or 5 (recommended) stage orientations, the constants are fitted and saved as a new
+configuration. Protocol: [`docs/initial_calibration_protocol.md`](docs/initial_calibration_protocol.md).
+
 ### Calibration window (toolbar *Calibration…*, `docs/calibration_dialog.png`)
 
 - calibrations are dated files in `configs/`; the newest is used, older ones can be selected
