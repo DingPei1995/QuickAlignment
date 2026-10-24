@@ -11,6 +11,7 @@ from .ui._qt import QtWidgets, exec_app
 from .ui.calibration_dialog import CalibrationDialog
 from .ui.plate_choice import ask_plate
 from .ui.plate_editor import PlateEditor
+from .ui.rotation_panel import RotationPanel
 from .ui.stage_panel import StagePanel
 
 
@@ -24,12 +25,15 @@ class MainWindow(QtWidgets.QMainWindow):
         self.editor = PlateEditor()
         self.stage = StagePanel(lambda: self.editor.layout_model)
         self.editor.layoutChanged.connect(self.stage.refresh_targets)
+        self.rotation = RotationPanel(self.stage, lambda: self.editor.layout_model)
         self.store = store or CalibrationStore()
         self.cal_dialog = CalibrationDialog(self.store, self.stage, self)
         self.cal_dialog.recordChanged.connect(self._on_record)
+        self.rotation.recordChanged.connect(self._on_record)
         self.tabs = QtWidgets.QTabWidget()
         self.tabs.addTab(self.editor, "Samples")
         self.tabs.addTab(self.stage, "Stage && Optics")
+        self.tabs.addTab(self.rotation, "Rotate sample")
         self.setCentralWidget(self.tabs)
 
         bar = self.addToolBar("File")

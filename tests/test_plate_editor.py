@@ -367,3 +367,47 @@ def test_initial_calibration_window(tmp_path):
     assert rec.optics.enabled and rec.optics.optic_position == 4.2
     assert "Saved" in win.result_label.text()
     win.close()
+
+
+def test_rotation_tab_from_viewer_metadata(window):
+    from quickalignment.viewer_info import ViewerInfo
+
+    win = window
+    win.editor.set_layout(win.editor.layout_model.__class__(samples=[Sample("WSe2", length=6, width=6, height=0.2)]))
+    panel = win.rotation
+    panel.set_info(ViewerInfo.from_text(
+        "field,value\nMotor.roughY,0.0\nMotor.roughX,40.0\nMotor.focus,0.2\nMotor.SRn,120\nMotor.SRz,0\n"
+        "Motor.fine_x,150\nMotor.fine_y,150\nMotor.ZP_ZS,-5.5\nPhotonEnergy,95\n"))
+    assert panel.optic_key.currentText() == "Motor.ZP_ZS" and panel.measured_optic.value() == -5.5
+    panel.rotation.setValue(30.0)
+    panel.goal.setCurrentIndex(0)
+    panel.compute()
+    assert panel.result is not None and panel.result.target == "WSe2"
+    assert abs(abs(panel.result.new.srn - 120) - 30) < 1e-6 or abs(abs(panel.result.new.srn - 120) - 150) < 1e-6
+    panel.send_to_stage()
+    assert win.stage.motors.value().srn == panel.result.new.srn
+    assert win.stage.optic_pos.value() == panel.result.optic_new
+    # analyzer centre: SRn + SRz
+    panel.goal.setCurrentIndex(3)
+    panel.theta.setValue(8.0)
+    panel.phi.setValue(3.0)
+    panel.compute()
+    assert panel.result is not None and abs(panel.result.new.srz) > 1
+
+
+def test_rotation_tab_learns_srn_axis(window):
+    from quickalignment.stage import MotorPositions
+
+    panel = window.rotation
+    panel.measured.set_value(MotorPositions(st=-0.24994375, sz=43.202, sn=0.34838125, srn=132.0005, srz=0.003))
+    panel.second.set_value(MotorPositions(st=0.24625625, sz=42.901, sn=0.34788125, srn=118.0003, srz=0.003))
+    panel.fit_axis()
+    assert panel.use_axis_btn.isEnabled() and abs(panel.axis_fit.lever_arm - 2.379) < 0.01
+    panel.use_axis()
+    assert window.stage.config().srn_axis_v == panel.axis_fit.config.srn_axis_v
+    # the learned axis now predicts the second position from the first
+    panel.goal.setCurrentIndex(4)  # manual
+    panel.d_srn.setValue(118.0003 - 132.0005)
+    panel.new_srz.setValue(0.003)
+    panel.compute()
+    assert abs(panel.result.new.st - 0.24625625) < 2e-3 and abs(panel.result.new.sz - 42.901) < 2e-3
