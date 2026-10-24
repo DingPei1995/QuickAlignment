@@ -51,7 +51,9 @@ class AnalyzerGeometry:
 
     slit: str = "horizontal"
     slit_sign: int = 1
-    deflector_sign: int = 1
+    # -1: measured 2026-09-18 (SRn 120 -> 104, i.e. clockwise seen from the analyzer, looked clockwise in
+    # ARPES viewer), so with the horizontal slit the contour must not be mirrored against the analyzer view
+    deflector_sign: int = -1
 
     def axes(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """(a, s, p): lens axis, slit and deflector directions in the lab. Right = +ST, up = +Z."""

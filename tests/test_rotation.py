@@ -130,3 +130,21 @@ def test_viewer_info_csv_and_paste():
     m, missing = pasted.motors(MotorPositions(sz=39))
     assert m.srn == 130 and m.st == 1.5 and m.sz == 39 and "Motor.roughX" in missing
     assert pasted.optic_keys() == ["Motor.ZP_ZS"]
+
+
+def test_calibration_2026_09_18_reproduces_rotated_map():
+    """SRn 120 -> 104 on the same point (WS_2026-09-18 Maps): the saved configuration predicts the second position."""
+    from pathlib import Path
+
+    from quickalignment.calibration import CalibrationStore
+
+    root = Path(__file__).resolve().parent.parent
+    record = next(r for r in CalibrationStore(root / "configs").records() if r.created == "2026-09-18 16:00:00")
+    first, _ = ViewerInfo.load(root / "WS_2026-09-18_14-13-56_metadata.csv").motors()
+    second, _ = ViewerInfo.load(root / "WS_2026-09-18_15-46-23_metadata.csv").motors()
+    model = StageModel(record.config)
+    for mode in (False, True):  # kept where measured / on the analyzer focus (SN_f from the first Map)
+        rel = relocate(model, SampleLayout(), first, second.srn, second.srz, record.optics, to_analyzer_focus=mode)
+        assert rel.new.st == pytest.approx(second.st, abs=2e-3)
+        assert rel.new.sz == pytest.approx(second.sz, abs=2e-3)
+        assert rel.new.sn == pytest.approx(second.sn, abs=2e-3)

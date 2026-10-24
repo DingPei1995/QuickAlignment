@@ -1,0 +1,64 @@
+{
+  "created": "2026-09-18 16:00:00",
+  "kind": "staff",
+  "comment": "SRn axis from WS_2026-09-18 Maps (same point at SRn 120.00 and 104.00, ST -0.6018/-1.0015, SZ 39.243/39.345); SN_f = SN of the first Map (surface in the analyzer focal plane, sample height taken as 0); capillary position not in the metadata: optics reference = analyzer focus",
+  "stage_config": {
+    "st0": 0.0,
+    "sz0": 40.0,
+    "sn_f": 6.499146875,
+    "srn_ref": 120.0,
+    "pi_center": 150.0,
+    "srn_axis_u": 0.43868130775056696,
+    "srn_axis_v": -0.71622886989805,
+    "srz_offset_t": 0.0,
+    "srz_offset_n": 0.0
+  },
+  "optics": {
+    "enabled": false,
+    "motors": {
+      "st": 0.0,
+      "sn": 0.0,
+      "sz": 40.0,
+      "srn": 120.0,
+      "srz": 0.0,
+      "pix": 150.0,
+      "piy": 150.0
+    },
+    "surface_w": 5.5,
+    "optic_position": 0.0,
+    "optic_sign": 1,
+    "optic_type": "capillary",
+    "last_position": null
+  },
+  "check": {
+    "source": [
+      "WS_2026-09-18_14-13-56.nxs",
+      "WS_2026-09-18_15-46-23.nxs"
+    ],
+    "measured": [
+      {
+        "st": -0.6017718749999971,
+        "sz": 39.243,
+        "sn": 6.499146875,
+        "srn": 119.997322626,
+        "srz": 0.000661464
+      },
+      {
+        "st": -1.001471874999997,
+        "sz": 39.345,
+        "sn": 6.498646875,
+        "srn": 103.999790352,
+        "srz": 0.000775353
+      }
+    ],
+    "srn_axis_motors_at_ref": {
+      "st": -0.43868130775056696,
+      "sz": 40.71622886989805
+    },
+    "lever_arm_mm": 1.4822,
+    "residual_mm": {
+      "st": 0.0,
+      "sz": 0.0
+    }
+  }
+}

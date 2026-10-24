@@ -226,12 +226,12 @@ class RotationPanel(QtWidgets.QWidget):
         self.slit.setCurrentText(slit if slit in SLIT_ORIENTATIONS else SLIT_ORIENTATIONS[0])
         self._on_slit(self.slit.currentText())
         self.slit_sign.setCurrentIndex(get("slit_sign", 0))
-        self.defl_sign.setCurrentIndex(get("deflector_sign", 0))
+        self.defl_sign.setCurrentIndex(get("deflector_direction", 1))  # default: + theta down (see AnalyzerGeometry)
         self.rot_sign.setCurrentIndex(get("rotation_sign", 0))
 
     def _save_settings(self, *_) -> None:
         self.settings.setValue("rotation/slit_orientation", self.slit.currentText())
-        for key, box in (("slit_sign", self.slit_sign), ("deflector_sign", self.defl_sign),
+        for key, box in (("slit_sign", self.slit_sign), ("deflector_direction", self.defl_sign),
                          ("rotation_sign", self.rot_sign)):
             self.settings.setValue(f"rotation/{key}", box.currentIndex())
 
