@@ -1,14 +1,15 @@
-from dataclasses import replace
-
 import numpy as np
 import pytest
 
 from quickalignment.calibration import CalibrationStore
 from quickalignment.geometry import GATING_PLATE, STANDARD_PLATE, Sample, SampleLayout
 from quickalignment.initial_calibration import (
-    CORRECTION_PARAMS, NotEnoughData, fit_initial_calibration, fit_optics, initial_record, protocol_sets,
+    FOUND_TOLERANCE, NotEnoughData, TestPoint, fit_initial_calibration, initial_record, on_beam, optic_focus_of, predict_test_point,
+    protocol_sets, verification_angles,
 )
-from quickalignment.stage import OPTIC_TYPES, OpticsCalibration, StageConfig, StageModel, focus_correction
+from quickalignment.stage import OPTIC_TYPES, MotorPositions, StageConfig, StageModel, focus_correction
+
+FOCUS = 12.5  # true optic position focusing on the analyzer focus (optic + = towards the sample)
 
 TRUE = StageConfig(st0=0.31, sz0=40.27, sn_f=-0.12, srn_axis_u=0.45, srn_axis_v=-0.6, srz_offset_t=0.2, srz_offset_n=-0.35)
 REF = (1.5, 2.0, 5.0 + 0.4)  # feature at x=1.5, y=2.0 on a 0.4 mm sample
@@ -61,40 +62,92 @@ def test_record_from_fit():
     for s, optic in zip(sets, (8.25, 8.25, None)):
         s.optic = optic
     res = fit_initial_calibration(sets, STANDARD_PLATE, REF)
-    rec = initial_record(res, STANDARD_PLATE, REF, optic_sign=-1, optic_type="capillary")
-    assert rec.optics.enabled and rec.optics.optic_sign == -1 and rec.optics.optic_type == "capillary"
-    assert rec.optics.optic_position == pytest.approx(8.25)
+    assert res.optic_focus == pytest.approx(8.25) and "optic_focus" in res.params
+    rec = initial_record(res, STANDARD_PLATE, REF, optic_type="capillary")
+    assert rec.optics.enabled and rec.optics.optic_sign == 1 and rec.optics.optic_type == "capillary"
     assert rec.optics.motors.srn == 120 and rec.optics.surface_w == REF[2]
+    assert optic_focus_of(rec, STANDARD_PLATE) == pytest.approx(8.25)
     assert rec.check["type"] == "initial calibration" and len(rec.check["sets"]) == 3
     assert rec.check["sets"][0]["optic"] == 8.25 and rec.optic_name == "capillary"
     for s in sets:
         s.optic = None
-    assert not initial_record(res, STANDARD_PLATE, REF).optics.enabled
+    res = fit_initial_calibration(sets, STANDARD_PLATE, REF)
+    assert res.optic_focus is None and not initial_record(res, STANDARD_PLATE, REF).optics.enabled
 
 
-def test_optic_positions_of_all_sets_are_averaged():
+def test_optic_positions_of_all_sets_are_fitted():
     sets = measure(protocol_sets(), noise=0.001)
     for s, d in zip(sets, (0.003, -0.002, 0.001, -0.001, -0.001)):
-        s.optic = 12.5 + d
+        s.optic = FOCUS + d
     res = fit_initial_calibration(sets, STANDARD_PLATE, REF)
-    fit = fit_optics(res, STANDARD_PLATE, REF)
-    assert fit.optics.optic_position == pytest.approx(12.5, abs=1e-3)
-    assert len(fit.residuals) == 5 and fit.sigma is not None and fit.rms < 0.005
-    # the feature is at the analyzer focus in every set: the reference focus is there too
-    assert fit.optics.reference_y(StageModel(res.config, STANDARD_PLATE)) == pytest.approx(0.0, abs=0.01)
+    assert res.optic_focus == pytest.approx(FOCUS, abs=1e-3)
+    assert len(res.optic_residuals) == 5 and res.sigma["optic_focus"] < 0.005
 
 
-def test_correction_of_an_existing_configuration():
-    base = replace(TRUE, st0=0.0, sz0=40.0, sn_f=0.0)  # axes known, offsets lost (motors re-homed)
-    sets = measure(protocol_sets()[:1])
-    with pytest.raises(NotEnoughData):
-        fit_initial_calibration(sets, STANDARD_PLATE, REF, base=base)
-    res = fit_initial_calibration(sets, STANDARD_PLATE, REF, base=base, params=CORRECTION_PARAMS)
-    assert np.allclose(params(res.config), params(TRUE), atol=1e-7)
-    kept = OpticsCalibration(enabled=True, optic_position=3.3, optic_type=OPTIC_TYPES[0], last_position=3.4)
-    rec = initial_record(res, STANDARD_PLATE, REF, base_label="old", kept_optics=kept)
-    assert rec.check["type"] == "configuration correction" and rec.check["base"] == "old"
-    assert rec.optics.enabled and rec.optics.optic_position == 3.3 and rec.optics.last_position is None
+def answer(t: TestPoint, truth=TRUE, plate=STANDARD_PLATE) -> TestPoint:
+    """What staff find at a test point: the real ST, SZ, optic with SRn, SRz, SN as given."""
+    st, sz, optic = on_beam(StageModel(truth, plate), REF, t.srn, t.srz, t.sn, t.pix, t.piy, FOCUS)
+    if max(abs(st - t.pred_st), abs(sz - t.pred_sz), abs(optic - t.pred_optic)) <= FOUND_TOLERANCE:
+        t.found = True
+    else:
+        t.st, t.sz, t.optic = st, sz, optic
+    return t
+
+
+def test_on_beam_puts_the_feature_on_the_beam_in_the_optic_focus():
+    model = StageModel(TRUE, STANDARD_PLATE)
+    st, sz, optic = on_beam(model, REF, 150.0, -12.0, 0.3, 150.0, 150.0, FOCUS)
+    p = model.plate_to_lab(MotorPositions(st=st, sz=sz, sn=0.3, srn=150.0, srz=-12.0), *REF)
+    assert p[0] == pytest.approx(0, abs=1e-12) and p[2] == pytest.approx(0, abs=1e-12)
+    assert optic - FOCUS == pytest.approx(p[1])  # focus moved along the beam onto the feature
+    # at the analyzer focus the prediction of a test point is exact
+    t = predict_test_point(model, REF, TestPoint("t", 150.0, -12.0), FOCUS)
+    assert answer(t).found
+
+
+def test_test_points_correct_the_configuration_until_found():
+    """The SRz set was measured wrongly: the test points reveal it, and without it the next round is found."""
+    sets = measure(protocol_sets()[:3])
+    sets[2].st += 0.3  # a mistake the minimum data set cannot detect
+    sets[0].optic = FOCUS
+    res = fit_initial_calibration(sets, STANDARD_PLATE, REF)
+
+    def new_round(res, n):
+        model = StageModel(res.config, STANDARD_PLATE)
+        return [answer(predict_test_point(model, REF, TestPoint(name, srn, srz, round=n), res.optic_focus))
+                for name, srn, srz in verification_angles()]
+
+    tests = new_round(res, 1)
+    measured = [t for t in tests if t.measured]
+    assert measured and max(abs(t.deviation()[0]) for t in measured) > FOUND_TOLERANCE
+    res2 = fit_initial_calibration(sets, STANDARD_PLATE, REF, base=res.config, tests=tests)
+    assert len(res2.test_residuals) == len(measured)  # found points only confirm
+    worst = max(res2.residuals, key=lambda r: max(map(abs, r[1:])))
+    assert worst[0] == "3 SRz rotated"  # the wrong set is now an outlier
+    # predictions are better already
+    second = new_round(res2, 2)
+    assert max(max(abs(d) for d in t.deviation()) for t in second) < 0.5 * max(
+        max(abs(d) for d in t.deviation()) for t in tests)
+    assert sum(t.found for t in second) > sum(t.found for t in tests)
+
+    sets[2].use = False  # untick the outlier: the test points replace it
+    res3 = fit_initial_calibration(sets, STANDARD_PLATE, REF, base=res2.config, tests=tests + second)
+    assert np.allclose(params(res3.config), params(TRUE), atol=1e-6) and res3.optic_focus == pytest.approx(FOCUS)
+    assert not any(t.found for t in res3.tests)
+    final = new_round(res3, 3)
+    assert all(t.found for t in final)
+    rec = initial_record(res3, STANDARD_PLATE, REF, tests=tests + second + final)
+    assert rec.check["test_rounds"] == 3 and len(rec.check["test_points"]) == 18
+    assert rec.check["test_points_fitted"] == sum(t.measured for t in tests + second)
+
+
+def test_test_points_without_optic_give_st_sz_only():
+    sets = measure(protocol_sets())
+    res = fit_initial_calibration(sets, STANDARD_PLATE, REF)
+    t = predict_test_point(StageModel(res.config, STANDARD_PLATE), REF, TestPoint("t", 150.0, 0.0), None)
+    t.st, t.sz = t.pred_st + 0.01, t.pred_sz
+    res = fit_initial_calibration(sets, STANDARD_PLATE, REF, tests=[t])
+    assert res.optic_focus is None and res.test_residuals[0][3] is None and res.dof == 15 + 2 - 7
 
 
 @pytest.mark.parametrize("optic", OPTIC_TYPES)

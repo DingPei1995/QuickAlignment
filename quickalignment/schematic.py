@@ -245,7 +245,7 @@ def draw_reference_feature(
     ]
     if srn_axis is not None:
         handles.append(Line2D([], [], ls="none", marker="o", mfc="none", mec=C_SRN_AXIS, ms=8, mew=1.5,
-                              label="SRn axis (base configuration)"))
+                              label="SRn axis (configuration)"))
     ax.legend(handles=handles, loc="upper center", bbox_to_anchor=(0.5, -0.16), ncol=3, fontsize=7, frameon=False)
 
     # side view: height w to the right (towards the analyzer), y up
