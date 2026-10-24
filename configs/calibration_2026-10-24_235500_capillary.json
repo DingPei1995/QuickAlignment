@@ -1,0 +1,151 @@
+{
+  "created": "2026-10-24 23:55:00",
+  "comment": "Gating plate + capillary, joint fit of two devices on Si (H 0.525 mm), SN kept at ~0 and the capillary refocused: RG_GMC (2026-10-15, x 1.51 / y 2.82 mm from the photos) at SRn 120 / SRz -12 (CPS 60.30) and SRn 92 / SRz -24 (CPS 61.74); Cav (2026-10-17, other gating plate, no photo: position fitted, x -2.44 / y 2.02 mm in this configuration) at SRn 120 / SRz -24 (CPS 58.75) and SRn 142 / SRz -24 (CPS 58.48). 12 equations, 9 unknowns, rms 22 um (CPS residuals <= 0.05). SRz axis 2.59 +- 0.39 mm behind the standard riser top, -0.23 +- 0.23 mm along ST. ST0 and SN_f cannot be separated by these data (no measurement on the analyzer focus): SN_f = -0.525 taken so that the measured surfaces (SN ~ 0) were in the analyzer focal plane; ST0 fitted. Replaces calibration_2026-10-24_234000 (ST0 = 0 there: 1.3 mm off in ST at the Cav rotation). CPS increasing moves the capillary towards the sample.",
+  "stage_config": {
+    "st0": -0.9501,
+    "sz0": 40.6295,
+    "sn_f": -0.525,
+    "srn_ref": 120.0,
+    "pi_center": 150.0,
+    "srn_axis_u": -0.2592,
+    "srn_axis_v": -0.0493,
+    "srz_offset_t": -0.2265,
+    "srz_offset_n": 2.5869
+  },
+  "optics": {
+    "enabled": true,
+    "motors": {
+      "st": -3.498671875,
+      "sn": 0.000446875,
+      "sz": 37.796,
+      "srn": 119.999828184,
+      "srz": -11.999708577,
+      "pix": 150.0,
+      "piy": 150.0
+    },
+    "surface_w": 5.525,
+    "optic_position": 60.3,
+    "optic_sign": 1,
+    "optic_type": "capillary",
+    "last_position": null
+  },
+  "check": {
+    "type": "joint fit, SN fixed, capillary refocused (test-point equations); one unknown (x, y) per device without photo",
+    "plate": "gating",
+    "sample_height_mm": 0.525,
+    "devices": {
+      "RG_GMC": {
+        "uv": [
+          1.51,
+          2.82
+        ],
+        "from": "photos (Data for config/RG_GMC_position_on_plate.png)"
+      },
+      "Cav": {
+        "uv": [
+          -2.4439,
+          2.023
+        ],
+        "from": "fitted (no photo); a plate shift on the holder is absorbed here"
+      }
+    },
+    "measured": {
+      "RG_GMC": [
+        {
+          "st": -3.498671875,
+          "sz": 37.796,
+          "sn": 0.000446875,
+          "srn": 119.999828184,
+          "srz": -11.999708577,
+          "cps": 60.3,
+          "source": "RG_GMC_2026-10-15_00-36-31_metadata.csv"
+        },
+        {
+          "st": -6.047871875,
+          "sz": 38.988,
+          "sn": 0.001146875,
+          "srn": 91.999192533,
+          "srz": -24.000078618,
+          "cps": 61.74,
+          "source": "RG_GMC_2026-10-15_18-04-06_metadata.csv"
+        }
+      ],
+      "Cav": [
+        {
+          "st": 0.643128125,
+          "sz": 38.591,
+          "sn": -5.3125e-05,
+          "srn": 120.00028374,
+          "srz": -23.998825839,
+          "cps": 58.75,
+          "source": "Cav_2026-10-17_20-09-25_metadata.csv"
+        },
+        {
+          "st": 1.500528125,
+          "sz": 39.593,
+          "sn": 0.000346875,
+          "srn": 141.999310758,
+          "srz": -23.999053617,
+          "cps": 58.48,
+          "source": "Cav_2026-10-17_22-43-18_metadata.csv"
+        }
+      ]
+    },
+    "fixed": {
+      "sn_f": -0.525,
+      "note": "degenerate with ST0 for these data"
+    },
+    "fitted": [
+      "st0",
+      "sz0",
+      "srn_axis_u",
+      "srn_axis_v",
+      "srz_offset_t",
+      "srz_offset_n",
+      "optic_focus",
+      "cav_u",
+      "cav_v"
+    ],
+    "sigma": {
+      "st0": 0.1095,
+      "sz0": 0.0388,
+      "srn_axis_u": 0.1058,
+      "srn_axis_v": 0.1167,
+      "srz_offset_t": 0.2283,
+      "srz_offset_n": 0.3901,
+      "optic_focus": 0.1022,
+      "cav_u": 0.0854,
+      "cav_v": 0.0613
+    },
+    "optic_focus": 59.6926,
+    "residuals_st_sz_cps": {
+      "RG_GMC": [
+        [
+          -0.0,
+          0.0136,
+          -0.0
+        ],
+        [
+          -0.0095,
+          -0.012,
+          -0.0107
+        ]
+      ],
+      "Cav": [
+        [
+          0.0262,
+          0.0156,
+          0.0476
+        ],
+        [
+          -0.0167,
+          -0.0172,
+          -0.0369
+        ]
+      ]
+    },
+    "rms_mm": 0.0217,
+    "sensitivity": "RG x +0.3 mm: SRz offset ST +0.30, SN unchanged (absorbed by ST0); H +-0.1 mm: SRz offset SN -+0.10",
+    "previous": "2026-10-24 23:40:00"
+  }
+}
