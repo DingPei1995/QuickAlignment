@@ -1,0 +1,74 @@
+field,value
+start_time,2025-10-01T15:49:52
+end_time,2025-10-01T16:16:19
+duration,26m:26s
+MBS.Acqui_mode,Fixed
+MBS.ENo_Steps,983
+MBS.EScale_Max,92.98359143767985
+MBS.EScale_Min,85.01583983767985
+MBS.EScale_Mult,0.0081138
+MBS.SoftBin_Y,1
+MBS.act_scans,10
+MBS.center_ke,89.0
+MBS.defl_x,0.0
+MBS.defl_y,0.0
+MBS.end_ke,92.99170523767985
+MBS.end_x,1234
+MBS.end_y,950
+MBS.frames,50
+MBS.lens_mode,L4Ang0d8
+MBS.max_count,0
+MBS.no_scans,600
+MBS.no_slices,800
+MBS.passenergy,PE100
+MBS.start_ke,85.01583983767985
+MBS.start_x,252
+MBS.start_y,151
+MBS.step_size,0.0081138
+MBS.width,7.975865399999999
+Mono.current_behaviour,Modified Petersen
+Mono.current_constraint,0.40137500457248443
+Mono.current_grating_name,1300 tr/mm
+Mono.current_resolution_criterion,Fixed Slits
+Mono.current_slot_name,#2 - 1300 --> [24.000000 - 1100.000000]
+Mono.encoder_constraint,0.4013742731143129
+Mono.energy,95.00020849002456
+Mono.energy_post,94.99979501707432
+Mono.exit_slit_aperture,99.99817168455809
+Mono.resolution,14.833158519382419
+HU60.gap,15.545800000000002
+HU60.phase,0.0
+HU256.current_bx1,1.016855
+HU256.current_bx2,1.5167375
+HU256.current_bzp,0.0
+Machine.current,499.853309291392
+Machine.function_mode,TOP-UP
+Machine.life_time,11.236351919817102
+SampleTemperature_K,294.85000076293943
+Traj.actuator_1_1.delta,0.5
+Traj.actuator_1_1.from,-12.0
+Traj.actuator_1_1.name,i12-m-cx1/ex/mbs/deflx
+Traj.actuator_1_1.steps,48
+Traj.actuator_1_1.to,12.0
+PhotonEnergy,95.00020849002456
+Grating,1300 tr/mm
+exitSlit,99.99817168455809
+resolution,14.833158519382419
+_group,/DeflX_0002
+_case,3
+loader.name,SOLEIL ANTARES
+axis0.role,angle
+Motor.focus,0.34838125
+Motor.roughY,-0.24994375
+Motor.roughX,43.202
+Motor.SRn,132.000539892
+Motor.SRz,0.003053133000001308
+Motor.ZP_ZS,53.21985
+Motor.ZP_ZX,0.9586
+Motor.ZP_ZT,23.4212
+Motor.OSA_S,79.99985000000001
+Motor.OSA_X,0.8809000000000008
+Motor.OSA_Z,26.1302
+Motor.Pinhole_S,-0.00345
+Motor.Pinhole_X,-6.99883620004654
+Motor.Pinhole_Z,-4.99898718752861
