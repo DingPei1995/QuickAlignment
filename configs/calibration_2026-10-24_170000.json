@@ -1,0 +1,61 @@
+{
+  "created": "2026-10-24 17:00:00",
+  "kind": "staff",
+  "comment": "Standard plate, starting SRn axis from WWS2 (2025-10-01/02, zone plate): same point at SRn 132.00 / 118.00, ST -0.2499 / 0.2463, SZ 43.202 / 42.901, SN 0.348. The axis on the plate changes with each mounting: learn it per sample in the Rotate sample tab (section 4).",
+  "stage_config": {
+    "st0": 0.0,
+    "sz0": 40.0,
+    "sn_f": 0.0,
+    "srn_ref": 120.0,
+    "pi_center": 150.0,
+    "srn_axis_u": 1.2278133927480899,
+    "srn_axis_v": -1.032853327509463,
+    "srz_offset_t": 0.0,
+    "srz_offset_n": 0.0
+  },
+  "optics": {
+    "enabled": false,
+    "motors": {
+      "st": 0.0,
+      "sn": 0.0,
+      "sz": 40.0,
+      "srn": 120.0,
+      "srz": 0.0,
+      "pix": 150.0,
+      "piy": 150.0
+    },
+    "surface_w": 5.5,
+    "optic_position": 0.0,
+    "optic_sign": 1,
+    "optic_type": "zone plate + OSA",
+    "last_position": null
+  },
+  "check": {
+    "source": [
+      "WWS2_2025-10-01_15-49-52.nxs",
+      "WWS2_2025-10-02_03-27-40.nxs"
+    ],
+    "measured": [
+      {
+        "st": -0.24994375,
+        "sz": 43.202,
+        "sn": 0.34838125,
+        "srn": 132.000539892,
+        "srz": 0.003053133
+      },
+      {
+        "st": 0.24625625,
+        "sz": 42.901,
+        "sn": 0.34788125,
+        "srn": 118.000279011,
+        "srz": 0.002939244
+      }
+    ],
+    "zp_zs": [
+      53.21985,
+      53.2355
+    ],
+    "lever_arm_mm": 2.3794,
+    "assumed_surface_w": 5.34838125
+  }
+}

@@ -79,12 +79,19 @@ All inputs come from ARPES viewer:
   during the Map (in the analyzer focus if it was there); ST / SZ / SN compensate, the optic does not move,
   and errors of ST0 / SZ0 / SN_f largely cancel.
 - *Keep SN, refocus with the optic*: the usual practice. SRn alone keeps the surface plane, so nothing changes,
-  but with SRz ≠ 0 the point slides along the beam and leaves the analyzer focus (with the 2026-10-24
-  configuration ≈ 0.1 mm for 2° SRz, 0.2–0.3 mm for 5°). The result shows this shift and turns red above 50 µm.
+  but with SRz ≠ 0 the point slides along the beam and leaves the analyzer focus (on a non-standard plate with
+  the SRz axis ≈ 10 mm behind the surface: ≈ 0.1 mm for 2° SRz, 0.2–0.3 mm for 5°). The result shows this shift
+  and turns red above 50 µm.
 - *Put the point on the analyzer focus*: like *Bring target to focus* (absolute).
 
-The accuracy depends mainly on the calibrated SRn / SRz axes; the SRn axis in plate coordinates also changes
-by the mounting tolerance each time a plate is mounted.
+**Calibrate on the sample itself.** The beam spot after an optics alignment is only somewhere within the
+analyzer's focal range, and the SRn axis on the plate moves with every mounting (0.5–1.5 mm between the plates
+measured so far). So the tab works from the sample's own first real position (the Map), and section **4. Learn
+this sample's SRn axis** takes the position where the same point was found after the first SRn turn (the next
+Map's metadata): *Fit SRn axis*, then *Use for this sample* puts it into the configuration in use (kept in
+`user_config.json` if saved on closing). Further turns of that sample are then predicted from both.
+`configs/calibration_2026-10-24_170000.json` only gives a starting axis (standard plate, zone plate data
+WWS2 2025-10-01/02: ΔSRn = −14°, ΔST = +0.496, ΔSZ = −0.301, 2.38 mm from the axis).
 **Analyzer geometry** (slit horizontal at ANTARES = default, signs of θ
 and φ seen from the analyzer, rotation sense) is a setting remembered between sessions: check it once on a
 known sample (e.g. turn by the computed ΔSRn and see whether the direction lands on the slit, else flip the sign).

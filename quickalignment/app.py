@@ -29,6 +29,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.store = store or CalibrationStore()
         self.cal_dialog = CalibrationDialog(self.store, self.stage, self)
         self.cal_dialog.recordChanged.connect(self._on_record)
+        self.rotation.recordChanged.connect(self._on_record)
         self.tabs = QtWidgets.QTabWidget()
         self.tabs.addTab(self.editor, "Samples")
         self.tabs.addTab(self.stage, "Stage && Optics")

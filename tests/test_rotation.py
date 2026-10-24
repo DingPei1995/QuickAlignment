@@ -3,8 +3,8 @@ import pytest
 
 from quickalignment.geometry import Sample, SampleLayout
 from quickalignment.rotation import (
-    AnalyzerGeometry, align_direction, analyzer_angles, emission_in_plate, onto_line, plate_to_lab_dir, relocate,
-    to_center,
+    AnalyzerGeometry, align_direction, analyzer_angles, emission_in_plate, fit_srn_axis, onto_line, plate_to_lab_dir,
+    relocate, to_center,
 )
 from quickalignment.stage import MotorPositions, OpticsCalibration, StageConfig, StageModel
 from quickalignment.viewer_info import ViewerInfo
@@ -132,41 +132,55 @@ def test_viewer_info_csv_and_paste():
     assert pasted.optic_keys() == ["Motor.ZP_ZS"]
 
 
-def test_calibration_2026_09_18_reproduces_rotated_map():
-    """SRn 120 -> 104 on the same point (WS_2026-09-18 Maps): the saved configuration predicts the second position."""
-    from pathlib import Path
+# Measured: the same sample point found again after an SRn turn (ARPES viewer metadata / notes)
+WWS2_ZONE_PLATE = [  # standard plate, zone plate, 2025-10-01 / 2025-10-02
+    MotorPositions(st=-0.24994375, sz=43.202, sn=0.34838125, srn=132.000539892, srz=0.003053133),
+    MotorPositions(st=0.24625625, sz=42.901, sn=0.34788125, srn=118.000279011, srz=0.002939244),
+]
+WS_2026_09_18 = [  # non-standard plate, capillary
+    MotorPositions(st=-0.6017718749999971, sz=39.243, sn=6.499146875, srn=119.997322626, srz=0.000661464),
+    MotorPositions(st=-1.001471874999997, sz=39.345, sn=6.498646875, srn=103.999790352, srz=0.000775353),
+]
 
-    from quickalignment.calibration import CalibrationStore
 
-    root = Path(__file__).resolve().parent.parent
-    record = next(r for r in CalibrationStore(root / "configs").records() if r.created == "2026-09-18 16:00:00")
-    first, _ = ViewerInfo.load(root / "WS_2026-09-18_14-13-56_metadata.csv").motors()
-    second, _ = ViewerInfo.load(root / "WS_2026-09-18_15-46-23_metadata.csv").motors()
-    model = StageModel(record.config)
-    for mode in (False, True):  # kept where measured / on the analyzer focus (SN_f from the first Map)
-        rel = relocate(model, SampleLayout(), first, second.srn, second.srz, record.optics, to_analyzer_focus=mode)
+@pytest.mark.parametrize("pair", [WWS2_ZONE_PLATE, WS_2026_09_18])
+def test_fit_srn_axis_reproduces_measured_pairs(pair):
+    model = StageModel()
+    fit = fit_srn_axis(model, pair, 5.0)
+    assert max(abs(v) for r in fit.residuals for v in r) < 1e-9  # two positions: exact
+    first, second = pair
+    for mode in ("keep_point", "keep_sn"):
+        rel = relocate(StageModel(fit.config), SampleLayout(), first, second.srn, second.srz, OpticsCalibration(),
+                       keep_sn=mode == "keep_sn")
         assert rel.new.st == pytest.approx(second.st, abs=2e-3)
         assert rel.new.sz == pytest.approx(second.sz, abs=2e-3)
         assert rel.new.sn == pytest.approx(second.sn, abs=2e-3)
 
 
-def test_calibration_2026_10_24_matches_manual_srz_notes():
-    """Manual notes, SN fixed at 7.8: SRz turns from SRn 92 / SRz 0 (ST -1.8, SZ 38.75, CPS 59.68)."""
-    from pathlib import Path
+def test_fit_srn_axis_values():
+    # surface in the focal plane: H = SN - SN_f = 0.348 (with SN_f = 0)
+    fit = fit_srn_axis(StageModel(), WWS2_ZONE_PLATE, 5.348)
+    assert (fit.config.srn_axis_u, fit.config.srn_axis_v) == pytest.approx((1.228, -1.033), abs=2e-3)
+    assert fit.lever_arm == pytest.approx(2.379, abs=1e-3)
 
-    from quickalignment.calibration import CalibrationStore
 
-    root = Path(__file__).resolve().parent.parent
-    record = next(r for r in CalibrationStore(root / "configs").records() if r.created == "2026-10-24 16:00:00")
-    model = StageModel(record.config)
-    h = 7.8 - record.config.sn_f
+def test_fit_srn_axis_recovers_truth_from_several_positions():
+    truth = StageModel(StageConfig(srn_axis_u=0.7, srn_axis_v=-1.1))
+    positions = [truth.motors_for_target(1.5, 2.0, 5.3, srn=a, srz=0) for a in (120, 105, 140, 160)]
+    fit = fit_srn_axis(StageModel(), positions, 5.3)
+    assert (fit.config.srn_axis_u, fit.config.srn_axis_v) == pytest.approx((0.7, -1.1), abs=1e-9)
+    assert fit.point == pytest.approx((1.5, 2.0), abs=1e-9)
+    with pytest.raises(ValueError):
+        fit_srn_axis(StageModel(), positions[:1] * 2, 5.3)
+
+
+def test_keep_sn_slides_along_the_beam_with_srz():
+    """Manual notes (non-standard plate, SN fixed at 7.8): SRz turns need an SRz axis ~10 mm behind the surface."""
+    cfg = StageConfig(sn_f=6.499, srn_axis_u=0.439, srn_axis_v=-0.716, srz_offset_t=0.321, srz_offset_n=10.331)
+    model = StageModel(cfg)
     start = MotorPositions(st=-1.8, sz=38.75, sn=7.8, srn=92, srz=0)
+    ref = OpticsCalibration(optic_type="capillary")
     for srn, srz, st, cps in ((91, 2.5, -1.3, 59.65), (92, -1.7, -2.2, 59.79)):
-        rel = relocate(model, SampleLayout(), start, srn, srz, record.optics, 59.68, default_height=h, keep_sn=True)
-        assert rel.new.sn == 7.8 and rel.new.sz == pytest.approx(38.75, abs=0.05)
-        assert rel.new.st == pytest.approx(st, abs=0.1)
+        rel = relocate(model, SampleLayout(), start, srn, srz, ref, 59.68, default_height=1.301, keep_sn=True)
+        assert rel.new.sn == 7.8 and rel.new.st == pytest.approx(st, abs=0.1)
         assert rel.optic_new == pytest.approx(cps, abs=0.1)
-    # the configuration's own capillary reference: CPS 59.66 focuses on the analyzer focus
-    first = MotorPositions(st=-0.9, sz=38.45, sn=7.8, srn=120, srz=0)
-    rel = relocate(model, SampleLayout(), first, 120, 0, record.optics, None, default_height=h)
-    assert rel.optic_new == pytest.approx(59.66, abs=1e-6)

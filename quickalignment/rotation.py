@@ -32,7 +32,7 @@ import numpy as np
 
 from .geometry import SampleLayout
 from .stage import (
-    B, N_HAT, T_HAT, Z_HAT, MotorPositions, OpticsCalibration, StageModel, beam_on_layout, rot_2d, rot_z,
+    B, N_HAT, T_HAT, Z_HAT, MotorPositions, OpticsCalibration, StageConfig, StageModel, beam_on_layout, rot_2d, rot_z,
 )
 
 SLIT_ORIENTATIONS = ("horizontal", "vertical")  # ANTARES: horizontal slit
@@ -263,7 +263,48 @@ def relocate(
     return Relocation(measured, new, (u, v, w), target, optic_measured, optic_new, source)
 
 
+@dataclass
+class AxisFit:
+    config: StageConfig  # the input configuration with the fitted SRn axis
+    point: tuple[float, float]  # the measured point, plate frame
+    residuals: list[tuple[float, float]]  # per position: lab x, z of the point (mm), 0 = on the beam
+    lever_arm: float  # distance point - SRn axis (mm)
+
+
+def fit_srn_axis(model: StageModel, positions: list[MotorPositions], w: float) -> AxisFit:
+    """SRn axis position (plate frame) from positions where the same sample point was on the beam.
+
+    Needs at least two positions with different SRn. The model is affine in
+    the plate point and the axis, so this is a linear least-squares fit of
+    "the point is on the beam" (lab x = z = 0) at every position; the point's
+    place along the beam is free (it may sit in front of or behind the focus).
+    ST0 / SZ0 / SN_f are kept: the axis comes out relative to them, which is
+    all the predictions need. The SRz axis offsets are taken from `model`.
+    """
+    if len({round(m.srn, 3) for m in positions}) < 2:
+        raise ValueError("Need positions at two different SRn.")
+    c = model.config
+
+    def residuals(x):
+        cfg = replace(c, srn_axis_u=x[2], srn_axis_v=x[3])
+        mod = StageModel(cfg, model.plate)
+        out = []
+        for m in positions:
+            p = mod.plate_to_lab(m, x[0], x[1], w)
+            out += [p[0], p[2]]
+        return np.array(out)
+
+    x0 = np.array([c.st0 - positions[0].st, c.sz0 - positions[0].sz, c.srn_axis_u, c.srn_axis_v])
+    r0 = residuals(x0)
+    jac = np.column_stack([residuals(x0 + e) - r0 for e in np.eye(4)])  # exact: the model is affine in x
+    x = x0 - np.linalg.lstsq(jac, r0, rcond=None)[0]
+    cfg = replace(c, srn_axis_u=float(x[2]), srn_axis_v=float(x[3]))
+    res = residuals(x).reshape(-1, 2)
+    return AxisFit(cfg, (float(x[0]), float(x[1])), [tuple(map(float, r)) for r in res],
+                   float(np.hypot(x[0] - x[2], x[1] - x[3])))
+
+
 __all__ = [
-    "AnalyzerGeometry", "RotationCandidate", "Relocation", "SLIT_ORIENTATIONS", "align_direction",
+    "AnalyzerGeometry", "AxisFit", "RotationCandidate", "fit_srn_axis", "Relocation", "SLIT_ORIENTATIONS", "align_direction",
     "analyzer_angles", "emission_in_plate", "emission_lab", "onto_line", "relocate", "to_center", "wrap180",
 ]

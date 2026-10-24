@@ -11,11 +11,14 @@ from __future__ import annotations
 
 import math
 
-from ._qt import QtCore, QtWidgets
+from dataclasses import replace
+
+from ._qt import QtCore, QtWidgets, Signal
 from .stage_panel import MotorForm, spin
 from ..rotation import (
-    SLIT_ORIENTATIONS, AnalyzerGeometry, align_direction, onto_line, relocate, to_center, wrap180,
+    SLIT_ORIENTATIONS, AnalyzerGeometry, align_direction, fit_srn_axis, onto_line, relocate, to_center, wrap180,
 )
+from ..stage import beam_on_layout
 from ..viewer_info import ViewerInfo
 
 Qt = QtCore.Qt
@@ -70,6 +73,8 @@ class PasteDialog(QtWidgets.QDialog):
 
 
 class RotationPanel(QtWidgets.QWidget):
+    recordChanged = Signal(object)  # CalibrationRecord with a learned SRn axis
+
     def __init__(self, stage_panel, layout_getter, parent=None):
         super().__init__(parent)
         self.stage = stage_panel
@@ -78,6 +83,7 @@ class RotationPanel(QtWidgets.QWidget):
         self.candidates = []
         self.result = None
         self.settings = QtCore.QSettings("ANTARES", "QuickAlignment")
+        self.axis_fit = None
 
         # -- 1. measurement ---------------------------------------------------------
         load_btn = QtWidgets.QPushButton("Load metadata CSV…")
@@ -188,7 +194,43 @@ class RotationPanel(QtWidgets.QWidget):
 
         left = QtWidgets.QWidget()
         lv = QtWidgets.QVBoxLayout(left)
-        for w in (meas_box, ang_box, goal_box, geo_box):
+        # -- 4. learn the SRn axis of this sample ---------------------------------
+        self.second = MotorForm()
+        second_load = QtWidgets.QPushButton("Load metadata CSV…")
+        second_load.clicked.connect(self.load_second_csv)
+        second_paste = QtWidgets.QPushButton("Paste…")
+        second_paste.clicked.connect(self.paste_second)
+        second_stage = QtWidgets.QPushButton("From Stage tab")
+        second_stage.clicked.connect(lambda: self.second.set_value(self.stage.motors.value()))
+        fit_btn = QtWidgets.QPushButton("Fit SRn axis")
+        fit_btn.clicked.connect(self.fit_axis)
+        self.use_axis_btn = QtWidgets.QPushButton("Use for this sample")
+        self.use_axis_btn.setToolTip("Put the fitted SRn axis into the configuration in use\n"
+                                     "(saved to user_config.json when closing, if you answer Save).")
+        self.use_axis_btn.setEnabled(False)
+        self.use_axis_btn.clicked.connect(self.use_axis)
+        self.axis_label = QtWidgets.QLabel()
+        self.axis_label.setWordWrap(True)
+        self.axis_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        axis_box = QtWidgets.QGroupBox("4. Learn this sample's SRn axis (same point found again after an SRn turn)")
+        ab = QtWidgets.QVBoxLayout(axis_box)
+        note = QtWidgets.QLabel("The SRn axis on the plate changes with every mounting. After the first turn, enter where the "
+                                "same point was found (e.g. the next Map's metadata); with section 1 this fixes the axis.")
+        note.setWordWrap(True)
+        note.setStyleSheet("color: #777;")
+        ab.addWidget(note)
+        row = QtWidgets.QHBoxLayout()
+        for b in (second_load, second_paste, second_stage):
+            row.addWidget(b)
+        ab.addLayout(row)
+        ab.addWidget(self.second)
+        row = QtWidgets.QHBoxLayout()
+        row.addWidget(fit_btn)
+        row.addWidget(self.use_axis_btn)
+        ab.addLayout(row)
+        ab.addWidget(self.axis_label)
+
+        for w in (meas_box, ang_box, goal_box, axis_box, geo_box):
             lv.addWidget(w)
         lv.addStretch(1)
         right = QtWidgets.QWidget()
@@ -281,6 +323,69 @@ class RotationPanel(QtWidgets.QWidget):
         if missing:
             text.append(f"<span style='color:#b00'>not found (taken from the Stage tab): {', '.join(missing)}</span>")
         self.info_label.setText(" — ".join(text))
+
+    # -- SRn axis of this sample -----------------------------------------------------------
+    def load_second_csv(self) -> None:
+        path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Metadata after the turn", "", "CSV (*.csv);;All files (*)")
+        if not path:
+            return
+        try:
+            self._set_second(ViewerInfo.load(path))
+        except (OSError, UnicodeDecodeError) as exc:
+            QtWidgets.QMessageBox.critical(self, "Load failed", str(exc))
+
+    def paste_second(self) -> None:
+        dlg = PasteDialog(self)
+        if dlg.exec() if hasattr(dlg, "exec") else dlg.exec_():
+            self._set_second(ViewerInfo.from_text(dlg.text.toPlainText()))
+
+    def _set_second(self, info: ViewerInfo) -> None:
+        motors, missing = info.motors(self.measured.value())
+        self.second.set_value(motors)
+        self.axis_label.setText(f"<b>{info.source}</b>" + (f" — not found: {', '.join(missing)}" if missing else ""))
+
+    def surface_w(self, m) -> float:
+        """Plate height of the measured point: the sample of the layout under the beam, else H."""
+        layout = self._layout_getter()
+        model = self.stage.model()
+        hit, _, w, target = beam_on_layout(model, m, layout)
+        if hit is not None and any(target.split("/")[0] == s.name for s in layout.samples):
+            return w
+        return model.plate.total_thickness + self.height.value()
+
+    def fit_axis(self) -> None:
+        first, second = self.measured.value(), self.second.value()
+        model = self.stage.model()
+        try:
+            fit = fit_srn_axis(model, [first, second], self.surface_w(first))
+        except ValueError as exc:
+            self.axis_fit = None
+            self.use_axis_btn.setEnabled(False)
+            self.axis_label.setText(f"<b>{exc}</b>")
+            return
+        self.axis_fit = fit
+        c = model.config
+        self.use_axis_btn.setEnabled(True)
+        self.axis_label.setText(
+            f"ΔSRn = {second.srn - first.srn:+.3f}°: SRn axis at plate u = <b>{fit.config.srn_axis_u:.4f}</b>, "
+            f"v = <b>{fit.config.srn_axis_v:.4f}</b> mm (now {c.srn_axis_u:.4f}, {c.srn_axis_v:.4f}); "
+            f"{fit.lever_arm:.3f} mm from the point. ΔSN = {(second.sn - first.sn) * 1000:+.0f} µm"
+            + (" (an SRn turn keeps the surface plane: a large ΔSN means the point was not refocused the same way)."
+               if abs(second.sn - first.sn) > 0.02 else ".")
+        )
+
+    def use_axis(self) -> None:
+        if self.axis_fit is None:
+            return
+        record = self.stage.record
+        record = replace(record, config=self.axis_fit.config,
+                         comment=f"{record.comment}; SRn axis learned on this sample "
+                                 f"({self.axis_fit.config.srn_axis_u:.4f}, {self.axis_fit.config.srn_axis_v:.4f})")
+        self.stage.set_record(record)
+        self.recordChanged.emit(record)
+        self.use_axis_btn.setEnabled(False)
+        if self.candidates:
+            self._show_candidate(self.candidate_combo.currentIndex())
 
     def copy_from_stage(self) -> None:
         self.measured.set_value(self.stage.motors.value())

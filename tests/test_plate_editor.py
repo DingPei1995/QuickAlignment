@@ -393,3 +393,21 @@ def test_rotation_tab_from_viewer_metadata(window):
     panel.phi.setValue(3.0)
     panel.compute()
     assert panel.result is not None and abs(panel.result.new.srz) > 1
+
+
+def test_rotation_tab_learns_srn_axis(window):
+    from quickalignment.stage import MotorPositions
+
+    panel = window.rotation
+    panel.measured.set_value(MotorPositions(st=-0.24994375, sz=43.202, sn=0.34838125, srn=132.0005, srz=0.003))
+    panel.second.set_value(MotorPositions(st=0.24625625, sz=42.901, sn=0.34788125, srn=118.0003, srz=0.003))
+    panel.fit_axis()
+    assert panel.use_axis_btn.isEnabled() and abs(panel.axis_fit.lever_arm - 2.379) < 0.01
+    panel.use_axis()
+    assert window.stage.config().srn_axis_v == panel.axis_fit.config.srn_axis_v
+    # the learned axis now predicts the second position from the first
+    panel.goal.setCurrentIndex(4)  # manual
+    panel.d_srn.setValue(118.0003 - 132.0005)
+    panel.new_srz.setValue(0.003)
+    panel.compute()
+    assert abs(panel.result.new.st - 0.24625625) < 2e-3 and abs(panel.result.new.sz - 42.901) < 2e-3
