@@ -88,6 +88,14 @@ The SRn axis position on the plate comes from the configuration (`configs/calibr
 standard plate, zone plate data WWS2 2025-10-01/02, 2.38 mm from the axis). The SRz axis is not calibrated yet for
 the standard plate.
 
+Capillary: `configs/calibration_2026-10-24_234000_capillary.json` (gating plate, data in `Data for config/`): one
+device (x 1.51, y 2.82 mm on the plate from the photos, Si substrate H = 0.525 mm; `RG_GMC_position_on_plate.png`,
+session `RG_GMC_gating_session.json`) measured at SRn 120 / SRz −12 (CPS 60.30) and SRn 92 / SRz −24 (CPS 61.74)
+with SN kept at ≈ 0 and the capillary refocused. Fitted: SZ0 40.616, SRn axis (−0.93, 2.44), SRz axis offset
+−0.91 mm along ST and 8.45 mm behind the standard riser top, capillary CPS 60.05 on the analyzer focus (ST0 = 0,
+SN_f = 0 kept). Two sets fit exactly, without a check: an error of ±0.3 mm in the drawn x changes the SRz offset
+along SN by ∓1.2 mm.
+
 ### Initial calibration (`InitialCalibration.py`, `docs/initial_calibration.png`)
 
 Separate program for the first start or after re-homing the motors: beamline staff measure one reference
