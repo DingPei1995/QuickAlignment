@@ -25,7 +25,7 @@ PROTOCOL_HTML = """
 when the reference check in QuickAlignment shows large deviations.</p>
 <p><b>Reference feature:</b> one small, sharp feature that you can find with the beam (e.g. the corner of
 a reference sample or a mark), close to the plate centre so that it stays reachable when rotating.
-Enter its plate coordinates x, y (mm, from the centre of the back plate, seen from the analyzer, tab up)
+Enter its plate coordinates x, y (mm, from the centre of the back plate, front view, tab up)
 and its height H above the plate surface. Use <b>the same feature in every set</b>.</p>
 <p><b>For every set:</b></p>
 <ol>

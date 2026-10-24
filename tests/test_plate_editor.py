@@ -22,6 +22,8 @@ def window(monkeypatch, tmp_path):
     from quickalignment.geometry import STANDARD_PLATE
 
     monkeypatch.setattr(app_module, "ask_plate", lambda *a, **k: STANDARD_PLATE)
+    # closing asks whether to save the configuration: answer "Discard" unless a test says otherwise
+    monkeypatch.setattr(QtWidgets.QMessageBox, "question", lambda *a, **k: QtWidgets.QMessageBox.Discard)
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     win = MainWindow(store=CalibrationStore(tmp_path / "configs"))
     win.show()
@@ -149,16 +151,25 @@ def test_stage_panel_bring_to_focus_and_optics(window):
     res = st.last_result
     assert res.target == "Sub/D1"
     assert abs(res.hit[1]) < 1e-3 and abs(res.delta) < 1e-3
-    assert "no move needed" in st.result_label.text()
+    assert "in focus on Sub/D1" in st.result_label.text()
     sn = st.motors.boxes["sn"].value()
     assert sn == pytest.approx(0.5, abs=0.2)  # SN = SN_f + H
+
+    # optic position comes from the configuration; results are absolute positions
+    st.optic_pos.setValue(3.0)
+    st.update_view()
+    assert st.last_result.required_optic_position == pytest.approx(0.0, abs=1e-3)
+    assert "Optic position for focus on Sub/D1: " in st.result_label.text()
+    assert "(entered: 3.0000)" in st.result_label.text()
+    st.use_required_optic()
+    assert st.optic_pos.value() == pytest.approx(0.0, abs=1e-3)
 
     st.motors.boxes["sn"].setValue(sn + 1.0)
     st.update_view()
     assert st.last_result.delta > 1.0
-    assert "TOWARDS the sample" in st.result_label.text()
+    assert st.last_result.required_optic_position == pytest.approx(st.last_result.hit[1], abs=1e-6)
 
-    # calibrated: optic position follows with the chosen sign
+    # measured optics reference: optic position follows with the chosen sign
     from dataclasses import replace
 
     from quickalignment.calibration import CalibrationRecord
@@ -166,11 +177,56 @@ def test_stage_panel_bring_to_focus_and_optics(window):
 
     cal = OpticsCalibration(enabled=True, motors=st.motors.value(), surface_w=5.5, optic_position=10.0, optic_sign=-1)
     window._on_record(replace(CalibrationRecord(), optics=cal))
+    assert st.optic_pos.value() == 10.0  # loaded from the configuration
     st.motors.boxes["sn"].setValue(sn)
     st.update_view()
     res = st.last_result
-    assert res.delta < 0 and res.new_optic_position == pytest.approx(10.0 - res.delta, abs=1e-3)
-    assert "AWAY from the sample" in st.result_label.text()
+    assert res.delta < 0 and res.required_optic_position == pytest.approx(10.0 - res.delta, abs=1e-3)
+
+    # the user focuses by hand and takes this state as the optics reference
+    st.optic_pos.setValue(9.5)
+    st.set_optics_reference()
+    assert st.record.optics.optic_position == 9.5 and st.record.optics.motors.sn == pytest.approx(sn)
+    assert "in focus" in st.result_label.text()
+
+
+def test_user_config_saved_on_close_and_loaded_first(window, monkeypatch):
+    from datetime import datetime
+
+    from quickalignment.calibration import CalibrationRecord
+    from quickalignment.stage import StageConfig
+
+    st, store = window.stage, window.store
+    store.save(CalibrationRecord(comment="staff", config=StageConfig(st0=0.4)), now=datetime(2026, 1, 1))
+    window._on_record(store.latest())
+    st.optic_type.setCurrentText("capillary")
+    st.optic_pos.setValue(7.25)
+
+    monkeypatch.setattr(QtWidgets.QMessageBox, "question", lambda *a, **k: QtWidgets.QMessageBox.Save)
+    window.close()
+    path = store.folder / "user_config.json"
+    text = path.read_text()
+    assert text.lstrip().startswith('{\n  "created": "')  # time stamp first
+    user = store.latest()
+    assert user.kind == "user" and user.config.st0 == 0.4
+    assert user.optics.optic_type == "capillary" and user.optics.current_position == 7.25
+    assert "based on 2026-01-01 00:00:00" in user.comment
+
+    # saving again overwrites the same file; a newer staff calibration wins at start-up
+    store.save_user(user)
+    assert len(list(store.folder.glob("user_config*.json"))) == 1
+    store.save(CalibrationRecord(comment="new staff"), now=datetime(2100, 1, 1))
+    assert store.latest().comment == "new staff"
+
+    # Discard leaves the file untouched, Cancel keeps the window open
+    window.show()
+    monkeypatch.setattr(QtWidgets.QMessageBox, "question", lambda *a, **k: QtWidgets.QMessageBox.Cancel)
+    window.close()
+    assert window.isVisible()
+    monkeypatch.setattr(QtWidgets.QMessageBox, "question", lambda *a, **k: QtWidgets.QMessageBox.Discard)
+    before = path.read_text()
+    window.close()
+    assert path.read_text() == before
 
 
 def test_session_roundtrip(window, tmp_path):

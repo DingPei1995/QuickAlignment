@@ -44,10 +44,10 @@ gs = fig.add_gridspec(1, 3, width_ratios=[1.25, 1, 0.85])
 ax = fig.add_subplot(gs[0])
 ax.set_title("(1) Top view (looking down -Z)  —  SRz=0, SN=0, ST=0", fontsize=13)
 
-# analyzer plane (focal reference)
+# analyzer focal plane
 L = 26
 ax.plot([-L / np.sqrt(2), L / np.sqrt(2)], [L / np.sqrt(2), -L / np.sqrt(2)], "--", color="tab:purple", lw=1.2)
-ax.text(-17.5, 19.5, "Analyzer plane\n(upper-left → lower-right, 45°)", color="tab:purple", fontsize=10)
+ax.text(-17.5, 19.5, "Analyzer focal plane\n(upper-left → lower-right, 45°)", color="tab:purple", fontsize=10)
 
 def draw_plate_top(rot, alpha=1.0, ls="-"):
     kw = dict(closed=True, alpha=alpha, ls=ls, lw=1.2)
@@ -79,7 +79,7 @@ base_c = d * 22
 perp = u_t
 ax.add_patch(Polygon([tip + perp * 1.5, tip - perp * 1.5, base_c - perp * 5, base_c + perp * 5],
                      closed=True, fc="#b8d4f0", ec="tab:blue"))
-ax.text(-24, -14, "Analyzer\n(lens axis ⊥ analyzer plane)", color="tab:blue", fontsize=10)
+ax.text(-24, -14, "Analyzer\n(lens axis ⊥ focal plane)", color="tab:blue", fontsize=10)
 ax.plot(0, 0, "+", color="tab:blue", ms=16, mew=2)
 ax.text(-3.5, 1.4, "Focus", color="tab:blue", fontsize=10)
 
@@ -173,7 +173,7 @@ ax.add_patch(Rectangle((S_H, -h), T_RISER, H_PLATE, fc="#e3e3e3", ec="k"))
 ax.add_patch(Rectangle((S_H + T_RISER, -h), T_BASE, H_PLATE + NECK_H + TAB_H, fc="#c9c9c9", ec="k"))
 ax.add_patch(Rectangle((0, S_OFF[1] - S_W / 2), S_H, S_W, fc="tab:orange", ec="k"))
 ax.plot([0, 0], [-12, 14], "--", color="tab:blue")
-ax.text(0.15, -12.4, "Analyzer focus\nSN_f ≈ 0 (adjustable)", color="tab:blue", fontsize=9)
+ax.text(0.15, -12.4, "Analyzer focal plane", color="tab:blue", fontsize=9)
 ax.plot([SRZ_AXIS_N, SRZ_AXIS_N], [-14, 14.5], "-.", color="tab:purple", lw=1.2)
 ax.text(SRZ_AXIS_N + 0.2, 14.6, "SRz axis? (offset adjustable)", color="tab:purple", fontsize=8)
 arrow(ax, (-9, 0), (-0.3, 0), color="tab:blue", lw=2)
@@ -187,7 +187,7 @@ ax.annotate("", (0, S_OFF[1] + S_W / 2 + 0.7), (S_H, S_OFF[1] + S_W / 2 + 0.7), 
 ax.text(-3.2, S_OFF[1] + S_W / 2 + 1.4, "H sample", fontsize=9, color="tab:orange")
 arrow(ax, (S_H + T_TOTAL + 1.2, -4), (S_H + T_TOTAL + 5.5, -4), color="tab:green")
 ax.text(S_H + T_TOTAL + 1.2, -5.2, "+SN (→65 transfer)", fontsize=9, color="tab:green")
-ax.text(-9.5, -15.2, "SN_cmd = SN_f + 5.0 + H   (surface at focus)", fontsize=10, color="tab:green")
+ax.text(-9.5, -15.2, "SN = SN_f + H   (sample surface at focus)", fontsize=10, color="tab:green")
 ax.set_xlim(-10, 12)
 ax.set_ylim(-16, 15.5)
 ax.set_aspect("equal")

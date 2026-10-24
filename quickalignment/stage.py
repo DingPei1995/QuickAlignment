@@ -166,14 +166,18 @@ class StageModel:
         return m
 
 
+OPTIC_TYPES = ("zone plate + OSA", "capillary")
+
+
 @dataclass
 class OpticsCalibration:
-    """Reference state from a focusing experiment.
+    """Focusing optic (zone plate + OSA or capillary), only along the beam.
 
-    At motor positions `motors`, with the beam on a surface at plate height
-    `surface_w` (5.0 + H), the best focus was found at optic position
-    `optic_position`. `optic_sign` is +1 if increasing the optic motor moves
-    the optic downstream (towards the sample), -1 otherwise.
+    `optic_position` is the absolute optic motor position that puts the focus
+    on the reference point: the analyzer focus, or, when `enabled`, the point
+    where the beam met a surface at plate height `surface_w` with the stage at
+    `motors` (a measured reference). `optic_sign` is +1 if increasing the optic
+    motor moves the optic downstream (towards the sample), -1 otherwise.
     """
 
     enabled: bool = False
@@ -181,6 +185,27 @@ class OpticsCalibration:
     surface_w: float = 5.5
     optic_position: float = 0.0
     optic_sign: int = 1
+    optic_type: str = OPTIC_TYPES[0]
+    last_position: float | None = None  # optic position when the configuration was saved
+
+    @property
+    def current_position(self) -> float:
+        return self.optic_position if self.last_position is None else self.last_position
+
+    def reference_y(self, model: StageModel) -> float:
+        """Position along the beam of the focus when the optic is at `optic_position`."""
+        if not self.enabled:
+            return 0.0  # the analyzer focus
+        ref = model.beam_hit(self.motors, self.surface_w)
+        return 0.0 if ref is None else float(ref[1])
+
+    def position_for_focus(self, model: StageModel, y: float) -> float:
+        """Absolute optic position putting the focus at y along the beam."""
+        return self.optic_position + self.optic_sign * (y - self.reference_y(model))
+
+    def focus_for_position(self, model: StageModel, position: float) -> float:
+        """Focus position along the beam for an absolute optic position."""
+        return self.reference_y(model) + self.optic_sign * (position - self.optic_position)
 
 
 @dataclass
@@ -189,9 +214,14 @@ class BeamResult:
     plate_uv: tuple[float, float] | None
     surface_w: float | None
     target: str  # what the beam lands on
-    focus_y: float  # y of the current optics focus (reference)
-    delta: float | None  # required focus move along the beam, + = downstream (towards the sample)
-    new_optic_position: float | None
+    optic_position: float  # absolute optic position used (entered, or the configuration's)
+    focus_y: float  # focus position along the beam for that optic position
+    required_optic_position: float | None  # absolute optic position for focus on the illuminated surface
+
+    @property
+    def delta(self) -> float | None:
+        """Distance from the focus to the illuminated surface along the beam (+ = surface downstream)."""
+        return None if self.hit is None else float(self.hit[1]) - self.focus_y
 
 
 def beam_on_layout(model: StageModel, m: MotorPositions, layout: SampleLayout) -> tuple[np.ndarray | None, tuple[float, float] | None, float | None, str]:
@@ -232,17 +262,19 @@ def beam_on_layout(model: StageModel, m: MotorPositions, layout: SampleLayout) -
 
 
 def focus_correction(
-    model: StageModel, m: MotorPositions, layout: SampleLayout, cal: OpticsCalibration
+    model: StageModel,
+    m: MotorPositions,
+    layout: SampleLayout,
+    cal: OpticsCalibration,
+    optic_position: float | None = None,
 ) -> BeamResult:
-    """How far the optics focus must move along the beam to land on the illuminated surface."""
+    """Where the beam lands and the absolute optic position that focuses there.
+
+    `optic_position` is the current absolute optic position (default: the
+    configuration's reference position).
+    """
+    position = cal.optic_position if optic_position is None else optic_position
+    focus_y = cal.focus_for_position(model, position)
     hit, uv, w, target = beam_on_layout(model, m, layout)
-    if cal.enabled:
-        ref = model.beam_hit(cal.motors, cal.surface_w)
-        focus_y = 0.0 if ref is None else float(ref[1])
-    else:
-        focus_y = 0.0  # optics focus at the analyzer focus
-    if hit is None:
-        return BeamResult(None, None, None, target, focus_y, None, None)
-    delta = float(hit[1]) - focus_y
-    new_pos = cal.optic_position + cal.optic_sign * delta if cal.enabled else None
-    return BeamResult(hit, uv, w, target, focus_y, delta, new_pos)
+    required = None if hit is None else cal.position_for_focus(model, float(hit[1]))
+    return BeamResult(hit, uv, w, target, position, focus_y, required)

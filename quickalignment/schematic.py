@@ -1,11 +1,12 @@
 """Matplotlib schematic of the current stage / beam / optics state.
 
 * Top view (lab x-y, from the full stage model): plate orientation (SRz),
-  analyzer, beam, optics and the required optics move.
-* Sample plane (as seen from the analyzer, SRn rotation applied): samples,
-  devices and the beam spot. The axes are absolute ST / SZ: a point drawn at
-  (ST, SZ) comes onto the beam with those motor values (current SRn and
-  piezo, SRz = 0), so the beam spot sits at the current ST, SZ.
+  analyzer and its focal plane, beam, optic with its absolute position.
+* Sample plane (front view along the surface normal, SRn rotation applied,
+  SRz not shown): samples, devices and the beam spot. The axes are absolute
+  ST / SZ: a point drawn at (ST, SZ) comes onto the beam with those motor
+  values (current SRn and piezo, SRz = 0), so the beam spot sits at the
+  current ST, SZ.
 """
 
 from __future__ import annotations
@@ -66,7 +67,7 @@ def _solids(layout: SampleLayout):
     return out
 
 
-def _draw_top_view(ax, model: StageModel, m: MotorPositions, layout: SampleLayout, result: BeamResult) -> None:
+def _draw_top_view(ax, model: StageModel, m: MotorPositions, layout: SampleLayout, result: BeamResult, optic_type: str) -> None:
     pts = []
     for box in _solids(layout):
         u0, v0, u1, v1, w0, w1, colour = box
@@ -76,7 +77,7 @@ def _draw_top_view(ax, model: StageModel, m: MotorPositions, layout: SampleLayou
 
     L = 30
     ax.plot([-L / np.sqrt(2), L / np.sqrt(2)], [L / np.sqrt(2), -L / np.sqrt(2)], "--", color="tab:purple", lw=0.8)
-    ax.text(9, -11, "analyzer plane", color="tab:purple", fontsize=7, rotation=-45, clip_on=True)
+    ax.text(9, -11, "analyzer focal plane", color="tab:purple", fontsize=7, rotation=-45, clip_on=True)
     tip, base = -N_HAT * 5, -N_HAT * 20
     cone = [tip + T_HAT * 1.2, tip - T_HAT * 1.2, base - T_HAT * 4.5, base + T_HAT * 4.5]
     ax.add_patch(Polygon([p[:2] for p in cone], closed=True, fc="#b8d4f0", ec=C_ANALYZER))
@@ -89,13 +90,12 @@ def _draw_top_view(ax, model: StageModel, m: MotorPositions, layout: SampleLayou
     ax.annotate("", (0, y_end), (0, oy - 12), arrowprops=dict(arrowstyle="-|>", color=C_BEAM, lw=1.6))
     ax.text(0.8, oy - 11, "beam", color=C_BEAM, fontsize=8)
     ax.add_patch(Polygon([(-2.5, oy - 1), (2.5, oy - 1), (2.5, oy + 1), (-2.5, oy + 1)], closed=True, fc="#d9c3b0", ec=C_OPTIC))
-    ax.text(3, oy, "optic", color=C_OPTIC, fontsize=8, va="center")
+    ax.text(3, oy, f"{optic_type}\nat {result.optic_position:.4f}", color=C_OPTIC, fontsize=8, va="center")
     ax.plot(0, fy, "o", mfc="none", mec=C_OPTIC, ms=7)
-    if result.delta is not None and abs(result.delta) >= 1e-3:
-        towards = result.delta > 0
-        ax.annotate("", (-4, oy + (3 if towards else -3)), (-4, oy), arrowprops=dict(arrowstyle="-|>", color=C_OPTIC, lw=1.8))
-        ax.text(-4.6, oy, f"{abs(result.delta):.3f} mm\n{'towards' if towards else 'away from'}\nsample",
-                color=C_OPTIC, fontsize=8, ha="right", va="center")
+    ax.text(-1.2, fy, "optic focus", color=C_OPTIC, fontsize=7, ha="right", va="center")
+    required = result.required_optic_position
+    if required is not None and abs(required - result.optic_position) >= 1e-3:
+        ax.text(-3.2, oy, f"needed:\n{required:.4f}", color=C_OPTIC, fontsize=8, ha="right", va="center", weight="bold")
     if hit is not None:
         ax.plot(hit[0], hit[1], "x", color=C_BEAM, ms=9, mew=2)
 
@@ -148,7 +148,7 @@ def _draw_sample_plane(ax, model: StageModel, m: MotorPositions, layout: SampleL
             ax.plot(*p, "o", mfc="white", mec=C_DEVICE, ms=5, mew=1.5)
             ax.text(p[0], p[1], f"  {d.name}", color=C_DEVICE, fontsize=7, va="bottom")
 
-    # SRn axis, analyzer focus (projected on the surface) and beam spot
+    # SRn axis, analyzer focus (projected along the surface normal) and beam spot
     ax.plot(*to_xy(c.srn_axis_u, c.srn_axis_v), "o", mfc="none", mec="tab:purple", ms=9, mew=1.5)
     focus_uv = model.lab_to_plate(m, np.zeros(3))[:2]
     ax.plot(*to_xy(*focus_uv), "+", color=C_ANALYZER, ms=14, mew=2)
@@ -160,23 +160,25 @@ def _draw_sample_plane(ax, model: StageModel, m: MotorPositions, layout: SampleL
     allp = np.vstack(extra)
     lo, hi = allp.min(axis=0) - 1.5, allp.max(axis=0) + 1.5
     ctr, span = (lo + hi) / 2, (hi - lo).max()
-    # seen from the analyzer: larger ST / SZ values are to the left / below
+    # front view: larger ST / SZ values are to the left / below
     ax.set_xlim(ctr[0] + span / 2, ctr[0] - span / 2)
     ax.set_ylim(ctr[1] + span / 2, ctr[1] - span / 2)
     ax.set_aspect("equal")
-    ax.set_xlabel("ST (mm) to bring a point onto the beam")
+    ax.set_xlabel("ST (mm) that brings a point onto the beam (SRz = 0)")
     ax.set_ylabel("SZ (mm)")
     ax.grid(alpha=0.25)
     ax.set_title(
-        f"Sample plane (seen from analyzer)   SRn = {m.srn:g}°\nSZ = {m.sz:.4f}   PIX = {m.pix:g}   PIY = {m.piy:g}"
-        "\n× beam spot   + analyzer focus   ○ SRn axis",
+        f"Sample plane, front view   SRn = {m.srn:g}°\nSZ = {m.sz:.4f}   PIX = {m.pix:g}   PIY = {m.piy:g}"
+        "\n× beam spot   + analyzer focus (projected)   ○ SRn axis",
         fontsize=9,
     )
 
 
-def draw_schematic(fig, model: StageModel, m: MotorPositions, layout: SampleLayout, result: BeamResult) -> None:
+def draw_schematic(
+    fig, model: StageModel, m: MotorPositions, layout: SampleLayout, result: BeamResult, optic_type: str = "optic"
+) -> None:
     fig.clear()
     ax_top, ax_plane = fig.subplots(1, 2)
-    _draw_top_view(ax_top, model, m, layout, result)
+    _draw_top_view(ax_top, model, m, layout, result, optic_type)
     _draw_sample_plane(ax_plane, model, m, layout, result)
     fig.tight_layout()

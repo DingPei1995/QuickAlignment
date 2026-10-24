@@ -10,10 +10,12 @@ from __future__ import annotations
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
 
+from dataclasses import replace
+
 from ._qt import QtCore, QtWidgets
 from ..calibration import CalibrationRecord
 from ..schematic import draw_schematic
-from ..stage import MotorPositions, OpticsCalibration, StageConfig, StageModel, focus_correction
+from ..stage import OPTIC_TYPES, MotorPositions, OpticsCalibration, StageConfig, StageModel, focus_correction
 
 Qt = QtCore.Qt
 
@@ -81,7 +83,7 @@ class StagePanel(QtWidgets.QWidget):
         self.motors = MotorForm()
         self.target_combo = QtWidgets.QComboBox()
         goto_btn = QtWidgets.QPushButton("Bring target to focus")
-        goto_btn.setToolTip("Compute ST / SN / SZ that put the target on the analyzer focus,\nkeeping SRn, SRz, PIX, PIY as entered.")
+        goto_btn.setToolTip("Compute ST / SN / SZ that put the target on the beam at the analyzer focus,\nkeeping SRn, SRz, PIX, PIY as entered.")
         goto_btn.clicked.connect(self.bring_target_to_focus)
         motor_box = QtWidgets.QGroupBox("Sample stage (current / planned positions)")
         mb = QtWidgets.QVBoxLayout(motor_box)
@@ -91,6 +93,34 @@ class StagePanel(QtWidgets.QWidget):
         row.addWidget(self.target_combo, 1)
         row.addWidget(goto_btn)
         mb.addLayout(row)
+
+        # focusing optic: absolute position along the beam
+        self.optic_type = QtWidgets.QComboBox()
+        self.optic_type.addItems(OPTIC_TYPES)
+        self.optic_type.currentTextChanged.connect(self._on_optic_type)
+        self.optic_pos = spin(0.0, -10000, 10000, 4, 0.01)
+        self.optic_pos.setToolTip("Absolute optic motor position along the beam (from the configuration, or typed in).")
+        use_btn = QtWidgets.QPushButton("Use required position")
+        use_btn.setToolTip("Copy the optic position computed by the last update into the field.")
+        use_btn.clicked.connect(self.use_required_optic)
+        ref_btn = QtWidgets.QPushButton("Set as optics reference")
+        ref_btn.setToolTip(
+            "The beam is in focus now: take the current stage positions, the illuminated surface\n"
+            "and this optic position as the optics reference (saved in the user configuration)."
+        )
+        ref_btn.clicked.connect(self.set_optics_reference)
+        self.optic_ref_label = QtWidgets.QLabel()
+        self.optic_ref_label.setWordWrap(True)
+        self.optic_ref_label.setStyleSheet("color: #555;")
+        optic_box = QtWidgets.QGroupBox("Focusing optic (along the beam)")
+        of = QtWidgets.QFormLayout(optic_box)
+        of.addRow("Type", self.optic_type)
+        of.addRow("Optic position", self.optic_pos)
+        buttons = QtWidgets.QHBoxLayout()
+        buttons.addWidget(use_btn)
+        buttons.addWidget(ref_btn)
+        of.addRow(buttons)
+        of.addRow(self.optic_ref_label)
 
         update_btn = QtWidgets.QPushButton("Update schematic && optics")
         update_btn.setMinimumHeight(36)
@@ -107,7 +137,7 @@ class StagePanel(QtWidgets.QWidget):
 
         left = QtWidgets.QWidget()
         lv = QtWidgets.QVBoxLayout(left)
-        for w in (motor_box, update_btn, self.result_label, self.cal_status):
+        for w in (motor_box, optic_box, update_btn, self.result_label, self.cal_status):
             lv.addWidget(w)
         lv.addStretch(1)
         scroll = QtWidgets.QScrollArea()
@@ -132,19 +162,59 @@ class StagePanel(QtWidgets.QWidget):
 
     # -- state ----------------------------------------------------------------
     def set_record(self, record: CalibrationRecord) -> None:
+        """Use a configuration; the optic fields are loaded from it."""
         self.record = record
-        optics = record.optics
-        state = (
-            f"optics reference: optic at {optics.optic_position:.4f}"
-            if optics.enabled else "no optics reference (optics focus assumed at the analyzer focus)"
-        )
-        self.cal_status.setText(f"Calibration in use: <b>{record.label}</b> — {record.comment}<br>{state}")
+        self.optic_type.blockSignals(True)
+        if self.optic_type.findText(record.optics.optic_type) < 0:
+            self.optic_type.addItem(record.optics.optic_type)
+        self.optic_type.setCurrentText(record.optics.optic_type)
+        self.optic_type.blockSignals(False)
+        self.optic_pos.setValue(record.optics.current_position)
+        self._show_record()
+
+    def _show_record(self) -> None:
+        record, optics = self.record, self.record.optics
+        if optics.enabled:
+            m = optics.motors
+            ref = (f"in focus at optic {optics.optic_position:.4f} with ST {m.st:.4f}, SZ {m.sz:.4f}, SN {m.sn:.4f}, "
+                   f"SRn {m.srn:g}, SRz {m.srz:g}")
+        else:
+            ref = f"in focus on the analyzer focus at optic {optics.optic_position:.4f}"
+        self.optic_ref_label.setText(f"Optics reference: {ref}")
+        self.cal_status.setText(f"Configuration in use: <b>{record.label}</b> — {record.comment}")
 
     def config(self) -> StageConfig:
         return self.record.config
 
     def calibration(self) -> OpticsCalibration:
         return self.record.optics
+
+    def current_record(self) -> CalibrationRecord:
+        """The configuration in use with the optic type and position as entered (for saving)."""
+        optics = replace(self.record.optics, optic_type=self.optic_type.currentText(), last_position=self.optic_pos.value())
+        return replace(self.record, optics=optics)
+
+    def _on_optic_type(self, text: str) -> None:
+        self.record = replace(self.record, optics=replace(self.record.optics, optic_type=text))
+
+    def use_required_optic(self) -> None:
+        if self.last_result is not None and self.last_result.required_optic_position is not None:
+            self.optic_pos.setValue(self.last_result.required_optic_position)
+            self.update_view()
+
+    def set_optics_reference(self) -> None:
+        """The current state is in focus: make it the optics reference."""
+        res = focus_correction(self.model(), self.motors.value(), self._layout_getter(), self.calibration())
+        if res.hit is None:
+            QtWidgets.QMessageBox.warning(self, "Optics reference", "The beam does not hit the plate: no reference possible.")
+            return
+        optics = replace(
+            self.record.optics, enabled=True, motors=self.motors.value(), surface_w=res.surface_w,
+            optic_position=self.optic_pos.value(),
+        )
+        self.record = replace(self.record, optics=optics)
+        self._show_record()
+        self.update_view()
 
     def model(self) -> StageModel:
         return StageModel(self.config(), self._layout_getter().plate)
@@ -187,8 +257,8 @@ class StagePanel(QtWidgets.QWidget):
         layout = self._layout_getter()
         model = self.model()
         m = self.motors.value()
-        res = focus_correction(model, m, layout, self.calibration())
-        draw_schematic(self.figure, model, m, layout, res)
+        res = focus_correction(model, m, layout, self.calibration(), self.optic_pos.value())
+        draw_schematic(self.figure, model, m, layout, res, self.optic_type.currentText())
         self.canvas.draw_idle()
         self.result_label.setText(self.describe(res))
         self.last_result = res
@@ -198,19 +268,16 @@ class StagePanel(QtWidgets.QWidget):
             return "<b>The beam misses the plate</b> (or runs parallel to it)."
         st, sz, sn = self.model().reference_motors(*res.plate_uv, res.surface_w)
         lines = [
-            f"Beam lands on <b>{res.target}</b>, at the point found at ST = {st:.3f}, SZ = {sz:.3f}, SN = {sn:.3f} "
-            "(SRn = ref, SRz = 0).",
-            f"Beam spot is {abs(res.hit[1]):.3f} mm {'downstream' if res.hit[1] > 0 else 'upstream'} of the analyzer focus"
+            f"Beam lands on <b>{res.target}</b>: the point that comes onto the beam at ST = {st:.3f}, "
+            f"SZ = {sz:.3f}, SN = {sn:.3f} with SRn = {self.config().srn_ref:g}, SRz = 0.",
+            f"Beam spot is {abs(res.hit[1]):.3f} mm {'downstream' if res.hit[1] > 0 else 'upstream'} of the analyzer focus."
             if abs(res.hit[1]) >= TOLERANCE else "Beam spot is on the analyzer focus.",
         ]
-        d = res.delta
-        if abs(d) < TOLERANCE:
-            lines.append("<b>Optics: no move needed.</b>")
+        if abs(res.required_optic_position - res.optic_position) < TOLERANCE:
+            lines.append(f"<b>Optic position {res.optic_position:.4f}: in focus on {res.target}.</b>")
         else:
-            where = "TOWARDS the sample (downstream)" if d > 0 else "AWAY from the sample (upstream)"
-            lines.append(f"<b>Optics: move the focus {abs(d):.3f} mm along the beam, {where}.</b>")
-        if res.new_optic_position is not None:
-            lines.append(f"New optic motor position: <b>{res.new_optic_position:.4f}</b> (from calibration).")
-        else:
-            lines.append("No optics reference: move is relative to the analyzer focus.")
+            lines.append(
+                f"<b>Optic position for focus on {res.target}: {res.required_optic_position:.4f}</b> "
+                f"(entered: {res.optic_position:.4f})."
+            )
         return "<br>".join(lines)
