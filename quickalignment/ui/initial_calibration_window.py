@@ -30,7 +30,7 @@ Qt = QtCore.Qt
 PROTOCOL_HTML = """
 <h3>Initial calibration – measurement protocol</h3>
 <p><b>When:</b> first use, after re-homing / resetting the manipulator motors, after maintenance or
-when samples are found far (≳ 1 mm, the same shift for several samples) from where QuickAlignment predicts them.</p>
+when samples are found far (≳ 0.3 mm, the same shift for several samples) from where QuickAlignment predicts them.</p>
 <p><b>Reference feature:</b> one small, sharp feature that you can find with the beam (e.g. the corner of
 a reference sample or a mark), close to the plate centre so that it stays reachable when rotating.
 Enter its plate coordinates x, y (mm, from the centre of the back plate, front view, tab up)
