@@ -14,17 +14,18 @@ def close(a, b, tol=1e-9):
 def test_reference_pose():
     model = StageModel()
     m = MotorPositions()
-    # plate back face centre on the focus, surface towards the analyzer (-n)
-    assert close(model.plate_to_lab(m, 0, 0, 0), [0, 0, 0])
-    assert close(model.plate_to_lab(m, 1, 0, 0), T_HAT)
-    assert close(model.plate_to_lab(m, 0, 1, 0), [0, 0, 1])
+    # riser top (w = 5.0) centre on the focus, surface towards the analyzer (-n)
+    assert close(model.plate_to_lab(m, 0, 0, 5.0), [0, 0, 0])
+    assert close(model.plate_to_lab(m, 0, 0, 0), 5.0 * N_HAT)  # back face behind the focus
+    assert close(model.plate_to_lab(m, 1, 0, 5.0), T_HAT)
+    assert close(model.plate_to_lab(m, 0, 1, 5.0), [0, 0, 1])
     assert close(model.surface_normal(m), -N_HAT)
 
 
 def test_sn_focus_rule():
     model = StageModel(StageConfig(sn_f=0.3))
     h = 0.5
-    m = MotorPositions(sn=0.3 + 5.0 + h)
+    m = MotorPositions(sn=0.3 + h)  # SN = SN_f + H
     assert close(model.plate_to_lab(m, 0, 0, 5.0 + h), [0, 0, 0])
 
 
@@ -83,24 +84,24 @@ def test_motors_for_target_puts_point_on_focus():
 def test_beam_hit_and_focus_shift():
     model = StageModel()
     layout = SampleLayout(samples=[Sample("A", u=0, v=0, length=4, width=4, height=0.5)])
-    m = MotorPositions(sn=5.5)
+    m = MotorPositions(sn=0.5)
     res = focus_correction(model, m, layout, OpticsCalibration())
     assert res.target == "A" and close(res.hit, [0, 0, 0]) and res.delta == pytest.approx(0)
     # moving the sample 1 mm away from the analyzer -> focus 1.414 mm downstream
-    res = focus_correction(model, MotorPositions(sn=6.5), layout, OpticsCalibration())
+    res = focus_correction(model, MotorPositions(sn=1.5), layout, OpticsCalibration())
     assert res.delta == pytest.approx(np.sqrt(2))
     # ST / SZ / SRn keep the surface plane -> no optics move
-    for mm in (MotorPositions(sn=5.5, st=1), MotorPositions(sn=5.5, sz=41), MotorPositions(sn=5.5, srn=130)):
+    for mm in (MotorPositions(sn=0.5, st=1), MotorPositions(sn=0.5, sz=41), MotorPositions(sn=0.5, srn=130)):
         assert focus_correction(model, mm, layout, OpticsCalibration()).delta == pytest.approx(0, abs=1e-9)
 
 
 def test_calibrated_prediction():
     model = StageModel()
     layout = SampleLayout(samples=[Sample("A", u=0, v=0, length=6, width=6, height=0.5)])
-    cal = OpticsCalibration(enabled=True, motors=MotorPositions(sn=5.6), surface_w=5.5, optic_position=12.0, optic_sign=-1)
-    res = focus_correction(model, MotorPositions(sn=5.6), layout, cal)
+    cal = OpticsCalibration(enabled=True, motors=MotorPositions(sn=0.6), surface_w=5.5, optic_position=12.0, optic_sign=-1)
+    res = focus_correction(model, MotorPositions(sn=0.6), layout, cal)
     assert res.delta == pytest.approx(0) and res.new_optic_position == pytest.approx(12.0)
-    res = focus_correction(model, MotorPositions(sn=6.6), layout, cal)
+    res = focus_correction(model, MotorPositions(sn=1.6), layout, cal)
     assert res.delta == pytest.approx(np.sqrt(2))
     assert res.new_optic_position == pytest.approx(12.0 - np.sqrt(2))
 

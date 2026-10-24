@@ -236,7 +236,7 @@ class SampleLayout:
     def to_dict(self) -> dict:
         return {
             "frame": "plate frame seen from analyzer at SRn=120: origin = plate body centre, "
-            "+u right (PIX), +v up (PIY), mm; ST = ST0 - u, SZ = SZ0 - v, SN = SN_f + 5.0 + H",
+            "+u right (PIX), +v up (PIY), mm; ST = ST0 - u, SZ = SZ0 - v, SN = SN_f + H (w measured from the back face)",
             "plate_type": self.plate.key,
             "samples": [asdict(s) for s in self.samples],
         }

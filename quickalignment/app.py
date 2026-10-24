@@ -4,16 +4,18 @@ from __future__ import annotations
 
 import sys
 
+from .calibration import CalibrationRecord, CalibrationStore
 from .geometry import SampleLayout
 from .session import Session
 from .ui._qt import QtWidgets, exec_app
+from .ui.calibration_dialog import CalibrationDialog
 from .ui.plate_choice import ask_plate
 from .ui.plate_editor import PlateEditor
 from .ui.stage_panel import StagePanel
 
 
 class MainWindow(QtWidgets.QMainWindow):
-    def __init__(self, session: Session | None = None):
+    def __init__(self, session: Session | None = None, store: CalibrationStore | None = None):
         super().__init__()
         self.setWindowTitle("ANTARES QuickAlignment")
         self.resize(1450, 860)
@@ -22,7 +24,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.editor = PlateEditor()
         self.stage = StagePanel(lambda: self.editor.layout_model)
         self.editor.layoutChanged.connect(self.stage.refresh_targets)
-        self.stage.configChanged.connect(lambda: self.editor.set_config(self.stage.config()))
+        self.store = store or CalibrationStore()
+        self.cal_dialog = CalibrationDialog(self.store, self.stage, self)
+        self.cal_dialog.recordChanged.connect(self._on_record)
         self.tabs = QtWidgets.QTabWidget()
         self.tabs.addTab(self.editor, "Samples")
         self.tabs.addTab(self.stage, "Stage && Optics")
@@ -35,7 +39,7 @@ class MainWindow(QtWidgets.QMainWindow):
             ("Save", self.save_session),
             ("Save as…", self.save_session_as),
             (None, None),
-            ("Calibration…", self.stage.open_calibration),
+            ("Calibration…", self.open_calibration),
             ("Change plate…", self.change_plate),
         ):
             if text is None:
@@ -49,18 +53,30 @@ class MainWindow(QtWidgets.QMainWindow):
         self.plate_label = QtWidgets.QLabel()
         self.plate_label.setStyleSheet("padding-left: 8px; font-weight: bold;")
         bar.addWidget(self.plate_label)
+        self.cal_label = QtWidgets.QLabel()
+        self.cal_label.setStyleSheet("padding-left: 12px;")
+        bar.addWidget(self.cal_label)
         self.statusBar().showMessage("Draw samples on the plate, then go to “Stage & Optics”.")
         self.set_session(session or Session())
+        # the newest calibration configuration is used by default
+        self._on_record(self.store.latest())
+
+    def open_calibration(self) -> None:
+        self.cal_dialog.show()
+        self.cal_dialog.raise_()
+        self.cal_dialog.activateWindow()
+
+    def _on_record(self, record: CalibrationRecord) -> None:
+        self.stage.set_record(record)
+        self.cal_label.setText(f"Calibration: {record.label}")
+        self.stage.update_view()
 
     def session(self) -> Session:
-        return Session(self.editor.layout_model, self.stage.config(), self.stage.calibration(), self.stage.motors.value())
+        return Session(self.editor.layout_model, self.stage.motors.value())
 
     def set_session(self, session: Session) -> None:
-        self.stage.set_config(session.config)
-        self.editor.set_config(session.config)
         self.editor.set_layout(session.layout)
         self.plate_label.setText(f"Plate: {session.layout.plate.name}")
-        self.stage.set_calibration(session.calibration)
         self.stage.motors.set_value(session.motors)
         self.stage.refresh_targets()
         self.stage.update_view()

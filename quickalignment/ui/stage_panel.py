@@ -1,6 +1,8 @@
-"""Stage & optics panel: motor inputs, optics calibration and the schematic.
+"""Stage & optics panel: motor inputs, results and the schematic.
 
 The schematic and the results are only recomputed when "Update" is pressed.
+Calibration constants come from the current CalibrationRecord (see the
+calibration window).
 """
 
 from __future__ import annotations
@@ -8,7 +10,8 @@ from __future__ import annotations
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
 
-from ._qt import QtCore, QtWidgets, Signal
+from ._qt import QtCore, QtWidgets
+from ..calibration import CalibrationRecord
 from ..schematic import draw_schematic
 from ..stage import MotorPositions, OpticsCalibration, StageConfig, StageModel, focus_correction
 
@@ -26,7 +29,7 @@ MOTOR_SPECS = {  # name: (label, min, max, decimals, step, suffix)
 CONFIG_SPECS = {
     "st0": ("ST0 (plate centre)", " mm"),
     "sz0": ("SZ0 (plate centre)", " mm"),
-    "sn_f": ("SN_f (back face in focus)", " mm"),
+    "sn_f": ("SN_f (plate surface in focus)", " mm"),
     "srn_ref": ("SRn ref (vertical, tab up)", " °"),
     "pi_center": ("Piezo centre", " µm"),
     "srn_axis_u": ("SRn axis u on plate", " mm"),
@@ -34,7 +37,6 @@ CONFIG_SPECS = {
     "srz_offset_t": ("SRz axis offset along +ST", " mm"),
     "srz_offset_n": ("SRz axis offset along +SN", " mm"),
 }
-MANUAL_H = "(enter H manually)"
 TOLERANCE = 1e-3  # mm; below this a move is reported as not needed
 OPTIC_DIRECTIONS = ["+ moves optic downstream (towards sample)", "+ moves optic upstream (away from sample)"]
 
@@ -71,13 +73,11 @@ class MotorForm(QtWidgets.QWidget):
 
 
 class StagePanel(QtWidgets.QWidget):
-    configChanged = Signal()
-
     def __init__(self, layout_getter, parent=None):
         super().__init__(parent)
         self._layout_getter = layout_getter
+        self.record = CalibrationRecord()
 
-        # -- current motors ---------------------------------------------------
         self.motors = MotorForm()
         self.target_combo = QtWidgets.QComboBox()
         goto_btn = QtWidgets.QPushButton("Bring target to focus")
@@ -92,69 +92,18 @@ class StagePanel(QtWidgets.QWidget):
         row.addWidget(goto_btn)
         mb.addLayout(row)
 
-        # -- optics calibration -------------------------------------------------
-        self.cal_enabled = QtWidgets.QCheckBox("Use calibration (otherwise the optics focus is at the analyzer focus)")
-        self.cal_motors = MotorForm()
-        copy_btn = QtWidgets.QPushButton("Copy current stage positions")
-        copy_btn.clicked.connect(lambda: self.cal_motors.set_value(self.motors.value()))
-        self.cal_sample_combo = QtWidgets.QComboBox()
-        self.cal_sample_combo.currentIndexChanged.connect(self._on_cal_sample)
-        self.cal_h = spin(0.5, 0, 50, 3, 0.1)
-        self.optic_pos = spin(0.0, -10000, 10000, 4, 0.01)
-        self.optic_dir = QtWidgets.QComboBox()
-        self.optic_dir.addItems(OPTIC_DIRECTIONS)
-        cal_box = QtWidgets.QGroupBox("Optics calibration (after the first focusing)")
-        cb = QtWidgets.QVBoxLayout(cal_box)
-        cb.addWidget(self.cal_enabled)
-        cb.addWidget(QtWidgets.QLabel("Stage positions when the focus was optimised:"))
-        cb.addWidget(self.cal_motors)
-        cb.addWidget(copy_btn)
-        cf = QtWidgets.QFormLayout()
-        hrow = QtWidgets.QHBoxLayout()
-        hrow.addWidget(self.cal_sample_combo, 1)
-        hrow.addWidget(self.cal_h)
-        cf.addRow("Illuminated sample / H", hrow)
-        cf.addRow("Optic position at best focus", self.optic_pos)
-        cf.addRow("Optic motor direction", self.optic_dir)
-        cb.addLayout(cf)
-
-        # -- stage parameters ---------------------------------------------------
-        cfg = StageConfig()
-        self.cfg_boxes = {}
-        par_box = QtWidgets.QGroupBox("Stage parameters (calibration constants)")
-        pf = QtWidgets.QFormLayout(par_box)
-        for name, (label, suffix) in CONFIG_SPECS.items():
-            lo, hi = (0, 300) if name == "pi_center" else (-1000, 1000)
-            self.cfg_boxes[name] = spin(getattr(cfg, name), lo, hi, 4, 0.1, suffix)
-            self.cfg_boxes[name].valueChanged.connect(self.configChanged)
-            pf.addRow(label, self.cfg_boxes[name])
-
-        # calibration lives in its own (non-modal) window, opened from the toolbar
-        self.cal_dialog = QtWidgets.QDialog(self)
-        self.cal_dialog.setWindowTitle("Calibration")
-        dv = QtWidgets.QVBoxLayout(self.cal_dialog)
-        dv.addWidget(cal_box)
-        dv.addWidget(par_box)
-        close_btn = QtWidgets.QPushButton("Close")
-        close_btn.clicked.connect(self.cal_dialog.hide)
-        dv.addWidget(close_btn, 0, Qt.AlignRight)
-
         update_btn = QtWidgets.QPushButton("Update schematic && optics")
         update_btn.setMinimumHeight(36)
         update_btn.setStyleSheet("font-weight: bold;")
         update_btn.clicked.connect(self.update_view)
 
-        self.cal_status = QtWidgets.QLabel()
-        self.cal_status.setWordWrap(True)
-        self.cal_status.setStyleSheet("color: #555;")
-        self.cal_enabled.toggled.connect(self._update_cal_status)
-        self.optic_pos.valueChanged.connect(self._update_cal_status)
-        self._update_cal_status()
-
         self.result_label = QtWidgets.QLabel("Press “Update schematic & optics”.")
         self.result_label.setWordWrap(True)
         self.result_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.result_label.setStyleSheet("font-size: 13px; padding: 6px; background: #f6f6f6; border: 1px solid #ddd;")
+        self.cal_status = QtWidgets.QLabel()
+        self.cal_status.setWordWrap(True)
+        self.cal_status.setStyleSheet("color: #555;")
 
         left = QtWidgets.QWidget()
         lv = QtWidgets.QVBoxLayout(left)
@@ -166,75 +115,56 @@ class StagePanel(QtWidgets.QWidget):
         scroll.setWidgetResizable(True)
         scroll.setMinimumWidth(430)
 
-        # -- right: schematic ---------------------------------------------------------
         self.figure = Figure(figsize=(11, 5.5))
         self.canvas = FigureCanvasQTAgg(self.figure)
-        right = self.canvas
 
         splitter = QtWidgets.QSplitter()
         splitter.addWidget(scroll)
-        splitter.addWidget(right)
+        splitter.addWidget(self.canvas)
         splitter.setStretchFactor(1, 1)
         box = QtWidgets.QVBoxLayout(self)
         box.setContentsMargins(4, 4, 4, 4)
         box.addWidget(splitter)
 
         self.last_result = None
+        self.set_record(self.record)
         self.refresh_targets()
 
     # -- state ----------------------------------------------------------------
-    def config(self) -> StageConfig:
-        return StageConfig(**{k: b.value() for k, b in self.cfg_boxes.items()})
+    def set_record(self, record: CalibrationRecord) -> None:
+        self.record = record
+        optics = record.optics
+        state = (
+            f"optics reference: optic at {optics.optic_position:.4f}"
+            if optics.enabled else "no optics reference (optics focus assumed at the analyzer focus)"
+        )
+        self.cal_status.setText(f"Calibration in use: <b>{record.label}</b> — {record.comment}<br>{state}")
 
-    def set_config(self, cfg: StageConfig) -> None:
-        for k, b in self.cfg_boxes.items():
-            b.setValue(getattr(cfg, k))
+    def config(self) -> StageConfig:
+        return self.record.config
 
     def calibration(self) -> OpticsCalibration:
-        return OpticsCalibration(
-            enabled=self.cal_enabled.isChecked(),
-            motors=self.cal_motors.value(),
-            surface_w=self._layout_getter().plate.total_thickness + self.cal_h.value(),
-            optic_position=self.optic_pos.value(),
-            optic_sign=1 if self.optic_dir.currentIndex() == 0 else -1,
-        )
-
-    def set_calibration(self, cal: OpticsCalibration) -> None:
-        self.cal_enabled.setChecked(cal.enabled)
-        self.cal_motors.set_value(cal.motors)
-        self.cal_h.setValue(cal.surface_w - self._layout_getter().plate.total_thickness)
-        self.optic_pos.setValue(cal.optic_position)
-        self.optic_dir.setCurrentIndex(0 if cal.optic_sign > 0 else 1)
+        return self.record.optics
 
     def model(self) -> StageModel:
         return StageModel(self.config(), self._layout_getter().plate)
 
-    def open_calibration(self) -> None:
-        self.cal_dialog.show()
-        self.cal_dialog.raise_()
-        self.cal_dialog.activateWindow()
-
-    def _update_cal_status(self) -> None:
-        if self.cal_enabled.isChecked():
-            self.cal_status.setText(f"Optics calibration ON (optic at {self.optic_pos.value():.4f} at the reference). Edit via “Calibration…”.")
-        else:
-            self.cal_status.setText("Optics calibration OFF: optics focus assumed at the analyzer focus. Set it via “Calibration…”.")
-
-    # -- actions ----------------------------------------------------------------
+    # -- targets ----------------------------------------------------------------
     def refresh_targets(self) -> None:
-        targets = self._layout_getter().targets()
-        for combo in (self.target_combo, self.cal_sample_combo):
-            current = combo.currentText()
-            combo.blockSignals(True)
-            combo.clear()
-            combo.addItem("plate centre" if combo is self.target_combo else MANUAL_H)
-            for label, *_ in targets:
-                combo.addItem(label)
-            idx = combo.findText(current)
-            combo.setCurrentIndex(max(idx, 0))
-            combo.blockSignals(False)
+        current = self.target_combo.currentText()
+        self.target_combo.blockSignals(True)
+        self.target_combo.clear()
+        self.target_combo.addItem("plate centre")
+        for label in self.target_labels():
+            self.target_combo.addItem(label)
+        self.target_combo.setCurrentIndex(max(self.target_combo.findText(current), 0))
+        self.target_combo.blockSignals(False)
 
-    def _target(self, label: str):
+    def target_labels(self) -> list[str]:
+        return [label for label, *_ in self._layout_getter().targets()]
+
+    def target_point(self, label: str):
+        """(u, v, w) of a target: sample / device surface centre, or the plate centre."""
         plate = self._layout_getter().plate
         if label == "plate centre":
             return 0.0, 0.0, plate.total_thickness
@@ -243,13 +173,9 @@ class StagePanel(QtWidgets.QWidget):
                 return u, v, plate.total_thickness + h
         return None
 
-    def _on_cal_sample(self) -> None:
-        t = self._target(self.cal_sample_combo.currentText())
-        if t is not None:
-            self.cal_h.setValue(t[2] - self._layout_getter().plate.total_thickness)
-
+    # -- actions ----------------------------------------------------------------
     def bring_target_to_focus(self) -> None:
-        t = self._target(self.target_combo.currentText())
+        t = self.target_point(self.target_combo.currentText())
         if t is None:
             return
         m = self.motors.value()
@@ -261,8 +187,7 @@ class StagePanel(QtWidgets.QWidget):
         layout = self._layout_getter()
         model = self.model()
         m = self.motors.value()
-        cal = self.calibration()
-        res = focus_correction(model, m, layout, cal)
+        res = focus_correction(model, m, layout, self.calibration())
         draw_schematic(self.figure, model, m, layout, res)
         self.canvas.draw_idle()
         self.result_label.setText(self.describe(res))
@@ -287,5 +212,5 @@ class StagePanel(QtWidgets.QWidget):
         if res.new_optic_position is not None:
             lines.append(f"New optic motor position: <b>{res.new_optic_position:.4f}</b> (from calibration).")
         else:
-            lines.append("Not calibrated: move is relative to the analyzer focus.")
+            lines.append("No optics reference: move is relative to the analyzer focus.")
         return "<br>".join(lines)

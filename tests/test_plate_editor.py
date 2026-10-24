@@ -4,6 +4,8 @@ import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 qt = pytest.importorskip("quickalignment.ui._qt")
+from dataclasses import replace  # noqa: E402
+
 from quickalignment.geometry import Device, Sample, SampleLayout  # noqa: E402
 from quickalignment.session import Session  # noqa: E402
 from quickalignment.app import MainWindow  # noqa: E402
@@ -14,13 +16,14 @@ Qt = QtCore.Qt
 
 
 @pytest.fixture
-def window(monkeypatch):
+def window(monkeypatch, tmp_path):
     import quickalignment.app as app_module
+    from quickalignment.calibration import CalibrationStore
     from quickalignment.geometry import STANDARD_PLATE
 
     monkeypatch.setattr(app_module, "ask_plate", lambda *a, **k: STANDARD_PLATE)
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
-    win = MainWindow()
+    win = MainWindow(store=CalibrationStore(tmp_path / "configs"))
     win.show()
     app.processEvents()
     yield win
@@ -71,11 +74,11 @@ def test_draw_move_resize_and_edit(window):
     ed.table.item(0, 2).setText("0")
     assert s.height == 1.25 and s.u == 0
     assert ed.items[id(s)].pos().x() == 0
-    assert ed.table.item(0, 8).text() == "ok"
+    assert ed.table.item(0, 7).text() == "ok"
 
     # second, overlapping sample is flagged
     ed.add_sample(Sample("X", u=0, v=s.v, length=1, width=1))
-    assert "overlaps X" in ed.table.item(0, 8).text()
+    assert "overlaps X" in ed.table.item(0, 7).text()
 
     ed.view.setFocus()
     ed.scene.clearSelection()
@@ -101,12 +104,11 @@ def test_devices_follow_substrate_and_edges(window):
     d = ed.add_device(s, Device("D1", "right", 1.0, "top", 0.5))
     assert d.position(s) == (2.0, 1.5)
     assert ed.table.item(0, 1).text() == "substrate (1)"
-    # absolute coordinates: ST = ST0 - u, SZ = SZ0 - v, SN = SN_f + 5.0 + H
-    assert ed.dev_table.item(0, 6).text() == "-2.000" and ed.dev_table.item(0, 7).text() == "38.500"
-    assert ed.dev_table.item(0, 8).text() == "5.300"
+    # plate coordinates of the device centre
+    assert ed.dev_table.item(0, 6).text() == "2.000" and ed.dev_table.item(0, 7).text() == "1.500"
 
     # moving the substrate in the table moves the device with it
-    ed.table.item(0, 2).setText("-1.0")
+    ed.table.item(0, 2).setText("1.0")
     assert d.position(s) == (3.0, 1.5)
     assert ed.device_items[id(d)].pos().x() == pytest.approx(3.0)
 
@@ -119,7 +121,7 @@ def test_devices_follow_substrate_and_edges(window):
     ed.dev_table.item(0, 5).setText("1.0")
     assert d.position(s) == pytest.approx((3.0, 1.0))
     ed.dev_table.item(0, 3).setText("9")
-    assert ed.dev_table.item(0, 9).text() == "outside substrate"
+    assert ed.dev_table.item(0, 8).text() == "outside substrate"
 
     # dragging the marker updates the distances
     vp = ed.view.viewport()
@@ -149,7 +151,7 @@ def test_stage_panel_bring_to_focus_and_optics(window):
     assert abs(res.hit[1]) < 1e-3 and abs(res.delta) < 1e-3
     assert "no move needed" in st.result_label.text()
     sn = st.motors.boxes["sn"].value()
-    assert sn == pytest.approx(5.5, abs=0.2)
+    assert sn == pytest.approx(0.5, abs=0.2)  # SN = SN_f + H
 
     st.motors.boxes["sn"].setValue(sn + 1.0)
     st.update_view()
@@ -157,12 +159,13 @@ def test_stage_panel_bring_to_focus_and_optics(window):
     assert "TOWARDS the sample" in st.result_label.text()
 
     # calibrated: optic position follows with the chosen sign
-    st.cal_enabled.setChecked(True)
-    st.cal_motors.set_value(st.motors.value())
-    st.cal_sample_combo.setCurrentText("Sub")
-    st._on_cal_sample()
-    st.optic_pos.setValue(10.0)
-    st.optic_dir.setCurrentIndex(1)  # + = upstream
+    from dataclasses import replace
+
+    from quickalignment.calibration import CalibrationRecord
+    from quickalignment.stage import OpticsCalibration
+
+    cal = OpticsCalibration(enabled=True, motors=st.motors.value(), surface_w=5.5, optic_position=10.0, optic_sign=-1)
+    window._on_record(replace(CalibrationRecord(), optics=cal))
     st.motors.boxes["sn"].setValue(sn)
     st.update_view()
     res = st.last_result
@@ -174,9 +177,6 @@ def test_session_roundtrip(window, tmp_path):
     ed, st = window.editor, window.stage
     s = ed.add_sample(Sample("Sub", u=1, v=1, length=3, width=3))
     ed.add_device(s, Device("D9", "right", 0.5, "top", 0.7))
-    st.cfg_boxes["srz_offset_n"].setValue(0.25)
-    st.cal_enabled.setChecked(True)
-    st.optic_pos.setValue(3.5)
     st.motors.boxes["srn"].setValue(131)
     path = tmp_path / "session.json"
     window.session().save(path)
@@ -184,24 +184,19 @@ def test_session_roundtrip(window, tmp_path):
     assert ed.layout_model.samples == []
     window.set_session(Session.load(path))
     assert ed.layout_model.samples[0].devices[0].name == "D9"
-    assert st.config().srz_offset_n == 0.25
-    assert st.calibration().enabled and st.calibration().optic_position == 3.5
     assert st.motors.value().srn == 131
 
 
-def test_absolute_coordinates_follow_config(window):
+def test_stage_results_use_absolute_coordinates(window):
     ed, st = window.editor, window.stage
     ed.add_sample(Sample("A", u=1.0, v=2.0, length=2, width=2, height=0.4))
-    assert ed.table.item(0, 2).text() == "-1.000" and ed.table.item(0, 3).text() == "38.000"
-    assert ed.table.item(0, 7).text() == "5.400"
-    st.cfg_boxes["st0"].setValue(0.5)
-    st.cfg_boxes["sz0"].setValue(41.0)
-    st.cfg_boxes["sn_f"].setValue(-0.2)
-    assert ed.table.item(0, 2).text() == "-0.500" and ed.table.item(0, 3).text() == "39.000"
-    assert ed.table.item(0, 7).text() == "5.200"
-    # typing absolute values places the sample on the plate
-    ed.table.item(0, 3).setText("41.0")
-    assert ed.layout_model.samples[0].v == pytest.approx(0.0)
+    st.refresh_targets()
+    st.target_combo.setCurrentText("A")
+    st.bring_target_to_focus()
+    m = st.motors.value()
+    # ST = ST0 - x, SZ = SZ0 - y, SN = SN_f + H
+    assert (m.st, m.sz, m.sn) == pytest.approx((-1.0, 38.0, 0.4), abs=1e-4)
+    assert "ST = -1.000, SZ = 38.000, SN = 0.400" in st.result_label.text()
 
 
 def test_gating_plate(window):
@@ -230,12 +225,43 @@ def test_change_plate_keeps_samples(window):
     window.change_plate()
     assert window.editor.layout_model.plate.key == "gating"
     assert [s.name for s in window.editor.layout_model.samples] == ["A"]
-    assert window.editor.table.item(0, 8).text() == "outside riser"
+    assert window.editor.table.item(0, 7).text() == "outside riser"
 
 
-def test_calibration_dialog_opens(window):
-    window.stage.open_calibration()
-    assert window.stage.cal_dialog.isVisible()
-    assert "OFF" in window.stage.cal_status.text()
-    window.stage.cal_enabled.setChecked(True)
-    assert "ON" in window.stage.cal_status.text()
+def test_calibration_check_and_accept(window):
+    ed, st, dlg = window.editor, window.stage, window.cal_dialog
+    ed.add_sample(Sample("Au", u=-2.0, v=3.0, length=2, width=2, height=0.5))
+    st.refresh_targets()
+    window.open_calibration()
+    assert dlg.isVisible() and "default" in window.cal_label.text()
+    # constants locked unless expert mode
+    assert not dlg.cfg_boxes["st0"].isEnabled()
+    dlg.expert.setChecked(True)
+    assert dlg.cfg_boxes["st0"].isEnabled()
+    dlg.expert.setChecked(False)
+
+    # reference found 0.1 mm off in ST and SN
+    dlg.ref_combo.setCurrentText("Au")
+    nominal = st.model().motors_for_target(-2.0, 3.0, 5.5, srn=120, srz=0)
+    found = replace(nominal, st=nominal.st + 0.1, sn=nominal.sn + 0.1)
+    dlg.measured.set_value(found)
+    dlg.measured_optic.setValue(7.5)
+    dlg.run_check()
+    assert dlg.accept_btn.isEnabled()
+    assert "+0.1000" in dlg.check_label.text()
+    assert st.record.config.st0 == 0.0  # nothing changes before accepting
+    dlg.accept_check()
+    rec = st.record
+    assert rec.path is not None and rec.path.exists()
+    assert rec.config.st0 == pytest.approx(0.1, abs=1e-4) and rec.config.sn_f == pytest.approx(0.1, abs=1e-4)
+    assert rec.optics.enabled and rec.optics.optic_position == 7.5
+    assert rec.created in window.cal_label.text()
+    # the new file is what a fresh start loads
+    assert window.store.latest().created == rec.created
+
+    # expert edit saves another configuration
+    dlg.expert.setChecked(True)
+    dlg.cfg_boxes["srz_offset_n"].setValue(0.3)
+    dlg.save_expert()
+    assert st.record.config.srz_offset_n == 0.3 and not dlg.expert.isChecked()
+    assert len(window.store.records()) == 2
