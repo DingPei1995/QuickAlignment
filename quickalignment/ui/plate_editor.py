@@ -16,7 +16,8 @@ Positions and sizes can also be typed in the tables; all views stay in sync.
 from __future__ import annotations
 
 from ._qt import QtCore, QtGui, QtWidgets, Signal
-from ..geometry import X_EDGES, Y_EDGES, Device, Sample, SampleLayout
+from ..geometry import X_EDGES, Y_EDGES, Device, PlateGeometry, Sample, SampleLayout
+from ..stage import StageConfig, StageModel
 
 Qt = QtCore.Qt
 
@@ -27,9 +28,15 @@ COLOR_SAMPLE_BAD = QtGui.QColor(220, 40, 40, 150)
 COLOR_BEAM = QtGui.QColor("#d62728")
 COLOR_DEVICE = QtGui.QColor("#1f4fd6")
 
-COLUMNS = ["Name", "Type", "u (mm)", "v (mm)", "L (mm)", "W (mm)", "H (mm)", "Status"]
-FIELDS = [None, None, "u", "v", "length", "width", "height", None]
-DEV_COLUMNS = ["Device", "Substrate", "X ref", "dx (mm)", "Y ref", "dy (mm)", "u (mm)", "v (mm)", "Status"]
+COLOR_BLOCK = QtGui.QColor("#d4d4d4")
+COLOR_PAD = QtGui.QColor("#e8c400")
+COLOR_SCREW = QtGui.QColor("#4a3c36")
+
+# ST / SZ / SN are absolute motor values putting the point on the beam at the
+# reference orientation (SRn = ref, SRz = 0, piezo centred)
+COLUMNS = ["Name", "Type", "ST (mm)", "SZ (mm)", "L (mm)", "W (mm)", "H (mm)", "SN focus (mm)", "Status"]
+FIELDS = [None, None, "st", "sz", "length", "width", "height", None, None]
+DEV_COLUMNS = ["Device", "Substrate", "X ref", "dx (mm)", "Y ref", "dy (mm)", "ST (mm)", "SZ (mm)", "SN focus (mm)", "Status"]
 DEV_EDITABLE = {0, 3, 5, 6, 7}
 MIN_SIZE = 0.1  # mm
 
@@ -312,6 +319,49 @@ class PlateView(QtWidgets.QGraphicsView):
 
 
 
+def draw_plate_items(scene: QtWidgets.QGraphicsScene, plate: PlateGeometry, grid: bool = True) -> None:
+    """Plate outline, riser / sample area, contact block, pads and screws (scene = (u, -v))."""
+
+    def rect(r, pen, brush):
+        u0, v0, u1, v1 = r
+        return scene.addRect(QtCore.QRectF(u0, -v1, u1 - u0, v1 - v0), pen, QtGui.QBrush(brush))
+
+    outline = QtGui.QPolygonF([QtCore.QPointF(u, -v) for u, v in plate.outline()])
+    scene.addPolygon(outline, cosmetic_pen("black", 1.5), QtGui.QBrush(COLOR_PLATE))
+    area = plate.riser_bounds()
+    rect(area, cosmetic_pen("black", 1.2), COLOR_RISER)
+    if plate.contact_block:
+        rect(plate.contact_block, cosmetic_pen("black", 1.2), COLOR_BLOCK)
+        for pad in plate.contact_pads:
+            rect(pad, cosmetic_pen("#8a7400", 1), COLOR_PAD)
+        r = plate.screw_diameter / 2
+        for u, v in plate.screws:
+            scene.addEllipse(u - r, -v - r, 2 * r, 2 * r, cosmetic_pen("black", 1), QtGui.QBrush(COLOR_SCREW))
+            scene.addLine(u - 0.15, -v + r * 0.8, u + 0.15, -v - r * 0.8, cosmetic_pen("#cccccc", 1.5))
+    if grid:
+        u0, v0, u1, v1 = area
+        for i in range(int(u0), int(u1) + 1):
+            pen = cosmetic_pen("#b0b0b0" if i % 5 else "#808080", 0.6, Qt.DotLine)
+            scene.addLine(i, -v1, i, -v0, pen)
+        for j in range(int(-v1), int(-v0) + 1):
+            pen = cosmetic_pen("#b0b0b0" if j % 5 else "#808080", 0.6, Qt.DotLine)
+            scene.addLine(u0, j, u1, j, pen)
+
+
+def plate_pixmap(plate: PlateGeometry, size: int = 220) -> QtGui.QPixmap:
+    """Small preview of a plate, e.g. for the plate choice dialog."""
+    scene = QtWidgets.QGraphicsScene()
+    draw_plate_items(scene, plate, grid=False)
+    pix = QtGui.QPixmap(size, size)
+    pix.fill(QtGui.QColor("white"))
+    painter = QtGui.QPainter(pix)
+    painter.setRenderHint(QtGui.QPainter.Antialiasing)
+    src = scene.itemsBoundingRect().adjusted(-1, -1, 1, 1)
+    scene.render(painter, QtCore.QRectF(4, 4, size - 8, size - 8), src, Qt.KeepAspectRatio)
+    painter.end()
+    return pix
+
+
 def make_table(columns: list[str]) -> QtWidgets.QTableWidget:
     table = QtWidgets.QTableWidget(0, len(columns))
     table.setHorizontalHeaderLabels(columns)
@@ -329,6 +379,8 @@ class PlateEditor(QtWidgets.QWidget):
     def __init__(self, layout: SampleLayout | None = None, parent=None):
         super().__init__(parent)
         self.layout_model = layout or SampleLayout()
+        self.config = StageConfig()
+        self._tick_labels: list[tuple[QtWidgets.QGraphicsSimpleTextItem, str, float]] = []
         self.items: dict[int, SampleItem] = {}
         self.device_items: dict[int, DeviceItem] = {}
         self._device_rows: list[tuple[Sample, Device]] = []
@@ -376,7 +428,7 @@ class PlateEditor(QtWidgets.QWidget):
 
         self.info = QtWidgets.QLabel()
         self.info.setWordWrap(True)
-        self.cursor_label = QtWidgets.QLabel("u = –, v = –")
+        self.cursor_label = QtWidgets.QLabel("cursor: ST = –, SZ = –")
 
         form = QtWidgets.QFormLayout()
         form.addRow("Snap", self.snap_box)
@@ -386,8 +438,8 @@ class PlateEditor(QtWidgets.QWidget):
             buttons.addWidget(b)
 
         help_text = QtWidgets.QLabel(
-            "View from the analyzer, SRn = 120 (tab up). Origin = plate centre (red cross), "
-            "+u = right (+ST, PIX), +v = up (+SZ, PIY).\n"
+            "View from the analyzer, SRn = 120 (tab up). ST / SZ / SN are the absolute motor positions "
+            "that put a point on the beam at SRn = 120, SRz = 0, PIX = PIY = 150 (red cross = ST0, SZ0).\n"
             "Drag on empty plate to draw a sample; drag a sample to move it, its edges to resize. "
             "Select a sample and press 'Add device' to mark a device on a substrate. "
             "Wheel = zoom, middle drag = pan, Del = delete."
@@ -401,7 +453,7 @@ class PlateEditor(QtWidgets.QWidget):
         right.addLayout(buttons)
         right.addWidget(QtWidgets.QLabel("<b>Samples / substrates</b>"))
         right.addWidget(self.table, 3)
-        right.addWidget(QtWidgets.QLabel("<b>Devices</b> (distances from two substrate edges to the device centre)"))
+        right.addWidget(QtWidgets.QLabel("<b>Devices</b> (dx, dy: distances from two substrate edges to the device centre)"))
         right.addWidget(self.dev_table, 2)
         right.addWidget(self.info)
         right.addWidget(self.cursor_label)
@@ -428,45 +480,31 @@ class PlateEditor(QtWidgets.QWidget):
         self.device_items.clear()
         self.scene.clear()
         self._updating_table = False
-        outline = QtGui.QPolygonF([QtCore.QPointF(u, -v) for u, v in plate.outline()])
-        self.scene.addPolygon(outline, cosmetic_pen("black", 1.5), QtGui.QBrush(COLOR_PLATE))
-        u0, v0, u1, v1 = plate.riser_bounds()
-        self.scene.addRect(QtCore.QRectF(u0, -v1, u1 - u0, v1 - v0), cosmetic_pen("black", 1.2), QtGui.QBrush(COLOR_RISER))
+        draw_plate_items(self.scene, plate)
 
-        # 1 mm grid on the riser, 5 mm lines darker
-        for i in range(int(u0), int(u1) + 1):
-            pen = cosmetic_pen("#b0b0b0" if i % 5 else "#808080", 0.6, Qt.DotLine)
-            self.scene.addLine(i, -v1, i, -v0, pen)
-        for j in range(int(-v1), int(-v0) + 1):
-            pen = cosmetic_pen("#b0b0b0" if j % 5 else "#808080", 0.6, Qt.DotLine)
-            self.scene.addLine(u0, j, u1, j, pen)
-
-        # axis tick labels every 5 mm
-        bottom = plate.height / 2
+        # tick labels (absolute ST / SZ) every 5 mm of plate
+        bottom = -plate.lowest_v()
+        self._tick_labels = []
         for i in range(-5, 6, 5):
-            t = self.scene.addSimpleText(f"{i}")
+            t = self.scene.addSimpleText("")
             t.setFlag(QtWidgets.QGraphicsItem.ItemIgnoresTransformations)
-            t.setPos(i - 0.2, bottom + 0.3)
+            t.setPos(i - 0.3, bottom + 0.3)
+            self._tick_labels.append((t, "st", i))
         for j in range(-5, 6, 5):
-            t = self.scene.addSimpleText(f"{j}")
+            t = self.scene.addSimpleText("")
             t.setFlag(QtWidgets.QGraphicsItem.ItemIgnoresTransformations)
-            t.setPos(-plate.width / 2 - 1.3, -j - 0.4)
+            t.setPos(-plate.width / 2 - 2.6, -j - 0.4)
+            self._tick_labels.append((t, "sz", j))
+        for text, pos in (("ST (mm)", (-1.0, bottom + 1.4)), ("SZ (mm)", (-plate.width / 2 - 2.8, -plate.height / 2 - 1.2))):
+            t = self.scene.addSimpleText(text)
+            t.setFlag(QtWidgets.QGraphicsItem.ItemIgnoresTransformations)
+            t.setPos(*pos)
+        self._update_ticks()
 
-        # nominal beam spot / plate centre
+        # nominal beam spot at ST0, SZ0 = plate centre
         beam_pen = cosmetic_pen(COLOR_BEAM, 2)
         self.scene.addLine(-0.6, 0, 0.6, 0, beam_pen).setZValue(30)
         self.scene.addLine(0, -0.6, 0, 0.6, beam_pen).setZValue(30)
-
-        # axis arrows
-        ax_pen = cosmetic_pen("#2ca02c", 1.5)
-        ox, oy = -plate.width / 2 - 1.5, plate.height / 2 + 3.5
-        self.scene.addLine(ox, oy, ox + 2.5, oy, ax_pen)
-        self.scene.addLine(ox, oy, ox, oy - 2.5, ax_pen)
-        for text, pos in (("+u (ST, PIX)", (ox + 2.7, oy - 0.4)), ("+v (Z, PIY)", (ox + 0.3, oy - 2.8))):
-            t = self.scene.addSimpleText(text)
-            t.setBrush(QtGui.QBrush(QtGui.QColor("#2ca02c")))
-            t.setFlag(QtWidgets.QGraphicsItem.ItemIgnoresTransformations)
-            t.setPos(*pos)
 
         # decorations must not catch clicks meant for samples underneath
         for it in self.scene.items():
@@ -475,8 +513,26 @@ class PlateEditor(QtWidgets.QWidget):
         margin = 2.5
         top = plate.height / 2 + plate.neck_height + plate.tab_height
         self.scene.setSceneRect(
-            QtCore.QRectF(-plate.width / 2 - margin, -top - margin, plate.width + 2 * margin, top + bottom + 2 * margin + 2.5)
+            QtCore.QRectF(-plate.width / 2 - margin - 1.5, -top - margin, plate.width + 2 * margin + 1.5, top + bottom + 2 * margin + 1.0)
         )
+
+    def _update_ticks(self) -> None:
+        for item, axis, x in self._tick_labels:
+            value = self.config.st0 - x if axis == "st" else self.config.sz0 - x
+            item.setText(f"{value:g}")
+
+    def model(self) -> StageModel:
+        return StageModel(self.config, self.layout_model.plate)
+
+    def set_config(self, config: StageConfig) -> None:
+        """Stage constants changed: refresh the absolute coordinates shown."""
+        self.config = config
+        self._update_ticks()
+        for row in range(len(self.layout_model.samples)):
+            self._update_row(row)
+        for row in range(len(self._device_rows)):
+            self._update_dev_row(row)
+        self._update_info()
 
     # -- model operations ----------------------------------------------------
     def snap_step(self) -> float:
@@ -607,7 +663,7 @@ class PlateEditor(QtWidgets.QWidget):
             for col in range(len(COLUMNS)):
                 if self.table.item(row, col) is None:
                     self.table.setItem(row, col, QtWidgets.QTableWidgetItem())
-            for col in (1, len(COLUMNS) - 1):
+            for col in (1, 7, 8):
                 self.table.item(row, col).setFlags(Qt.ItemIsSelectable | Qt.ItemIsEnabled)
 
         self._device_rows = [(s, d) for s in self.layout_model.samples for d in s.devices]
@@ -635,9 +691,10 @@ class PlateEditor(QtWidgets.QWidget):
         self._updating_table = True
         self.table.item(row, 0).setText(s.name)
         self.table.item(row, 1).setText(f"substrate ({len(s.devices)})" if s.devices else "sample")
-        for col, attr in enumerate(FIELDS):
-            if attr:
-                self.table.item(row, col).setText(f"{getattr(s, attr):.3f}")
+        st, sz, sn = self.model().reference_motors(s.u, s.v, s.surface_height(self.layout_model.plate))
+        values = {2: st, 3: sz, 4: s.length, 5: s.width, 6: s.height, 7: sn}
+        for col, value in values.items():
+            self.table.item(row, col).setText(f"{value:.3f}")
         self._updating_table = False
 
     def _on_table_edit(self, cell: QtWidgets.QTableWidgetItem) -> None:
@@ -654,19 +711,24 @@ class PlateEditor(QtWidgets.QWidget):
                 value = float(text)
             except ValueError:
                 value = None
-            if value is not None and (FIELDS[col] in ("u", "v") or value >= (0 if FIELDS[col] == "height" else MIN_SIZE)):
-                setattr(s, FIELDS[col], value)
+            attr = FIELDS[col]
+            if value is None:
+                pass
+            elif attr == "st":
+                s.u = self.config.st0 - value
+            elif attr == "sz":
+                s.v = self.config.sz0 - value
+            elif value >= (0 if attr == "height" else MIN_SIZE):
+                setattr(s, attr, value)
         self.sample_changed(s)
-        for r, (ss, _) in enumerate(self._device_rows):
-            if ss is s:
-                self._update_dev_row(r)
 
     # -- device table ------------------------------------------------------------
     def _update_dev_row(self, row: int) -> None:
         s, d = self._device_rows[row]
         u, v = d.position(s)
         self._updating_table = True
-        values = {0: d.name, 1: s.name, 3: f"{d.dx:.3f}", 5: f"{d.dy:.3f}", 6: f"{u:.3f}", 7: f"{v:.3f}"}
+        st, sz, sn = self.model().reference_motors(u, v, s.surface_height(self.layout_model.plate))
+        values = {0: d.name, 1: s.name, 3: f"{d.dx:.3f}", 5: f"{d.dy:.3f}", 6: f"{st:.3f}", 7: f"{sz:.3f}", 8: f"{sn:.3f}"}
         for col, text in values.items():
             self.dev_table.item(row, col).setText(text)
         for col, edge in ((2, d.x_edge), (4, d.y_edge)):
@@ -712,7 +774,8 @@ class PlateEditor(QtWidgets.QWidget):
                     d.dy = value
                 else:
                     u, v = d.position(s)
-                    d.set_position(s, value if col == 6 else u, value if col == 7 else v)
+                    nu, nv = self.model().reference_to_plate(value, 0.0) if col == 6 else self.model().reference_to_plate(0.0, value)
+                    d.set_position(s, nu if col == 6 else u, nv if col == 7 else v)
         self.device_changed(s, d)
 
     # -- status ----------------------------------------------------------------------
@@ -740,10 +803,10 @@ class PlateEditor(QtWidgets.QWidget):
         if len(devs) == 1 and not sel:
             s, d = devs[0]
             u, v = d.position(s)
-            surf = s.surface_height(plate)
+            st, sz, sn = self.model().reference_motors(u, v, s.surface_height(plate))
             self.info.setText(
                 f"<b>{s.name}/{d.name}</b>: {d.dx:.3f} mm from the {d.x_edge} edge, {d.dy:.3f} mm from the "
-                f"{d.y_edge} edge → u = {u:.3f}, v = {v:.3f} mm<br>surface at {surf:.3f} mm → SN ≈ SN_f + {surf:.3f}"
+                f"{d.y_edge} edge<br>→ ST = {st:.3f}, SZ = {sz:.3f}, SN = {sn:.3f} mm"
             )
             return
         if len(sel) != 1:
@@ -751,10 +814,12 @@ class PlateEditor(QtWidgets.QWidget):
             return
         s = sel[0]
         u0, v0, u1, v1 = s.bounds()
-        surf = s.surface_height(plate)
+        m = self.model()
+        st_a, sz_a, sn = m.reference_motors(u0, v0, s.surface_height(plate))
+        st_b, sz_b, _ = m.reference_motors(u1, v1, 0.0)
         self.info.setText(
-            f"<b>{s.name}</b> ({s.kind}): u ∈ [{u0:.2f}, {u1:.2f}], v ∈ [{v0:.2f}, {v1:.2f}] mm<br>"
-            f"surface at {surf:.3f} mm above plate back → SN ≈ SN_f + {surf:.3f}"
+            f"<b>{s.name}</b> ({s.kind}): ST ∈ [{min(st_a, st_b):.3f}, {max(st_a, st_b):.3f}], "
+            f"SZ ∈ [{min(sz_a, sz_b):.3f}, {max(sz_a, sz_b):.3f}] mm<br>surface in focus at SN = {sn:.3f} mm"
         )
 
     # -- selection sync ----------------------------------------------------------
@@ -803,4 +868,5 @@ class PlateEditor(QtWidgets.QWidget):
         self._update_info()
 
     def _on_cursor_moved(self, u: float, v: float) -> None:
-        self.cursor_label.setText(f"cursor: u = {u:.2f} mm, v = {v:.2f} mm")
+        st, sz, _ = self.model().reference_motors(u, v, 0.0)
+        self.cursor_label.setText(f"cursor: ST = {st:.2f} mm, SZ = {sz:.2f} mm")

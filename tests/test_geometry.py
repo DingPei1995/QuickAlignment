@@ -30,3 +30,15 @@ def test_roundtrip(tmp_path):
     loaded = SampleLayout.load(path)
     assert loaded.samples == layout.samples
     assert loaded.plate == layout.plate
+
+
+def test_plate_types_roundtrip(tmp_path):
+    from quickalignment.geometry import GATING_PLATE, PLATES
+
+    assert set(PLATES) == {"standard", "gating"}
+    assert GATING_PLATE.riser_bounds() == (-5.5, -2.75, 5.5, 7.75)
+    assert GATING_PLATE.lowest_v() == -8.75
+    layout = SampleLayout(plate=GATING_PLATE, samples=[Sample("A")])
+    path = tmp_path / "g.json"
+    layout.save(path)
+    assert SampleLayout.load(path).plate is GATING_PLATE

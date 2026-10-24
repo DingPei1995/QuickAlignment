@@ -8,7 +8,7 @@ from __future__ import annotations
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
 
-from ._qt import QtCore, QtWidgets
+from ._qt import QtCore, QtWidgets, Signal
 from ..schematic import draw_schematic
 from ..stage import MotorPositions, OpticsCalibration, StageConfig, StageModel, focus_correction
 
@@ -34,6 +34,7 @@ CONFIG_SPECS = {
     "srz_offset_t": ("SRz axis offset along +ST", " mm"),
     "srz_offset_n": ("SRz axis offset along +SN", " mm"),
 }
+MANUAL_H = "(enter H manually)"
 TOLERANCE = 1e-3  # mm; below this a move is reported as not needed
 OPTIC_DIRECTIONS = ["+ moves optic downstream (towards sample)", "+ moves optic upstream (away from sample)"]
 
@@ -70,6 +71,8 @@ class MotorForm(QtWidgets.QWidget):
 
 
 class StagePanel(QtWidgets.QWidget):
+    configChanged = Signal()
+
     def __init__(self, layout_getter, parent=None):
         super().__init__(parent)
         self._layout_getter = layout_getter
@@ -95,7 +98,7 @@ class StagePanel(QtWidgets.QWidget):
         copy_btn = QtWidgets.QPushButton("Copy current stage positions")
         copy_btn.clicked.connect(lambda: self.cal_motors.set_value(self.motors.value()))
         self.cal_sample_combo = QtWidgets.QComboBox()
-        self.cal_sample_combo.activated.connect(self._on_cal_sample)
+        self.cal_sample_combo.currentIndexChanged.connect(self._on_cal_sample)
         self.cal_h = spin(0.5, 0, 50, 3, 0.1)
         self.optic_pos = spin(0.0, -10000, 10000, 4, 0.01)
         self.optic_dir = QtWidgets.QComboBox()
@@ -122,17 +125,40 @@ class StagePanel(QtWidgets.QWidget):
         pf = QtWidgets.QFormLayout(par_box)
         for name, (label, suffix) in CONFIG_SPECS.items():
             lo, hi = (0, 300) if name == "pi_center" else (-1000, 1000)
-            self.cfg_boxes[name] = spin(getattr(cfg, name), lo, hi, 3, 0.1, suffix)
+            self.cfg_boxes[name] = spin(getattr(cfg, name), lo, hi, 4, 0.1, suffix)
+            self.cfg_boxes[name].valueChanged.connect(self.configChanged)
             pf.addRow(label, self.cfg_boxes[name])
+
+        # calibration lives in its own (non-modal) window, opened from the toolbar
+        self.cal_dialog = QtWidgets.QDialog(self)
+        self.cal_dialog.setWindowTitle("Calibration")
+        dv = QtWidgets.QVBoxLayout(self.cal_dialog)
+        dv.addWidget(cal_box)
+        dv.addWidget(par_box)
+        close_btn = QtWidgets.QPushButton("Close")
+        close_btn.clicked.connect(self.cal_dialog.hide)
+        dv.addWidget(close_btn, 0, Qt.AlignRight)
 
         update_btn = QtWidgets.QPushButton("Update schematic && optics")
         update_btn.setMinimumHeight(36)
         update_btn.setStyleSheet("font-weight: bold;")
         update_btn.clicked.connect(self.update_view)
 
+        self.cal_status = QtWidgets.QLabel()
+        self.cal_status.setWordWrap(True)
+        self.cal_status.setStyleSheet("color: #555;")
+        self.cal_enabled.toggled.connect(self._update_cal_status)
+        self.optic_pos.valueChanged.connect(self._update_cal_status)
+        self._update_cal_status()
+
+        self.result_label = QtWidgets.QLabel("Press “Update schematic & optics”.")
+        self.result_label.setWordWrap(True)
+        self.result_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.result_label.setStyleSheet("font-size: 13px; padding: 6px; background: #f6f6f6; border: 1px solid #ddd;")
+
         left = QtWidgets.QWidget()
         lv = QtWidgets.QVBoxLayout(left)
-        for w in (motor_box, update_btn, cal_box, par_box):
+        for w in (motor_box, update_btn, self.result_label, self.cal_status):
             lv.addWidget(w)
         lv.addStretch(1)
         scroll = QtWidgets.QScrollArea()
@@ -140,17 +166,10 @@ class StagePanel(QtWidgets.QWidget):
         scroll.setWidgetResizable(True)
         scroll.setMinimumWidth(430)
 
-        # -- right: schematic + results ---------------------------------------------
-        self.figure = Figure(figsize=(9, 7))
+        # -- right: schematic ---------------------------------------------------------
+        self.figure = Figure(figsize=(11, 5.5))
         self.canvas = FigureCanvasQTAgg(self.figure)
-        self.result_label = QtWidgets.QLabel("Press “Update schematic & optics”.")
-        self.result_label.setWordWrap(True)
-        self.result_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        self.result_label.setStyleSheet("font-size: 13px; padding: 4px;")
-        right = QtWidgets.QWidget()
-        rv = QtWidgets.QVBoxLayout(right)
-        rv.addWidget(self.canvas, 1)
-        rv.addWidget(self.result_label)
+        right = self.canvas
 
         splitter = QtWidgets.QSplitter()
         splitter.addWidget(scroll)
@@ -190,6 +209,17 @@ class StagePanel(QtWidgets.QWidget):
     def model(self) -> StageModel:
         return StageModel(self.config(), self._layout_getter().plate)
 
+    def open_calibration(self) -> None:
+        self.cal_dialog.show()
+        self.cal_dialog.raise_()
+        self.cal_dialog.activateWindow()
+
+    def _update_cal_status(self) -> None:
+        if self.cal_enabled.isChecked():
+            self.cal_status.setText(f"Optics calibration ON (optic at {self.optic_pos.value():.4f} at the reference). Edit via “Calibration…”.")
+        else:
+            self.cal_status.setText("Optics calibration OFF: optics focus assumed at the analyzer focus. Set it via “Calibration…”.")
+
     # -- actions ----------------------------------------------------------------
     def refresh_targets(self) -> None:
         targets = self._layout_getter().targets()
@@ -197,8 +227,7 @@ class StagePanel(QtWidgets.QWidget):
             current = combo.currentText()
             combo.blockSignals(True)
             combo.clear()
-            if combo is self.target_combo:
-                combo.addItem("plate centre")
+            combo.addItem("plate centre" if combo is self.target_combo else MANUAL_H)
             for label, *_ in targets:
                 combo.addItem(label)
             idx = combo.findText(current)
@@ -239,13 +268,13 @@ class StagePanel(QtWidgets.QWidget):
         self.result_label.setText(self.describe(res))
         self.last_result = res
 
-    @staticmethod
-    def describe(res) -> str:
+    def describe(self, res) -> str:
         if res.hit is None:
             return "<b>The beam misses the plate</b> (or runs parallel to it)."
-        u, v = res.plate_uv
+        st, sz, sn = self.model().reference_motors(*res.plate_uv, res.surface_w)
         lines = [
-            f"Beam lands on <b>{res.target}</b> at u = {u:.3f}, v = {v:.3f} mm (surface w = {res.surface_w:.3f} mm).",
+            f"Beam lands on <b>{res.target}</b>, at the point found at ST = {st:.3f}, SZ = {sz:.3f}, SN = {sn:.3f} "
+            "(SRn = ref, SRz = 0).",
             f"Beam spot is {abs(res.hit[1]):.3f} mm {'downstream' if res.hit[1] > 0 else 'upstream'} of the analyzer focus"
             if abs(res.hit[1]) >= TOLERANCE else "Beam spot is on the analyzer focus.",
         ]

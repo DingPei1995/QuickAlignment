@@ -118,6 +118,22 @@ class StageModel:
         q = rot_2d(-self._srn_angle(m)) @ (local[:2] - axis) + axis - self._piezo(m)
         return np.array([q[0], q[1], local[2]])
 
+    def stage_frame(self, m: MotorPositions, u: float, v: float) -> np.ndarray:
+        """Plate point (u, v) after piezo + SRn, in the SRz-stage frame (as seen from the analyzer at SRz = 0)."""
+        c = self.config
+        axis = np.array([c.srn_axis_u, c.srn_axis_v])
+        q = np.array([u, v]) + self._piezo(m)
+        return rot_2d(self._srn_angle(m)) @ (q - axis) + axis
+
+    def reference_motors(self, u: float, v: float, w: float) -> tuple[float, float, float]:
+        """(ST, SZ, SN) putting plate point (u, v, w) on the focus at SRn = ref, SRz = 0, piezo centred."""
+        c = self.config
+        return c.st0 - u, c.sz0 - v, c.sn_f + w
+
+    def reference_to_plate(self, st: float, sz: float) -> tuple[float, float]:
+        c = self.config
+        return c.st0 - st, c.sz0 - sz
+
     def surface_normal(self, m: MotorPositions) -> np.ndarray:
         """Lab direction of the plate +w axis (towards the analyzer)."""
         return rot_z(self._srz_angle(m)) @ B[:, 2]
@@ -196,10 +212,13 @@ def beam_on_layout(model: StageModel, m: MotorPositions, layout: SampleLayout) -
     if best:
         return best
     r0, s0, r1, s1 = plate.riser_bounds()
-    for w, bounds, name in (
+    surfaces = []
+    if plate.contact_block:
+        surfaces.append((plate.contact_block_top, plate.contact_block, "contact block"))
+    for w, bounds, name in surfaces + [
         (plate.total_thickness, (r0, s0, r1, s1), "riser (no sample)"),
         (plate.base_thickness, (-plate.width / 2, -plate.height / 2, plate.width / 2, plate.height / 2), "base plate"),
-    ):
+    ]:
         hit = model.beam_hit(m, w)
         if hit is None:
             continue

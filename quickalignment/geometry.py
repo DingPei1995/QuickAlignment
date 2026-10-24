@@ -20,10 +20,16 @@ from pathlib import Path
 Point = tuple[float, float]
 
 
+Rect = tuple[float, float, float, float]  # (u_min, v_min, u_max, v_max)
+
+
 @dataclass(frozen=True)
 class PlateGeometry:
-    """Ta sample plate with 4 mm riser (SOLEIL drawing "Plaquette avec rehausse")."""
+    """Sample plate geometry. Defaults: Ta plate with 4 mm riser
+    (SOLEIL drawing "Plaquette avec rehausse")."""
 
+    key: str = "standard"
+    name: str = "Standard Ta plate (4 mm riser)"
     width: float = 18.0
     height: float = 15.5
     riser_width: float = 11.0
@@ -35,6 +41,15 @@ class PlateGeometry:
     tab_height: float = 4.0
     chamfer_height: float = 2.0
     chamfer_width: float = 0.5
+    # lower edge of the sample area on the riser (None: plate bottom)
+    sample_area_bottom: float | None = None
+    # electrical contact block below the sample area: rect and top height w
+    contact_block: Rect | None = None
+    contact_block_top: float = 0.0
+    contact_pads: tuple[Rect, ...] = ()
+    screws: tuple[tuple[float, float], ...] = ()  # (u, v) centres
+    screw_diameter: float = 2.0
+    screw_top: float = 0.0
 
     @property
     def riser_thickness(self) -> float:
@@ -63,9 +78,34 @@ class PlateGeometry:
             (-nw, h),
         ]
 
-    def riser_bounds(self) -> tuple[float, float, float, float]:
-        """(u_min, v_min, u_max, v_max) of the riser top face, where samples sit."""
-        return (-self.riser_width / 2, -self.height / 2, self.riser_width / 2, self.height / 2)
+    def riser_bounds(self) -> Rect:
+        """(u_min, v_min, u_max, v_max) of the sample area on the riser top face."""
+        bottom = -self.height / 2 if self.sample_area_bottom is None else self.sample_area_bottom
+        return (-self.riser_width / 2, bottom, self.riser_width / 2, self.height / 2)
+
+    def lowest_v(self) -> float:
+        bottom = -self.height / 2
+        return min(bottom, self.contact_block[1]) if self.contact_block else bottom
+
+
+STANDARD_PLATE = PlateGeometry()
+
+# Gating plate (drawing "Assemblage V7"): same Ta plate and riser, but only the
+# upper 10.5 mm of the riser is free for samples; below it a 6 mm contact block
+# with 3 gold pads and 4 clamping screws, reaching 1 mm below the plate.
+GATING_PLATE = PlateGeometry(
+    key="gating",
+    name="Gating plate (contact block, 3 pads, 4 screws)",
+    sample_area_bottom=-2.75,
+    contact_block=(-5.5, -8.75, 5.5, -2.75),
+    contact_block_top=5.2,
+    contact_pads=((-3.55, -4.65, -2.45, -2.75), (-0.55, -4.65, 0.55, -2.75), (2.45, -4.65, 3.55, -2.75)),
+    screws=((-4.5, -6.3), (-1.5, -6.3), (1.5, -6.3), (4.5, -6.3)),
+    screw_diameter=2.0,
+    screw_top=6.0,
+)
+
+PLATES = {p.key: p for p in (STANDARD_PLATE, GATING_PLATE)}
 
 
 X_EDGES = ("left", "right")
@@ -196,14 +236,14 @@ class SampleLayout:
     def to_dict(self) -> dict:
         return {
             "frame": "plate frame seen from analyzer at SRn=120: origin = plate body centre, "
-            "+u right (+ST, PIX), +v up (+SZ, PIY), mm",
-            "plate": asdict(self.plate),
+            "+u right (PIX), +v up (PIY), mm; ST = ST0 - u, SZ = SZ0 - v, SN = SN_f + 5.0 + H",
+            "plate_type": self.plate.key,
             "samples": [asdict(s) for s in self.samples],
         }
 
     @classmethod
     def from_dict(cls, data: dict) -> SampleLayout:
-        plate = PlateGeometry(**data.get("plate", {}))
+        plate = PLATES.get(data.get("plate_type", "standard"), STANDARD_PLATE)
         samples = []
         for raw in data.get("samples", []):
             raw = dict(raw)

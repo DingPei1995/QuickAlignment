@@ -14,7 +14,11 @@ Qt = QtCore.Qt
 
 
 @pytest.fixture
-def window():
+def window(monkeypatch):
+    import quickalignment.app as app_module
+    from quickalignment.geometry import STANDARD_PLATE
+
+    monkeypatch.setattr(app_module, "ask_plate", lambda *a, **k: STANDARD_PLATE)
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     win = MainWindow()
     win.show()
@@ -67,11 +71,11 @@ def test_draw_move_resize_and_edit(window):
     ed.table.item(0, 2).setText("0")
     assert s.height == 1.25 and s.u == 0
     assert ed.items[id(s)].pos().x() == 0
-    assert ed.table.item(0, 7).text() == "ok"
+    assert ed.table.item(0, 8).text() == "ok"
 
     # second, overlapping sample is flagged
     ed.add_sample(Sample("X", u=0, v=s.v, length=1, width=1))
-    assert "overlaps X" in ed.table.item(0, 7).text()
+    assert "overlaps X" in ed.table.item(0, 8).text()
 
     ed.view.setFocus()
     ed.scene.clearSelection()
@@ -97,10 +101,12 @@ def test_devices_follow_substrate_and_edges(window):
     d = ed.add_device(s, Device("D1", "right", 1.0, "top", 0.5))
     assert d.position(s) == (2.0, 1.5)
     assert ed.table.item(0, 1).text() == "substrate (1)"
-    assert ed.dev_table.item(0, 6).text() == "2.000" and ed.dev_table.item(0, 7).text() == "1.500"
+    # absolute coordinates: ST = ST0 - u, SZ = SZ0 - v, SN = SN_f + 5.0 + H
+    assert ed.dev_table.item(0, 6).text() == "-2.000" and ed.dev_table.item(0, 7).text() == "38.500"
+    assert ed.dev_table.item(0, 8).text() == "5.300"
 
     # moving the substrate in the table moves the device with it
-    ed.table.item(0, 2).setText("1.0")
+    ed.table.item(0, 2).setText("-1.0")
     assert d.position(s) == (3.0, 1.5)
     assert ed.device_items[id(d)].pos().x() == pytest.approx(3.0)
 
@@ -113,7 +119,7 @@ def test_devices_follow_substrate_and_edges(window):
     ed.dev_table.item(0, 5).setText("1.0")
     assert d.position(s) == pytest.approx((3.0, 1.0))
     ed.dev_table.item(0, 3).setText("9")
-    assert ed.dev_table.item(0, 8).text() == "outside substrate"
+    assert ed.dev_table.item(0, 9).text() == "outside substrate"
 
     # dragging the marker updates the distances
     vp = ed.view.viewport()
@@ -181,3 +187,55 @@ def test_session_roundtrip(window, tmp_path):
     assert st.config().srz_offset_n == 0.25
     assert st.calibration().enabled and st.calibration().optic_position == 3.5
     assert st.motors.value().srn == 131
+
+
+def test_absolute_coordinates_follow_config(window):
+    ed, st = window.editor, window.stage
+    ed.add_sample(Sample("A", u=1.0, v=2.0, length=2, width=2, height=0.4))
+    assert ed.table.item(0, 2).text() == "-1.000" and ed.table.item(0, 3).text() == "38.000"
+    assert ed.table.item(0, 7).text() == "5.400"
+    st.cfg_boxes["st0"].setValue(0.5)
+    st.cfg_boxes["sz0"].setValue(41.0)
+    st.cfg_boxes["sn_f"].setValue(-0.2)
+    assert ed.table.item(0, 2).text() == "-0.500" and ed.table.item(0, 3).text() == "39.000"
+    assert ed.table.item(0, 7).text() == "5.200"
+    # typing absolute values places the sample on the plate
+    ed.table.item(0, 3).setText("41.0")
+    assert ed.layout_model.samples[0].v == pytest.approx(0.0)
+
+
+def test_gating_plate(window):
+    from quickalignment.geometry import GATING_PLATE
+
+    window.set_session(Session(layout=SampleLayout(plate=GATING_PLATE)))
+    ed, st = window.editor, window.stage
+    assert "Gating" in window.plate_label.text()
+    ok = ed.add_sample(Sample("ok", u=0, v=2, length=3, width=3))
+    low = ed.add_sample(Sample("low", u=0, v=-4, length=2, width=2))
+    assert ed.layout_model.warnings(ok) == []
+    assert "outside riser" in ed.layout_model.warnings(low)
+    # beam on the contact block
+    m = st.model().motors_for_target(-4.0, -7.0, GATING_PLATE.contact_block_top, srn=120, srz=0)
+    st.motors.set_value(m)
+    st.update_view()
+    assert st.last_result.target == "contact block"
+
+
+def test_change_plate_keeps_samples(window):
+    from quickalignment.geometry import GATING_PLATE
+    import quickalignment.app as app_module
+
+    window.editor.add_sample(Sample("A", u=0, v=-5, length=2, width=2))
+    app_module.ask_plate = lambda *a, **k: GATING_PLATE
+    window.change_plate()
+    assert window.editor.layout_model.plate.key == "gating"
+    assert [s.name for s in window.editor.layout_model.samples] == ["A"]
+    assert window.editor.table.item(0, 8).text() == "outside riser"
+
+
+def test_calibration_dialog_opens(window):
+    window.stage.open_calibration()
+    assert window.stage.cal_dialog.isVisible()
+    assert "OFF" in window.stage.cal_status.text()
+    window.stage.cal_enabled.setChecked(True)
+    assert "ON" in window.stage.cal_status.text()

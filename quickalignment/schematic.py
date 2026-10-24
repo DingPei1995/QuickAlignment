@@ -1,22 +1,27 @@
 """Matplotlib schematic of the current stage / beam / optics state.
 
-Three projections computed from the full stage model:
-top view (lab x-y), view from the analyzer (t-z) and side view (n-z).
+* Top view (lab x-y, from the full stage model): plate orientation (SRz),
+  analyzer, beam, optics and the required optics move.
+* Sample plane (as seen from the analyzer, SRn rotation applied): samples,
+  devices and the beam spot. The axes are absolute ST / SZ: a point drawn at
+  (ST, SZ) comes onto the beam with those motor values (current SRn and
+  piezo, SRz = 0), so the beam spot sits at the current ST, SZ.
 """
 
 from __future__ import annotations
 
 import numpy as np
-from matplotlib.patches import Polygon
+from matplotlib.patches import Circle, Polygon
 
 from .geometry import SampleLayout
-from .stage import N_HAT, T_HAT, Z_HAT, BeamResult, MotorPositions, StageModel
+from .stage import N_HAT, T_HAT, BeamResult, MotorPositions, StageModel
 
 X_HAT = np.array([1.0, 0.0, 0.0])
 Y_HAT = np.array([0.0, 1.0, 0.0])
 
-C_BASE, C_RISER, C_SAMPLE, C_DEVICE = "#bdbdbd", "#e3e3e3", "#ff9a2e", "#1f4fd6"
-C_BEAM, C_ANALYZER, C_OPTIC, C_AXES = "#d62728", "#1f77b4", "#8c564b", "#2ca02c"
+C_BASE, C_RISER, C_BLOCK, C_PAD, C_SCREW = "#bdbdbd", "#e3e3e3", "#d0d0d0", "#e8c400", "#4a3c36"
+C_SAMPLE, C_DEVICE = "#ff9a2e", "#1f4fd6"
+C_BEAM, C_ANALYZER, C_OPTIC = "#d62728", "#1f77b4", "#8c564b"
 OPTIC_DRAW_DISTANCE = 22.0  # mm upstream of the focus, schematic only
 
 
@@ -41,7 +46,7 @@ def convex_hull(points: np.ndarray) -> np.ndarray:
 
 
 def _solids(layout: SampleLayout):
-    """(u0, v0, u1, v1, w0, w1, colour) boxes of plate, tab, riser, samples."""
+    """(u0, v0, u1, v1, w0, w1, colour) boxes: plate, tab, riser, contact block, screws, samples."""
     p = layout.plate
     w, h = p.width / 2, p.height / 2
     r0, s0, r1, s1 = p.riser_bounds()
@@ -50,128 +55,128 @@ def _solids(layout: SampleLayout):
         (-p.tab_width / 2, h, p.tab_width / 2, h + p.neck_height + p.tab_height, 0.0, p.base_thickness, C_BASE),
         (r0, s0, r1, s1, p.base_thickness, p.total_thickness, C_RISER),
     ]
+    if p.contact_block:
+        b0, c0, b1, c1 = p.contact_block
+        out.append((b0, c0, b1, c1, 0.0, p.contact_block_top, C_BLOCK))
+        r = p.screw_diameter / 2
+        out += [(u - r, v - r, u + r, v + r, p.contact_block_top, p.screw_top, C_SCREW) for u, v in p.screws]
     for s in layout.samples:
         u0, v0, u1, v1 = s.bounds()
         out.append((u0, v0, u1, v1, p.total_thickness, p.total_thickness + s.height, C_SAMPLE))
     return out
 
 
-def _box_points(model, m, box) -> np.ndarray:
-    u0, v0, u1, v1, w0, w1, _ = box
-    return np.array([model.plate_to_lab(m, u, v, ww) for u in (u0, u1) for v in (v0, v1) for ww in (w0, w1)])
-
-
-def _proj(pts: np.ndarray, a: np.ndarray, b: np.ndarray) -> np.ndarray:
-    pts = np.atleast_2d(pts)
-    return np.column_stack([pts @ a, pts @ b])
-
-
-def _draw_hulls(ax, model, m, layout, a, b) -> list[np.ndarray]:
-    drawn = []
+def _draw_top_view(ax, model: StageModel, m: MotorPositions, layout: SampleLayout, result: BeamResult) -> None:
+    pts = []
     for box in _solids(layout):
-        xy = _proj(_box_points(model, m, box), a, b)
-        ax.add_patch(Polygon(convex_hull(xy), closed=True, fc=box[6], ec="k", lw=0.8))
-        drawn.append(xy)
-    return drawn
+        u0, v0, u1, v1, w0, w1, colour = box
+        corners = np.array([model.plate_to_lab(m, u, v, ww)[:2] for u in (u0, u1) for v in (v0, v1) for ww in (w0, w1)])
+        ax.add_patch(Polygon(convex_hull(corners), closed=True, fc=colour, ec="k", lw=0.7))
+        pts.append(corners)
 
+    L = 30
+    ax.plot([-L / np.sqrt(2), L / np.sqrt(2)], [L / np.sqrt(2), -L / np.sqrt(2)], "--", color="tab:purple", lw=0.8)
+    ax.text(9, -11, "analyzer plane", color="tab:purple", fontsize=7, rotation=-45, clip_on=True)
+    tip, base = -N_HAT * 5, -N_HAT * 20
+    cone = [tip + T_HAT * 1.2, tip - T_HAT * 1.2, base - T_HAT * 4.5, base + T_HAT * 4.5]
+    ax.add_patch(Polygon([p[:2] for p in cone], closed=True, fc="#b8d4f0", ec=C_ANALYZER))
+    ax.text(*(base[:2] + [-7, -4]), "analyzer", color=C_ANALYZER, fontsize=8)
+    ax.plot(0, 0, "+", color=C_ANALYZER, ms=12, mew=2)
 
-def _device_points(model, m, layout):
-    out = []
-    t = layout.plate.total_thickness
-    for s in layout.samples:
-        for d in s.devices:
-            u, v = d.position(s)
-            out.append((d.name, model.plate_to_lab(m, u, v, t + s.height)))
-    return out
+    hit, fy = result.hit, result.focus_y
+    oy = fy - OPTIC_DRAW_DISTANCE
+    y_end = hit[1] if hit is not None else fy + 10
+    ax.annotate("", (0, y_end), (0, oy - 12), arrowprops=dict(arrowstyle="-|>", color=C_BEAM, lw=1.6))
+    ax.text(0.8, oy - 11, "beam", color=C_BEAM, fontsize=8)
+    ax.add_patch(Polygon([(-2.5, oy - 1), (2.5, oy - 1), (2.5, oy + 1), (-2.5, oy + 1)], closed=True, fc="#d9c3b0", ec=C_OPTIC))
+    ax.text(3, oy, "optic", color=C_OPTIC, fontsize=8, va="center")
+    ax.plot(0, fy, "o", mfc="none", mec=C_OPTIC, ms=7)
+    if result.delta is not None and abs(result.delta) >= 1e-3:
+        towards = result.delta > 0
+        ax.annotate("", (-4, oy + (3 if towards else -3)), (-4, oy), arrowprops=dict(arrowstyle="-|>", color=C_OPTIC, lw=1.8))
+        ax.text(-4.6, oy, f"{abs(result.delta):.3f} mm\n{'towards' if towards else 'away from'}\nsample",
+                color=C_OPTIC, fontsize=8, ha="right", va="center")
+    if hit is not None:
+        ax.plot(hit[0], hit[1], "x", color=C_BEAM, ms=9, mew=2)
 
-
-def _fit(ax, pts: list[np.ndarray], min_span: float, pad: float = 3.0) -> None:
-    allp = np.vstack(pts)
-    lo, hi = allp.min(axis=0) - pad, allp.max(axis=0) + pad
-    c, span = (lo + hi) / 2, max((hi - lo).max(), min_span)
+    allp = np.vstack(pts + [np.array([[0, oy - 12], [0, 0], [-20, -20], [10, 10]])])
+    lo, hi = allp.min(axis=0) - 3, allp.max(axis=0) + 3
+    c, span = (lo + hi) / 2, max((hi - lo).max(), 45)
     ax.set_xlim(c[0] - span / 2, c[0] + span / 2)
     ax.set_ylim(c[1] - span / 2, c[1] + span / 2)
     ax.set_aspect("equal")
+    # scale bar instead of (relative) axis numbers
+    x0, y0 = c[0] + span / 2 - 14, c[1] - span / 2 + 3
+    ax.plot([x0, x0 + 10], [y0, y0], "k-", lw=2)
+    ax.text(x0 + 5, y0 + 1, "10 mm", ha="center", fontsize=8)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_title(f"Top view (beam ↑)\nST = {m.st:.4f}   SN = {m.sn:.4f}   SRz = {m.srz:g}°", fontsize=9)
+
+
+def _draw_sample_plane(ax, model: StageModel, m: MotorPositions, layout: SampleLayout, result: BeamResult) -> None:
+    c = model.config
+    plate = layout.plate
+
+    def to_xy(u, v):
+        q = model.stage_frame(m, u, v)
+        return c.st0 - q[0], c.sz0 - q[1]
+
+    def poly(points, **kw):
+        xy = np.array([to_xy(u, v) for u, v in points])
+        ax.add_patch(Polygon(xy, closed=True, **kw))
+        return xy
+
+    def rect(r, **kw):
+        u0, v0, u1, v1 = r
+        return poly([(u0, v0), (u1, v0), (u1, v1), (u0, v1)], **kw)
+
+    outline = poly(plate.outline(), fc=C_BASE, ec="k", lw=0.8)
+    rect(plate.riser_bounds(), fc=C_RISER, ec="k", lw=0.8)
+    extra = [outline]
+    if plate.contact_block:
+        extra.append(rect(plate.contact_block, fc=C_BLOCK, ec="k", lw=0.8))
+        for pad in plate.contact_pads:
+            rect(pad, fc=C_PAD, ec="#8a7400", lw=0.6)
+        for u, v in plate.screws:
+            ax.add_patch(Circle(to_xy(u, v), plate.screw_diameter / 2, fc=C_SCREW, ec="k", lw=0.6))
+    for s in layout.samples:
+        xy = rect(s.bounds(), fc=C_SAMPLE, ec="k", lw=0.8, alpha=0.9)
+        ax.text(*xy.mean(axis=0), s.name, fontsize=7, ha="center", va="center")
+        for d in s.devices:
+            p = to_xy(*d.position(s))
+            ax.plot(*p, "o", mfc="white", mec=C_DEVICE, ms=5, mew=1.5)
+            ax.text(p[0], p[1], f"  {d.name}", color=C_DEVICE, fontsize=7, va="bottom")
+
+    # SRn axis, analyzer focus (projected on the surface) and beam spot
+    ax.plot(*to_xy(c.srn_axis_u, c.srn_axis_v), "o", mfc="none", mec="tab:purple", ms=9, mew=1.5)
+    focus_uv = model.lab_to_plate(m, np.zeros(3))[:2]
+    ax.plot(*to_xy(*focus_uv), "+", color=C_ANALYZER, ms=14, mew=2)
+    if result.plate_uv is not None:
+        p = to_xy(*result.plate_uv)
+        ax.plot(*p, "x", color=C_BEAM, ms=11, mew=2.5)
+        ax.add_patch(Circle(p, 0.6, fc="none", ec=C_BEAM, lw=1.2))
+
+    allp = np.vstack(extra)
+    lo, hi = allp.min(axis=0) - 1.5, allp.max(axis=0) + 1.5
+    ctr, span = (lo + hi) / 2, (hi - lo).max()
+    # seen from the analyzer: larger ST / SZ values are to the left / below
+    ax.set_xlim(ctr[0] + span / 2, ctr[0] - span / 2)
+    ax.set_ylim(ctr[1] + span / 2, ctr[1] - span / 2)
+    ax.set_aspect("equal")
+    ax.set_xlabel("ST (mm) to bring a point onto the beam")
+    ax.set_ylabel("SZ (mm)")
+    ax.grid(alpha=0.25)
+    ax.set_title(
+        f"Sample plane (seen from analyzer)   SRn = {m.srn:g}°\nSZ = {m.sz:.4f}   PIX = {m.pix:g}   PIY = {m.piy:g}"
+        "\n× beam spot   + analyzer focus   ○ SRn axis",
+        fontsize=9,
+    )
 
 
 def draw_schematic(fig, model: StageModel, m: MotorPositions, layout: SampleLayout, result: BeamResult) -> None:
     fig.clear()
-    gs = fig.add_gridspec(2, 2, width_ratios=[1.35, 1])
-    ax_top, ax_front, ax_side = fig.add_subplot(gs[:, 0]), fig.add_subplot(gs[0, 1]), fig.add_subplot(gs[1, 1])
-    hit = result.hit
-
-    # ---------------- top view ----------------
-    ax = ax_top
-    pts = _draw_hulls(ax, model, m, layout, X_HAT, Y_HAT)
-    L = 30
-    ax.plot([-L / np.sqrt(2), L / np.sqrt(2)], [L / np.sqrt(2), -L / np.sqrt(2)], "--", color="tab:purple", lw=0.8)
-    tip, base = -N_HAT * 5, -N_HAT * 20
-    cone = [tip + T_HAT * 1.2, tip - T_HAT * 1.2, base - T_HAT * 4.5, base + T_HAT * 4.5]
-    ax.add_patch(Polygon([p[:2] for p in cone], closed=True, fc="#b8d4f0", ec=C_ANALYZER))
-    ax.text(*(base[:2] + [-6, -4]), "analyzer", color=C_ANALYZER, fontsize=8)
-    ax.plot(0, 0, "+", color=C_ANALYZER, ms=12, mew=2)
-
-    fy = result.focus_y
-    oy = fy - OPTIC_DRAW_DISTANCE
-    y_end = hit[1] if hit is not None else fy + 10
-    ax.annotate("", (0, y_end), (0, oy - 12), arrowprops=dict(arrowstyle="-|>", color=C_BEAM, lw=1.6))
-    ax.add_patch(Polygon([(-2.5, oy - 1), (2.5, oy - 1), (2.5, oy + 1), (-2.5, oy + 1)], closed=True, fc="#d9c3b0", ec=C_OPTIC))
-    ax.text(3, oy - 0.5, "optic\n(not to scale)", color=C_OPTIC, fontsize=7, va="center")
-    ax.plot(0, fy, "o", mfc="none", mec=C_OPTIC, ms=7, label="optics focus (ref)")
-    if result.delta is not None and abs(result.delta) > 1e-6:
-        ax.annotate("", (-4, oy + result.delta), (-4, oy), arrowprops=dict(arrowstyle="-|>", color=C_OPTIC, lw=1.5))
-        ax.text(-4.5, oy + result.delta / 2, f"{result.delta:+.3f}", color=C_OPTIC, fontsize=8, ha="right", va="center")
-    if hit is not None:
-        ax.plot(hit[0], hit[1], "x", color=C_BEAM, ms=9, mew=2)
-    pts += [np.array([[0, oy - 12], [0, 0], [-20, -20], [10, 10]])]
-    _fit(ax, pts, 45)
-    ax.set_title(f"Top view (beam +y)\nSRz = {m.srz:g}°   SN = {m.sn:.4g}   ST = {m.st:.4g}", fontsize=9)
-    ax.set_xlabel("x (mm)")
-    ax.set_ylabel("y = beam (mm)")
-    ax.grid(alpha=0.2)
-
-    # ---------------- view from analyzer ----------------
-    ax = ax_front
-    t = layout.plate.total_thickness
-    outline = np.array([model.plate_to_lab(m, u, v, layout.plate.base_thickness) for u, v in layout.plate.outline()])
-    ax.add_patch(Polygon(_proj(outline, T_HAT, Z_HAT), closed=True, fc=C_BASE, ec="k", lw=0.8))
-    r0, s0, r1, s1 = layout.plate.riser_bounds()
-    riser = np.array([model.plate_to_lab(m, u, v, t) for u, v in ((r0, s0), (r1, s0), (r1, s1), (r0, s1))])
-    ax.add_patch(Polygon(_proj(riser, T_HAT, Z_HAT), closed=True, fc=C_RISER, ec="k", lw=0.8))
-    for s in layout.samples:
-        u0, v0, u1, v1 = s.bounds()
-        rect = np.array([model.plate_to_lab(m, u, v, t + s.height) for u, v in ((u0, v0), (u1, v0), (u1, v1), (u0, v1))])
-        xy = _proj(rect, T_HAT, Z_HAT)
-        ax.add_patch(Polygon(xy, closed=True, fc=C_SAMPLE, ec="k", lw=0.8, alpha=0.85))
-        ax.text(*xy.mean(axis=0), s.name, fontsize=7, ha="center", va="center")
-    for name, p in _device_points(model, m, layout):
-        q = _proj(p, T_HAT, Z_HAT)[0]
-        ax.plot(*q, "o", mfc="white", mec=C_DEVICE, ms=5)
-        ax.text(q[0] + 0.3, q[1] + 0.3, name, color=C_DEVICE, fontsize=7)
-    ax.plot(0, 0, "+", color=C_ANALYZER, ms=14, mew=2)
-    if hit is not None:
-        q = _proj(hit, T_HAT, Z_HAT)[0]
-        ax.plot(*q, "x", color=C_BEAM, ms=10, mew=2)
-    _fit(ax, [_proj(outline, T_HAT, Z_HAT), np.zeros((1, 2))], 20, pad=1.5)
-    ax.set_title(f"View from analyzer\nSRn = {m.srn:g}°   SZ = {m.sz:.4g}", fontsize=9)
-    ax.set_xlabel("along +ST (mm)")
-    ax.set_ylabel("z (mm)")
-    ax.grid(alpha=0.2)
-
-    # ---------------- side view ----------------
-    ax = ax_side
-    pts = _draw_hulls(ax, model, m, layout, N_HAT, Z_HAT)
-    ax.axvline(0, ls="--", color=C_ANALYZER, lw=1)
-    ax.axhline(0, color=C_BEAM, lw=1, alpha=0.6)
-    ax.annotate("", (-0.5, 1.5), (-8, 1.5), arrowprops=dict(arrowstyle="-|>", color=C_ANALYZER))
-    ax.text(-8, 2.0, "analyzer", color=C_ANALYZER, fontsize=8)
-    if hit is not None:
-        q = _proj(hit, N_HAT, Z_HAT)[0]
-        ax.plot(*q, "x", color=C_BEAM, ms=10, mew=2)
-    _fit(ax, pts + [np.array([[-9, 0], [0, 0]])], 25)
-    ax.set_title("Side view (along ST)\ndashed = analyzer focal plane, red = beam", fontsize=9)
-    ax.set_xlabel("along +SN (mm)")
-    ax.set_ylabel("z (mm)")
-    ax.grid(alpha=0.2)
-
+    ax_top, ax_plane = fig.subplots(1, 2)
+    _draw_top_view(ax_top, model, m, layout, result)
+    _draw_sample_plane(ax_plane, model, m, layout, result)
     fig.tight_layout()
