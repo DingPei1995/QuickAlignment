@@ -19,10 +19,10 @@ from ..stage import OPTIC_TYPES, MotorPositions, OpticsCalibration, StageConfig,
 
 Qt = QtCore.Qt
 
-MOTOR_SPECS = {  # name: (label, min, max, decimals, step, suffix)
-    "st": ("ST", -1000, 1000, 4, 0.1, " mm"),
-    "sn": ("SN", -1000, 1000, 4, 0.1, " mm"),
-    "sz": ("SZ", -1000, 1000, 4, 0.1, " mm"),
+MOTOR_SPECS = {  # name: (label, min, max, decimals, step, suffix); ST / SN / SZ: travel ranges
+    "st": ("ST", -6, 6, 4, 0.1, " mm"),
+    "sn": ("SN", -0.5, 65, 4, 0.1, " mm"),
+    "sz": ("SZ", 35, 45, 4, 0.1, " mm"),
     "srn": ("SRn", -720, 720, 3, 1.0, " °"),
     "srz": ("SRz", -720, 720, 3, 1.0, " °"),
     "pix": ("PIX", 0, 300, 2, 1.0, " µm"),
@@ -80,6 +80,16 @@ def align_labels(*parts) -> None:
     width = max(w.sizeHint().width() for w in labels)
     for w in labels:
         w.setMinimumWidth(width)
+
+
+def out_of_range(m: MotorPositions) -> list[str]:
+    """Motors of m outside their range, e.g. ["ST = 7.2000 (range −6 … 6)"]."""
+    out = []
+    for name, (label, lo, hi, dec, *_) in MOTOR_SPECS.items():
+        value = getattr(m, name)
+        if not lo <= value <= hi:
+            out.append(f"{label} = {value:.{dec}f} (range {lo:g} … {hi:g})")
+    return out
 
 
 class MotorForm(QtWidgets.QWidget):
@@ -315,6 +325,11 @@ class StagePanel(QtWidgets.QWidget):
             return
         m = self.motors.value()
         new = self.model().motors_for_target(*t, srn=m.srn, srz=m.srz, pix=m.pix, piy=m.piy)
+        bad = out_of_range(new)
+        if bad:
+            QtWidgets.QMessageBox.warning(self, "Out of range", "The target cannot be brought to the focus:\n"
+                                          + "\n".join(bad) + "\n\nThe positions are not changed.")
+            return
         self.motors.set_value(new)
         self.update_view()
 

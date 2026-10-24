@@ -494,3 +494,38 @@ def test_optic_choice_loads_its_configuration(tmp_path, monkeypatch):
     win = MainWindow(store=store, optic="capillary")
     assert win.stage.optic_type.currentText() == "capillary" and win.rotation.optic_label.text() == "Capillary position"
     win.close()
+
+
+def test_motor_ranges(window, monkeypatch):
+    from quickalignment.stage import MotorPositions
+    from quickalignment.ui.stage_panel import out_of_range
+
+    assert out_of_range(MotorPositions()) == []
+    assert out_of_range(MotorPositions(st=7, sn=-1, sz=34)) == [
+        "ST = 7.0000 (range -6 … 6)", "SN = -1.0000 (range -0.5 … 65)", "SZ = 34.0000 (range 35 … 45)"]
+
+    # y = 6 needs SZ = SZ0 - 6 = 34 at SRn = 120: refused, positions unchanged
+    ed, st = window.editor, window.stage
+    ed.add_sample(Sample("high", u=0, v=6.0, length=1, width=1))
+    st.refresh_targets()
+    st.target_combo.setCurrentText("high")
+    warned = []
+    monkeypatch.setattr(QtWidgets.QMessageBox, "warning", lambda *a, **k: warned.append(a[2]))
+    st.bring_target_to_focus()
+    assert warned and "SZ = 34.0000" in warned[0] and st.motors.value().sz == 40.0
+
+    # the corrected rotation solution is clamped to the ranges: closest reachable position
+    panel = window.rotation
+    st.record = replace(st.record, config=replace(st.record.config, srn_axis_v=1.0))
+    panel.measured.set_value(st.model().motors_for_target(0.0, -4.8, 5.0, srn=120, srz=0))  # SZ = 44.8
+    panel.new_srn.setValue(300.0)  # half a turn about v = 1: the point goes to v = 6.8, i.e. SZ = 33.2
+    panel.new_srz.setValue(0.0)
+    panel.compute()
+    assert "Out of range: SZ = 33.2000" in panel.result_label.text()
+    c = panel.corrected
+    assert out_of_range(c.new) == [] and c.new.sz == 35.0 and c.focus_distance == pytest.approx(1.8)
+    assert "closest reachable position: 1800 µm" in panel.corrected_label.text()
+    warned.clear()
+    panel.correct_sn.setChecked(False)
+    panel.send_to_stage()  # SN kept is not reachable
+    assert warned and "SZ = 33.2000" in warned[0]

@@ -74,9 +74,13 @@ Gives the stage positions that keep a sample point on the beam when the sample i
    the point then is from the analyzer focus (model; red above 50 µm, where the data would be distorted: SRn alone
    keeps the surface plane, SRz does not). Ticking *Correct SN* shows the SN, ST, SZ and optic position that put the
    point on the analyzer focus (absolute: relies on ST0 / SZ0 / SN_f and the rotation axes of the configuration).
-   If a motor range does not allow it, the closest reachable position is given with its distance from the focus
-   (ranges: `MOTOR_SPECS` in `quickalignment/ui/stage_panel.py`). *Send to Stage & Optics tab* takes the shown
-   solution.
+   If a motor range does not allow it, the closest reachable position is given with its distance from the focus.
+   *Send to Stage & Optics tab* takes the shown solution (refused if it is out of range).
+
+Motor travel ranges (`MOTOR_SPECS` in `quickalignment/ui/stage_panel.py`): ST −6 … 6, SN −0.5 … 65, SZ 35 … 45 mm.
+The motor fields do not accept values outside them; *Bring target to focus* and the Rotate tab warn when a
+position would be out of range (e.g. at SRn = 120 a point more than 5 mm above or below the plate centre needs
+SZ outside 35 … 45).
 
 The SRn axis position on the plate comes from the configuration (`configs/calibration_2026-10-24_170000_zone_plate.json`:
 standard plate, zone plate data WWS2 2025-10-01/02, 2.38 mm from the axis). The SRz axis is not calibrated yet for

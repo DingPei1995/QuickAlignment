@@ -12,7 +12,7 @@
 from __future__ import annotations
 
 from ._qt import QtCore, QtWidgets
-from .stage_panel import MOTOR_SPECS, MotorForm, align_labels, equal_row, spin
+from .stage_panel import MOTOR_SPECS, MotorForm, align_labels, equal_row, out_of_range, spin
 from ..rotation import relocate
 
 Qt = QtCore.Qt
@@ -158,9 +158,12 @@ class RotationPanel(QtWidgets.QWidget):
             return
         u, v, w = r.uvw
         pi = self.stage.config().pi_center
+        bad = out_of_range(r.new)
         self.result_label.setText(
             f"At SRn = {r.new.srn:.3f}°, SRz = {r.new.srz:.3f}°, PIX = PIY = {pi:g} µm, SN kept:"
             + self._table(r, ("st", "sz", "sn")) + f"Point: <b>{r.target}</b> (plate x = {u:.3f}, y = {v:.3f} mm)."
+            + (f"<br><span style='color:#b00'><b>Out of range: {', '.join(bad)}</b> — not reachable with SN kept, "
+               "use the corrected solution.</span>" if bad else "")
         )
         text = (f"With SN kept the point is {r.focus_distance * 1000:.0f} µm from the analyzer focus "
                 f"(now: {r.measured_focus_distance * 1000:.0f} µm, model); the optic refocuses on it.")
@@ -185,6 +188,10 @@ class RotationPanel(QtWidgets.QWidget):
     def send_to_stage(self) -> None:
         r = self.chosen()
         if r is None:
+            return
+        bad = out_of_range(r.new)
+        if bad:
+            QtWidgets.QMessageBox.warning(self, "Out of range", "Not reachable:\n" + "\n".join(bad))
             return
         self.stage.motors.set_value(r.new)
         if r.optic_new is not None:
