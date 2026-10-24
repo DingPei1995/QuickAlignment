@@ -253,43 +253,25 @@ def test_change_plate_keeps_samples(window):
     assert window.editor.table.item(0, 7).text() == "outside sample area"
 
 
-def test_calibration_check_and_accept(window):
-    ed, st, dlg = window.editor, window.stage, window.cal_dialog
-    ed.add_sample(Sample("Au", u=-2.0, v=3.0, length=2, width=2, height=0.5))
-    st.refresh_targets()
+def test_configuration_dialog_is_read_only(window):
+    from datetime import datetime
+
+    from quickalignment.calibration import CalibrationRecord
+    from quickalignment.stage import StageConfig
+
+    st, dlg = window.stage, window.cal_dialog
+    old = window.store.save(CalibrationRecord(comment="old", config=StageConfig(st0=0.1)), now=datetime(2026, 1, 1))
+    new = window.store.save(CalibrationRecord(comment="new", config=StageConfig(st0=0.2)), now=datetime(2026, 2, 1))
     window.open_calibration()
-    assert dlg.isVisible() and "default" in window.cal_label.text()
-    # constants locked unless expert mode
-    assert not dlg.cfg_boxes["st0"].isEnabled()
-    dlg.expert.setChecked(True)
-    assert dlg.cfg_boxes["st0"].isEnabled()
-    dlg.expert.setChecked(False)
-
-    # reference found 0.1 mm off in ST and SN
-    dlg.ref_combo.setCurrentText("Au")
-    nominal = st.model().motors_for_target(-2.0, 3.0, 5.5, srn=120, srz=0)
-    found = replace(nominal, st=nominal.st + 0.1, sn=nominal.sn + 0.1)
-    dlg.measured.set_value(found)
-    dlg.measured_optic.setValue(7.5)
-    dlg.run_check()
-    assert dlg.accept_btn.isEnabled()
-    assert "+0.1000" in dlg.check_label.text()
-    assert st.record.config.st0 == 0.0  # nothing changes before accepting
-    dlg.accept_check()
-    rec = st.record
-    assert rec.path is not None and rec.path.exists()
-    assert rec.config.st0 == pytest.approx(0.1, abs=1e-4) and rec.config.sn_f == pytest.approx(0.1, abs=1e-4)
-    assert rec.optics.enabled and rec.optics.optic_position == 7.5
-    assert rec.created in window.cal_label.text()
-    # the new file is what a fresh start loads
-    assert window.store.latest().created == rec.created
-
-    # expert edit saves another configuration
-    dlg.expert.setChecked(True)
-    dlg.cfg_boxes["srz_offset_n"].setValue(0.3)
-    dlg.save_expert()
-    assert st.record.config.srz_offset_n == 0.3 and not dlg.expert.isChecked()
-    assert len(window.store.records()) == 2
+    assert dlg.isVisible() and "InitialCalibration" in dlg.findChildren(QtWidgets.QLabel)[-2].text()
+    # nothing to edit, check or save in QuickAlignment
+    assert not dlg.findChildren(QtWidgets.QDoubleSpinBox) and not dlg.findChildren(QtWidgets.QLineEdit)
+    assert [r.comment for r in dlg._records] == ["new", "old"]
+    dlg.history.setCurrentIndex(1)
+    dlg.use_selected()  # an older configuration for this session
+    assert st.record.path == old.path and st.config().st0 == 0.1
+    assert old.created in window.cal_label.text() and "0.1000" in dlg.constants.text()
+    assert len(window.store.records()) == 2 and new.path.exists()
 
 
 def test_initial_calibration_window(tmp_path):

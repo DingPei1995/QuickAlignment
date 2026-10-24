@@ -17,10 +17,9 @@ in one JSON file; the first *Save* asks for the file name.
 
 ### Configuration files (`configs/`)
 
-- `calibration_YYYY-MM-DD_HHMMSS_<optic>.json`: written by beamline staff, one file per calibration
-  (initial calibration, accepted reference check, expert edit).
-- Configurations are only changed by beamline staff with the reference sample (Calibration window,
-  InitialCalibration.py); QuickAlignment asks nothing and writes no configuration on closing.
+- `calibration_YYYY-MM-DD_HHMMSS_<optic>.json`: written by beamline staff with InitialCalibration.py, one file
+  per calibration.
+- QuickAlignment only reads them: it asks nothing and writes no configuration.
 - At start-up the newest of these files (by its time stamp) made with the chosen optic is loaded. If there is
   none for that optic, the stage constants of the newest file are used and the optic position is left
   uncalibrated.
@@ -101,14 +100,16 @@ points at other rotations are predicted: staff tick *Found* (within 0.05 mm) or 
 optic position, and the configuration is corrected with them, round after round, until it is good enough.
 Protocol: [`docs/initial_calibration_protocol.md`](docs/initial_calibration_protocol.md).
 
-### Calibration window (toolbar *Calibration…*, `docs/calibration_dialog.png`)
+### Configuration window (toolbar *Configuration…*, `docs/calibration_dialog.png`)
 
-- all configurations in `configs/` are listed; the newest is used, older ones can be selected
-- **check with the reference sample**: choose it, enter the stage positions where it is on the beam at the
-  analyzer focus (preferably SRn = 120, SRz = 0) and the optic position at best focus, press *Check*:
-  predicted vs measured ST / SZ / SN / optic are shown. *Accept and save* writes a new dated configuration
-  (ST0 / SZ0 / SN_f shifted by the deviations, this state as optics reference).
-- the constants are shown greyed out; tick **Expert mode** to edit them and save them as a new configuration.
+Read-only: the configuration in use (time stamp, optic, comment), its constants and optics reference. An
+older configuration can be selected for the session. There is no calibration in QuickAlignment: the
+configuration comes from InitialCalibration (all constants fitted and checked at test points within
+0.05 mm), and what remains for a sample – mostly the error of drawing it on the plate – is corrected with
+*Found here* in the Stage & Optics tab. A configuration error of 0.05 mm, absorbed that way, leaves a few
+10 µm at other rotations (tested). If *Found here* has to move a sample by more than 1 mm, the program
+suggests checking whether the configuration is outdated (motors re-homed): then beamline staff run
+InitialCalibration.
 
 The optic (zone plate + OSA or capillary) is modelled only as a focus point that moves along the beam with
 the optic motor. ST, SZ and SRn do not change the surface plane, so they need no optic move; SN, SRz and

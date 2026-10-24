@@ -42,7 +42,7 @@ CONFIG_SPECS = {
     "srz_offset_n": ("SRz axis offset along +SN", " mm"),
 }
 TOLERANCE = 1e-3  # mm; below this a move is reported as not needed
-OPTIC_DIRECTIONS = ["+ moves optic downstream (towards sample)", "+ moves optic upstream (away from sample)"]
+LARGE_FOUND_OFFSET = 1.0  # mm; a larger "Found here" correction hints at an outdated configuration
 
 
 def spin(value: float, lo: float = -1000, hi: float = 1000, decimals: int = 3, step: float = 0.1, suffix: str = " mm"):
@@ -156,7 +156,7 @@ class StagePanel(QtWidgets.QWidget):
         ref_btn.setToolTip(
             "The beam is in focus now: take the current stage positions, the illuminated surface\n"
             "and this optic position as the optics reference (for this session; configurations are\n"
-            "changed by beamline staff in the Calibration window)."
+            "made by beamline staff with InitialCalibration.py)."
         )
         ref_btn.clicked.connect(self.set_optics_reference)
         self.optic_ref_label = QtWidgets.QLabel()
@@ -330,12 +330,16 @@ class StagePanel(QtWidgets.QWidget):
             return None
         m = self.motors.value()
         du, dv, dw = found_offset(self.model(), m, *t)
+        large = ""
+        if max(abs(du), abs(dv), abs(dw)) > LARGE_FOUND_OFFSET:
+            large = (f"\n\nThis is more than {LARGE_FOUND_OFFSET:g} mm. If other samples show the same shift, the "
+                     "configuration may be outdated (motors re-homed?): ask beamline staff to run InitialCalibration.")
         answer = QtWidgets.QMessageBox.question(
             self, "Correct the sample position?",
             f"{label} is on the beam, in the analyzer focus, at ST = {m.st:.4f}, SZ = {m.sz:.4f}, SN = {m.sn:.4f} "
             f"(SRn = {m.srn:g}°, SRz = {m.srz:g}°)?\n\n"
             f"Then it is at Δx = {du:+.3f}, Δy = {dv:+.3f} mm on the plate and ΔH = {dw:+.3f} mm from where it was "
-            f"drawn. {sample.name} (with its devices) is moved there; the other samples stay.",
+            f"drawn. {sample.name} (with its devices) is moved there; the other samples stay." + large,
             QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No, QtWidgets.QMessageBox.Yes,
         )
         if answer != QtWidgets.QMessageBox.Yes:

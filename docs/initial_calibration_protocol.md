@@ -8,7 +8,8 @@ configuration that QuickAlignment loads at start-up.
 - first use of QuickAlignment
 - after re-homing / resetting the manipulator motors (ST, SN, SZ, SRn, SRz)
 - after maintenance of the manipulator or the sample receptacle
-- when the reference check in QuickAlignment (*Calibration… → Check*) shows large deviations
+- when samples are found far (≳ 1 mm, the same shift for several samples) from where QuickAlignment predicts them
+  (*Found here* in QuickAlignment warns about it)
 
 ## What is determined
 

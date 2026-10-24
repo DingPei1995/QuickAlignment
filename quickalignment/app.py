@@ -44,7 +44,7 @@ class MainWindow(QtWidgets.QMainWindow):
             ("Open…", self.open_session),
             ("Save", self.save_session),
             (None, None),
-            ("Calibration…", self.open_calibration),
+            ("Configuration…", self.open_calibration),
             ("Change plate…", self.change_plate),
         ):
             if text is None:

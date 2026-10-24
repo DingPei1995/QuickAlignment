@@ -3,14 +3,11 @@
 Files in the configuration folder (default: ``configs/`` next to the program):
 
 * ``calibration_YYYY-MM-DD_HHMMSS_<optic>.json`` (optic: ``capillary`` or
-  ``zone_plate``): one file per calibration made by
-  beamline staff (initial calibration, accepted reference check, expert edit).
-Configurations are changed by beamline staff only (with the reference sample),
-never by the user program on closing.
+  ``zone_plate``): one file per calibration made by beamline staff with
+  InitialCalibration.py. QuickAlignment only reads them.
 
-At start-up the newest of them (by its time stamp) is loaded. A check
-with the reference sample compares where the sample was actually found with
-where the current calibration predicts it; accepting it writes a new dated file.
+At start-up the newest of them (by its time stamp) made with the chosen optic
+is loaded.
 """
 
 from __future__ import annotations
@@ -20,8 +17,7 @@ from dataclasses import asdict, dataclass, field, fields, replace
 from datetime import datetime
 from pathlib import Path
 
-from .geometry import PlateGeometry
-from .stage import MotorPositions, OpticsCalibration, StageConfig, StageModel
+from .stage import MotorPositions, OpticsCalibration, StageConfig
 
 DEFAULT_FOLDER = Path(__file__).resolve().parent.parent / "configs"
 TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
@@ -38,7 +34,7 @@ class CalibrationRecord:
     comment: str = "built-in default (no configuration file)"
     config: StageConfig = field(default_factory=StageConfig)
     optics: OpticsCalibration = field(default_factory=OpticsCalibration)
-    check: dict | None = None  # what the reference check measured, for the record
+    check: dict | None = None  # what the calibration measured, for the record
     path: Path | None = None
 
     @property
@@ -122,63 +118,3 @@ class CalibrationStore:
             i += 1
         path.write_text(json.dumps(record.to_dict(), indent=2))
         return replace(record, path=path)
-
-
-@dataclass
-class CheckResult:
-    target: str
-    measured: MotorPositions
-    predicted: MotorPositions
-    delta_st: float
-    delta_sz: float
-    delta_sn: float
-    measured_optic: float
-    predicted_optic: float | None
-    new_record: CalibrationRecord
-
-    @property
-    def delta_optic(self) -> float | None:
-        return None if self.predicted_optic is None else self.measured_optic - self.predicted_optic
-
-
-def check_reference(
-    record: CalibrationRecord,
-    plate: PlateGeometry,
-    target: str,
-    uvw: tuple[float, float, float],
-    measured: MotorPositions,
-    measured_optic: float,
-    comment: str = "",
-) -> CheckResult:
-    """Compare a measured reference position with the current calibration.
-
-    `measured` are the stage positions with the reference point `uvw` (plate
-    frame) on the beam at the analyzer focus, `measured_optic` the optic
-    position at best focus there. The proposed new record shifts ST0 / SZ0 /
-    SN_f by the measured deviations and takes this state as optics reference.
-    """
-    model = StageModel(record.config, plate)
-    u, v, w = uvw
-    predicted = model.motors_for_target(u, v, w, measured.srn, measured.srz, measured.pix, measured.piy)
-    d_st, d_sz, d_sn = measured.st - predicted.st, measured.sz - predicted.sz, measured.sn - predicted.sn
-
-    cal = record.optics
-    hit = model.beam_hit(measured, w)
-    predicted_optic = None if hit is None else cal.position_for_focus(model, float(hit[1]))
-
-    c = record.config
-    new_record = CalibrationRecord(
-        comment=comment or f"reference check on {target}",
-        config=replace(c, st0=c.st0 + d_st, sz0=c.sz0 + d_sz, sn_f=c.sn_f + d_sn),
-        optics=replace(cal, enabled=True, motors=measured, surface_w=w, optic_position=measured_optic),
-        check={
-            "target": target,
-            "plate": plate.key,
-            "uvw": list(uvw),
-            "measured": asdict(measured),
-            "measured_optic": measured_optic,
-            "previous": record.label,
-            "deltas": {"st": d_st, "sz": d_sz, "sn": d_sn},
-        },
-    )
-    return CheckResult(target, measured, predicted, d_st, d_sz, d_sn, measured_optic, predicted_optic, new_record)
