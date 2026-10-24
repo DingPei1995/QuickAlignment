@@ -54,8 +54,8 @@ height do (moving the surface 1 mm along SN moves the beam spot √2 mm along th
 
 Both plates share the same back plate (18 × 15.5 × 1.1 mm Ta with tab), which defines the common reference frame.
 
-- **Standard** (`Plaquette Ta avec rehausse .pdf`): 11 mm wide riser, protruding surface 5.0 mm above the back face.
-- **Gating** (`pei_Assemblage V7_asm.pdf`): same riser; sample area = upper 10.5 mm of the riser;
+- **Standard** (SOLEIL drawing "Plaquette avec rehausse"): 11 mm wide riser, protruding surface 5.0 mm above the back face.
+- **Gating** (drawing "Assemblage V7"): same riser; sample area = upper 10.5 mm of the riser;
   below it a 6 mm contact block (3 gold pads, 4 screws, top ≈ 5.2 mm, screw heads ≈ 6.0 mm), reaching 1 mm below the plate.
 
 ## Geometry conventions (confirmed)
