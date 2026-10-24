@@ -176,8 +176,8 @@ def found_offset(model: StageModel, m: MotorPositions, u: float, v: float, w: fl
     """(du, dv, dw) from the expected plate point (u, v, w) to the one really on the analyzer focus at m.
 
     Use when the target was found on the beam, in the analyzer focus, at the
-    stage positions m: moving the layout by (du, dv) and the heights by dw makes
-    the model put it there, and corrects the other samples by the same amount.
+    stage positions m: moving its sample by (du, dv) and its height by dw makes
+    the model put it there (and the sample's other devices with it).
     """
     pu, pv, pw = model.lab_to_plate(m, np.zeros(3))
     return float(pu - u), float(pv - v), float(pw - w)

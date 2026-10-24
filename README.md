@@ -12,17 +12,15 @@ Double-click **`QuickAlignment.py`** (Windows: `QuickAlignment.pyw` starts witho
 or run `python QuickAlignment.py [session.json]` / `python -m quickalignment`.
 At start-up the program asks which sample plate is mounted (standard Ta plate, gating plate or custom
 plate; *Change plate…* in the toolbar switches later) and which focusing optic is used (zone plate + OSA or
-capillary), then loads the most recently written configuration for that optic from `configs/` (user or
-beamline staff, see below). New / Open / Save store the experiment (plate, samples, devices, motor positions)
+capillary), then loads the most recently written configuration for that optic from `configs/` (see below). New / Open / Save store the experiment (plate, samples, devices, motor positions)
 in one JSON file; the first *Save* asks for the file name.
 
 ### Configuration files (`configs/`)
 
 - `calibration_YYYY-MM-DD_HHMMSS_<optic>.json`: written by beamline staff, one file per calibration
   (initial calibration, accepted reference check, expert edit).
-- `user_config.json`: one single file, overwritten when the user answers *Save* to the question asked on
-  closing the program; its first entry is the save time. It holds the configuration in use with the optic
-  type, the optic position and the optics reference.
+- Configurations are only changed by beamline staff with the reference sample (Calibration window,
+  InitialCalibration.py); QuickAlignment asks nothing and writes no configuration on closing.
 - At start-up the newest of these files (by its time stamp) made with the chosen optic is loaded. If there is
   none for that optic, the stage constants of the newest file are used and the optic position is left
   uncalibrated.
@@ -46,12 +44,11 @@ y up, front view (sample side) with the tab up), not motor positions; the plate 
   with a list of the ST / SZ / SN that put each sample on the analyzer focus at the initial rotation
   (SRn = 120, SRz = 0, PIX = PIY = 150 µm). A substrate carrying devices is listed by its devices only (also in
   the target lists).
-- **Found here: correct all** (in that list): once the first device is found on the beam in the analyzer focus,
-  enter its stage positions and the optic position in focus in the Stage tab, choose the device and press the
-  button. The device is moved on the plate to where it really is (Δx, Δy, ΔH), every other sample / device by the
-  same amount, and the list is recomputed. The found state becomes the optics reference of the configuration in
-  use, which is saved to `user_config.json` at once. ST0 / SZ0 / SN_f are not changed (that would correct the
-  same offset twice).
+- **Found here: correct its sample** (in that list): once a device is found on the beam in the analyzer focus,
+  enter its stage positions in the Stage tab, choose the device and press the button. Its sample (with all its
+  devices) is moved on the plate to where it really is (Δx, Δy, ΔH: an error of the drawing); the other samples
+  and the configuration stay. The list is recomputed and the sample keeps the corrected position from then on
+  (saved with the session).
 
 ### Stage & Optics tab (`docs/app_stage_tab.png`)
 
@@ -63,7 +60,7 @@ Positions here are **absolute motor values** (ST, SZ, SN, …, optic).
 - **focusing optic** (zone plate + OSA or capillary, only along the beam): its absolute position is read
   from the configuration and can be typed in. The result gives the **absolute optic position** for focus
   on the illuminated surface; *Use required position* copies it into the field. After focusing by hand,
-  *Set as optics reference* takes the current state as the new optics reference.
+  *Set as optics reference* takes the current state as the optics reference for this session.
 - schematic: top view (plate orientation, analyzer and its focal plane, beam, optic with its position and the
   position needed for focus) and the sample plane in front view (SRn rotation; beam spot, analyzer focus and
   SRn axis with a legend in the same colours; axes in absolute ST / SZ)

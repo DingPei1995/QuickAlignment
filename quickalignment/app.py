@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sys
 
-from .calibration import USER_FILE, CalibrationRecord, CalibrationStore
+from .calibration import CalibrationRecord, CalibrationStore
 from .geometry import SampleLayout
 from .session import Session
 from .ui._qt import QtWidgets, exec_app
@@ -77,33 +77,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self.cal_label.setText(f"Configuration: {record.label}")
         self.stage.update_view()
 
-    def save_user_config(self) -> CalibrationRecord:
-        """Write the configuration in use (with the optic as entered) to user_config.json."""
-        saved = self.store.save_user(self.stage.current_record())
-        self._on_record(saved)
-        return saved
-
-    def closeEvent(self, event) -> None:
-        answer = QtWidgets.QMessageBox.question(
-            self,
-            "Save configuration?",
-            "Save the current configuration (stage constants, optic type and position, optics reference)\n"
-            f"to {self.store.folder / USER_FILE}?\n\nIt will be loaded at the next start.",
-            QtWidgets.QMessageBox.Save | QtWidgets.QMessageBox.Discard | QtWidgets.QMessageBox.Cancel,
-            QtWidgets.QMessageBox.Save,
-        )
-        if answer == QtWidgets.QMessageBox.Cancel:
-            event.ignore()
-            return
-        if answer == QtWidgets.QMessageBox.Save:
-            try:
-                self.save_user_config()
-            except OSError as exc:
-                QtWidgets.QMessageBox.critical(self, "Save failed", str(exc))
-                event.ignore()
-                return
-        event.accept()
-
     def session(self) -> Session:
         return Session(self.editor.layout_model, self.stage.motors.value())
 
@@ -125,15 +98,9 @@ class MainWindow(QtWidgets.QMainWindow):
         if new_optic != optic:
             self._on_record(self.store.latest(new_optic))
 
-    def _on_layout_corrected(self) -> None:
+    def _on_layout_corrected(self, name: str) -> None:
         self.editor.set_layout(self.editor.layout_model)
-        try:
-            saved = self.save_user_config()
-        except OSError as exc:
-            QtWidgets.QMessageBox.critical(self, "Save failed", str(exc))
-            return
-        self.statusBar().showMessage(f"All sample / device positions corrected from the found one; "
-                                     f"optics reference saved to {saved.path}.")
+        self.statusBar().showMessage(f"Position of {name} corrected.")
 
     def go_to_stage(self) -> None:
         """Samples are placed: show where they are at the reference orientation in the Stage tab."""

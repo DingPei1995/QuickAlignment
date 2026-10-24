@@ -23,8 +23,6 @@ def window(monkeypatch, tmp_path):
 
     monkeypatch.setattr(app_module, "ask_plate", lambda *a, **k: STANDARD_PLATE)
     monkeypatch.setattr(app_module, "ask_setup", lambda *a, **k: (STANDARD_PLATE, "zone plate + OSA"))
-    # closing asks whether to save the configuration: answer "Discard" unless a test says otherwise
-    monkeypatch.setattr(QtWidgets.QMessageBox, "question", lambda *a, **k: QtWidgets.QMessageBox.Discard)
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     win = MainWindow(store=CalibrationStore(tmp_path / "configs"))
     win.show()
@@ -192,43 +190,12 @@ def test_stage_panel_bring_to_focus_and_optics(window):
     assert "in focus" in st.result_label.text()
 
 
-def test_user_config_saved_on_close_and_loaded_first(window, monkeypatch):
-    from datetime import datetime
-
-    from quickalignment.calibration import CalibrationRecord
-    from quickalignment.stage import StageConfig
-
-    st, store = window.stage, window.store
-    store.save(CalibrationRecord(comment="staff", config=StageConfig(st0=0.4)), now=datetime(2026, 1, 1))
-    window._on_record(store.latest())
-    st.optic_type.setCurrentText("capillary")
-    st.optic_pos.setValue(7.25)
-
-    monkeypatch.setattr(QtWidgets.QMessageBox, "question", lambda *a, **k: QtWidgets.QMessageBox.Save)
+def test_close_asks_nothing_and_writes_no_configuration(window, monkeypatch):
+    asked = []
+    monkeypatch.setattr(QtWidgets.QMessageBox, "question", lambda *a, **k: asked.append(a) or QtWidgets.QMessageBox.Yes)
     window.close()
-    path = store.folder / "user_config.json"
-    text = path.read_text()
-    assert text.lstrip().startswith('{\n  "created": "')  # time stamp first
-    user = store.latest()
-    assert user.kind == "user" and user.config.st0 == 0.4
-    assert user.optics.optic_type == "capillary" and user.optics.current_position == 7.25
-    assert "based on 2026-01-01 00:00:00" in user.comment
-
-    # saving again overwrites the same file; a newer staff calibration wins at start-up
-    store.save_user(user)
-    assert len(list(store.folder.glob("user_config*.json"))) == 1
-    store.save(CalibrationRecord(comment="new staff"), now=datetime(2100, 1, 1))
-    assert store.latest().comment == "new staff"
-
-    # Discard leaves the file untouched, Cancel keeps the window open
-    window.show()
-    monkeypatch.setattr(QtWidgets.QMessageBox, "question", lambda *a, **k: QtWidgets.QMessageBox.Cancel)
-    window.close()
-    assert window.isVisible()
-    monkeypatch.setattr(QtWidgets.QMessageBox, "question", lambda *a, **k: QtWidgets.QMessageBox.Discard)
-    before = path.read_text()
-    window.close()
-    assert path.read_text() == before
+    assert not window.isVisible() and not asked
+    assert not window.store.folder.exists() or not any(window.store.folder.iterdir())
 
 
 def test_session_roundtrip(window, tmp_path):
@@ -531,11 +498,11 @@ def test_motor_ranges(window, monkeypatch):
     assert warned and "SZ = 33.2000" in warned[0]
 
 
-def test_found_device_corrects_all_positions(window, monkeypatch):
+def test_found_device_corrects_its_sample(window, monkeypatch):
     ed, st = window.editor, window.stage
     sub = ed.add_sample(Sample("Sub", u=1.0, v=-1.0, length=4, width=4, height=0.5))
     ed.add_device(sub, Device("D1", "left", 1.0, "bottom", 1.0))
-    ed.add_device(sub, Device("D2", "right", 1.0, "top", 1.0))
+    d2 = ed.add_device(sub, Device("D2", "right", 1.0, "top", 1.0))
     other = ed.add_sample(Sample("B", u=-3.0, v=3.0, length=1, width=1, height=0.3))
     st.refresh_targets()
     # a substrate with devices is represented by its devices only
@@ -546,29 +513,22 @@ def test_found_device_corrects_all_positions(window, monkeypatch):
     assert "<td>Sub/D1</td>" in text and "<td>Sub</td>" not in text
 
     # D1 really is 0.2 mm further right, 0.1 mm lower and 0.05 mm higher than drawn
-    true = replace(window.editor.layout_model.samples[0])
+    assert sub.devices[0].position(sub) == (0.0, -2.0)
     found = st.model().motors_for_target(0.0 + 0.2, -2.0 - 0.1, 5.5 + 0.05, srn=120, srz=0)
-    assert true.devices[0].position(true) == (0.0, -2.0)
     st.motors.set_value(found)
-    st.optic_pos.setValue(12.5)  # in focus there
+    record = st.record
     st.found_combo.setCurrentText("Sub/D1")
     du, dv, dw = st.correct_from_found()
-    # the configuration in use takes this as optics reference and is saved
-    user = window.store.latest()
-    assert user.kind == "user" and user.optics.enabled and user.optics.optic_position == 12.5
-    assert user.optics.motors.st == pytest.approx(found.st) and user.optics.surface_w == pytest.approx(5.55, abs=1e-4)
-    assert st.record.kind == "user"
-    st.update_view()
-    assert st.last_result.target == "Sub/D1" and st.last_result.required_optic_position == pytest.approx(12.5, abs=1e-4)
     assert (du, dv, dw) == pytest.approx((0.2, -0.1, 0.05), abs=1e-4)
-    # everything moved by the same amount, and the editor shows it
+    # only that sample (with its devices) moved, and the editor shows it; no configuration change
     assert (sub.u, sub.v, sub.height) == pytest.approx((1.2, -1.1, 0.55), abs=1e-4)
-    assert (other.u, other.v, other.height) == pytest.approx((-2.8, 2.9, 0.35), abs=1e-4)
-    assert ed.items[id(other)].pos().x() == pytest.approx(-2.8, abs=1e-4)
-    assert ed.table.item(1, 2).text() == "-2.800"
+    assert d2.position(sub) == pytest.approx((2.2, -0.1), abs=1e-4)
+    assert (other.u, other.v, other.height) == (-3.0, 3.0, 0.3)
+    assert ed.items[id(sub)].pos().x() == pytest.approx(1.2, abs=1e-4)
+    assert ed.table.item(0, 2).text() == "1.200"
+    assert st.record is record and not window.store.folder.exists()
     # the corrected list now predicts the found position for D1
     st.target_combo.setCurrentText("Sub/D1")
     st.bring_target_to_focus()
     m = st.motors.value()
     assert (m.st, m.sz, m.sn) == pytest.approx((found.st, found.sz, found.sn), abs=1e-4)
-    monkeypatch.setattr(QtWidgets.QMessageBox, "question", lambda *a, **k: QtWidgets.QMessageBox.Discard)

@@ -4,7 +4,6 @@
   InitialCalibration.py or by the Calibration window (*Accept and save as new configuration* after a
   reference-sample check, *Save edited constants* in expert mode). Older files are kept as history and can
   be selected again in the Calibration window.
-- `user_config.json`: the single user configuration, overwritten when the user answers *Save* on closing
-  QuickAlignment; its first entry (`created`) is the save time.
+Only beamline staff change configurations (with the reference sample); QuickAlignment writes none on closing.
 
-At start-up QuickAlignment loads the newest of all these files, by their time stamp.
+At start-up QuickAlignment loads the newest of these files made with the chosen optic, by their time stamp.

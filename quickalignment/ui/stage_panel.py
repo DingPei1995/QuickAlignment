@@ -122,7 +122,7 @@ class MotorForm(QtWidgets.QWidget):
 
 
 class StagePanel(QtWidgets.QWidget):
-    layoutCorrected = Signal()  # all samples were moved after a target was found
+    layoutCorrected = Signal(str)  # a sample was moved to where its target was found
 
     def __init__(self, layout_getter, parent=None):
         super().__init__(parent)
@@ -155,7 +155,8 @@ class StagePanel(QtWidgets.QWidget):
         ref_btn = QtWidgets.QPushButton("Set as optics reference")
         ref_btn.setToolTip(
             "The beam is in focus now: take the current stage positions, the illuminated surface\n"
-            "and this optic position as the optics reference (saved in the user configuration)."
+            "and this optic position as the optics reference (for this session; configurations are\n"
+            "changed by beamline staff in the Calibration window)."
         )
         ref_btn.clicked.connect(self.set_optics_reference)
         self.optic_ref_label = QtWidgets.QLabel()
@@ -189,9 +190,9 @@ class StagePanel(QtWidgets.QWidget):
         self.start_box = QtWidgets.QGroupBox("Where the samples are at the initial rotation")
         self.start_box.setStyleSheet("QGroupBox { background: #eef6ee; }")
         self.found_combo = QtWidgets.QComboBox()
-        found_btn = QtWidgets.QPushButton("Found here: correct all")
+        found_btn = QtWidgets.QPushButton("Found here: correct its sample")
         found_btn.setToolTip("The chosen device is on the beam, in the analyzer focus, at the stage positions\n"
-                             "entered below: move it there on the plate and every other sample / device by the same amount.")
+                             "entered below: move its sample (with all its devices) there on the plate.")
         found_btn.clicked.connect(self.correct_from_found)
         sb = QtWidgets.QVBoxLayout(self.start_box)
         sb.addWidget(self.start_label)
@@ -259,11 +260,6 @@ class StagePanel(QtWidgets.QWidget):
     def calibration(self) -> OpticsCalibration:
         return self.record.optics
 
-    def current_record(self) -> CalibrationRecord:
-        """The configuration in use with the optic type and position as entered (for saving)."""
-        optics = replace(self.record.optics, optic_type=self.optic_type.currentText(), last_position=self.optic_pos.value())
-        return replace(self.record, optics=optics)
-
     def _on_optic_type(self, text: str) -> None:
         self.record = replace(self.record, optics=replace(self.record.optics, optic_type=text))
 
@@ -326,31 +322,28 @@ class StagePanel(QtWidgets.QWidget):
         self.start_box.show()
 
     def correct_from_found(self) -> tuple[float, float, float] | None:
-        """The chosen target is on the analyzer focus at the entered positions: shift the whole layout."""
+        """The chosen target is on the analyzer focus at the entered positions: move its sample there."""
         label = self.found_combo.currentText()
         t = self.target_point(label) if label else None
-        if t is None:
+        sample = self._layout_getter().sample_of(label) if label else None
+        if t is None or sample is None:
             return None
         m = self.motors.value()
         du, dv, dw = found_offset(self.model(), m, *t)
         answer = QtWidgets.QMessageBox.question(
-            self, "Correct all positions?",
+            self, "Correct the sample position?",
             f"{label} is on the beam, in the analyzer focus, at ST = {m.st:.4f}, SZ = {m.sz:.4f}, SN = {m.sn:.4f} "
             f"(SRn = {m.srn:g}°, SRz = {m.srz:g}°)?\n\n"
             f"Then it is at Δx = {du:+.3f}, Δy = {dv:+.3f} mm on the plate and ΔH = {dw:+.3f} mm from where it was "
-            "drawn. All samples and devices are moved by the same amount.\n\n"
-            f"The {self.record.optic_name} position {self.optic_pos.value():.4f} is taken as in focus there: it becomes "
-            "the optics reference and the configuration is saved (user_config.json).",
+            f"drawn. {sample.name} (with its devices) is moved there; the other samples stay.",
             QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No, QtWidgets.QMessageBox.Yes,
         )
         if answer != QtWidgets.QMessageBox.Yes:
             return None
-        self._layout_getter().shift(du, dv, dw)
-        optics = replace(self.record.optics, enabled=True, motors=m, surface_w=t[2] + dw,
-                         optic_position=self.optic_pos.value())
-        self.record = replace(self.record, optics=optics)
-        self._show_record()
-        self.layoutCorrected.emit()  # the main window saves the configuration
+        sample.u += du
+        sample.v += dv
+        sample.height = max(sample.height + dw, 0.0)
+        self.layoutCorrected.emit(sample.name)
         self.refresh_targets()
         self.update_view()
         return du, dv, dw
