@@ -214,6 +214,7 @@ def relocate(
     recentre_piezo: bool = False,
     to_analyzer_focus: bool = False,
     default_height: float = 0.0,
+    keep_sn: bool = False,
 ) -> Relocation:
     """Stage positions putting the measured sample point back on the beam after rotating to (srn, srz).
 
@@ -221,11 +222,15 @@ def relocate(
     on the beam). By default the point is kept where it was measured, so the
     calibration offsets (ST0, SZ0, SN_f) cancel and only the rotation axes
     matter; with `to_analyzer_focus` it is put on the analyzer focus instead.
+    With `keep_sn` SN stays as measured and ST compensates: the point slides
+    along the beam (sqrt2 per mm of SN) and the optic refocuses on it, which
+    is how the stage is usually run (SN fixed in the analyzer focal plane).
     `measured_optic`: the optic position at which the measurement was in
     focus (e.g. Motor.ZP_ZS); None uses the configuration's optics reference.
     """
     hit, uv, w, target = beam_on_layout(model, measured, layout)
-    if hit is None:  # not on a known sample: plane at the given sample height
+    if hit is None or not any(target.split("/")[0] == s.name for s in layout.samples):
+        # not on a sample of the layout: plane at the given sample height
         w = model.plate.total_thickness + default_height
         hit = model.beam_hit(measured, w)
         if hit is None:
@@ -241,6 +246,11 @@ def relocate(
         new.st += measured.st - old.st
         new.sn += measured.sn - old.sn
         new.sz += measured.sz - old.sz
+    if keep_sn:
+        # SN and ST move the point by (N + T)/sqrt2 per mm: x unchanged when dST = -dSN
+        d_sn = measured.sn - new.sn
+        new.sn += d_sn
+        new.st -= d_sn
 
     if measured_optic is not None:
         ref = replace(optics, enabled=True, motors=measured, surface_w=w, optic_position=measured_optic)

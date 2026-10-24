@@ -29,7 +29,18 @@ GOALS = (  # key, label, tooltip
      "Turn SRn and SRz so the origin point (θ, φ), e.g. a Dirac cone, comes to the analyzer centre (θ = φ = 0)."),
     ("manual", "Manual ΔSRn / SRz", "Type the SRn change and the new SRz."),
 )
+FOCUS_MODES = (  # key, label, tooltip
+    ("keep_point", "Keep the point where measured (SN adjusts)",
+     "The point stays at the same place on the beam as during the measurement, i.e. in the analyzer focus if it\n"
+     "was there: ST / SZ / SN compensate, the optic does not move. Errors of ST0 / SZ0 / SN_f mostly cancel."),
+    ("keep_sn", "Keep SN, refocus with the optic",
+     "SN stays as measured, ST compensates: the point slides along the beam (√2 per mm of SN it would have needed)\n"
+     "and the optic refocuses on it. The point then leaves the analyzer focus by that distance."),
+    ("analyzer", "Put the point on the analyzer focus",
+     "Like “Bring target to focus”: absolute, relies on ST0 / SZ0 / SN_f."),
+)
 CONFIGURATION_OPTIC = "(configuration's optics reference)"
+SPOT_SHIFT_WARNING = 0.05  # mm along the beam
 TYPED_OPTIC = "(typed in)"
 
 
@@ -124,11 +135,10 @@ class RotationPanel(QtWidgets.QWidget):
         self.candidate_combo = QtWidgets.QComboBox()
         self.candidate_combo.currentIndexChanged.connect(self._show_candidate)
         self.recentre = QtWidgets.QCheckBox("Re-centre the piezo (PIX = PIY = centre)")
-        self.to_focus = QtWidgets.QCheckBox("Put the point on the analyzer focus")
-        self.to_focus.setToolTip(
-            "Off (default): the point stays at the same place on the beam as during the measurement; errors of ST0 / SZ0 / SN_f\n"
-            "mostly cancel and the optic stays where it was. On: like “Bring target to focus”."
-        )
+        self.focus_mode = QtWidgets.QComboBox()
+        for key, text, tip in FOCUS_MODES:
+            self.focus_mode.addItem(text, key)
+            self.focus_mode.setItemData(self.focus_mode.count() - 1, tip, Qt.ToolTipRole)
         self.height = spin(0.0, 0, 20, 3, 0.05)
         self.height.setToolTip("Used only if the beam does not land on a sample of the layout at the measured position.")
         compute_btn = QtWidgets.QPushButton("Compute new position")
@@ -141,7 +151,7 @@ class RotationPanel(QtWidgets.QWidget):
         gf.addRow("ΔSRn", self.d_srn)
         gf.addRow("New SRz", self.new_srz)
         gf.addRow(self.recentre)
-        gf.addRow(self.to_focus)
+        gf.addRow("Focus", self.focus_mode)
         gf.addRow("Sample height H if no sample", self.height)
         gf.addRow(compute_btn)
         gf.addRow("Solution", self.candidate_combo)
@@ -328,8 +338,8 @@ class RotationPanel(QtWidgets.QWidget):
         try:
             self.result = relocate(
                 self.stage.model(), self._layout_getter(), self.measured.value(), c.srn, c.srz,
-                self.stage.calibration(), optic, self.recentre.isChecked(), self.to_focus.isChecked(),
-                self.height.value(),
+                self.stage.calibration(), optic, self.recentre.isChecked(), self.focus_mode.currentData() == "analyzer",
+                self.height.value(), self.focus_mode.currentData() == "keep_sn",
             )
         except ValueError as exc:
             self.result = None
@@ -356,7 +366,7 @@ class RotationPanel(QtWidgets.QWidget):
             + ("" if math.isnan(c.theta) else f"; the picked point is then seen at θ = {c.theta:.2f}°, φ = {c.phi:.2f}°"),
             f"<table cellspacing=0 cellpadding=3><tr><th></th><th>measured</th><th>new</th><th>Δ</th><th></th></tr>{table}</table>",
             f"Point: <b>{r.target}</b> at plate u = {u:.3f}, v = {v:.3f} mm, surface w = {w:.3f} mm.",
-            "Kept where it was measured on the beam." if not self.to_focus.isChecked() else "Put on the analyzer focus.",
+            self.focus_note(r),
             f"Optic from the {r.optic_source}"
             + (f" ({self.optic_key.currentText()})." if r.optic_source == "measurement" else "."),
         ]
@@ -364,6 +374,21 @@ class RotationPanel(QtWidgets.QWidget):
             lines.append("<span style='color:#555'>The direction is a line: the turn 180° away (second solution) "
                          "is equivalent; for a 6-fold lattice ±60° are too.</span>")
         return "<br>".join(lines)
+
+    def focus_note(self, r) -> str:
+        """Where the beam spot ends up along the beam, compared with the measurement."""
+        model = self.stage.model()
+        w = r.uvw[2]
+        y_old, y_new = model.beam_hit(r.measured, w), model.beam_hit(r.new, w)
+        if y_old is None or y_new is None:
+            return ""
+        shift = float(y_new[1] - y_old[1])
+        where = ("at the same place along the beam as measured" if abs(shift) < 0.001 else
+                 f"{abs(shift) * 1000:.0f} µm {'downstream' if shift > 0 else 'upstream'} of where it was measured")
+        text = f"Beam spot {where} (model: {abs(y_new[1]):.3f} mm from the analyzer focus)."
+        if abs(shift) > SPOT_SHIFT_WARNING:
+            text = f"<span style='color:#b00'><b>{text}</b> It leaves the analyzer focus: consider correcting SN.</span>"
+        return text
 
     def send_to_stage(self) -> None:
         if self.result is None:

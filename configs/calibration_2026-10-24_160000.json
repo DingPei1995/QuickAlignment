@@ -1,0 +1,78 @@
+{
+  "created": "2026-10-24 16:00:00",
+  "kind": "staff",
+  "comment": "SRz axis and capillary reference from the manual notes (SN 7.8 fixed; CPS 59.66 at SRn 120 / SRz 0, ST -0.9, SZ 38.45; SRn 92; SRn 91 / SRz 2.5; SRn 92 / SRz -1.7), SRn axis kept from the WS_2026-09-18 Maps. SN 7.8 taken as the focal plane of that sample (H = 1.30 mm), so CPS 59.66 focuses on the analyzer focus.",
+  "stage_config": {
+    "st0": 0.0,
+    "sz0": 40.0,
+    "sn_f": 6.499146875,
+    "srn_ref": 120.0,
+    "pi_center": 150.0,
+    "srn_axis_u": 0.43868130775056696,
+    "srn_axis_v": -0.71622886989805,
+    "srz_offset_t": 0.321,
+    "srz_offset_n": 10.331
+  },
+  "optics": {
+    "enabled": true,
+    "motors": {
+      "st": -0.9,
+      "sn": 7.8,
+      "sz": 38.45,
+      "srn": 120.0,
+      "srz": 0.0,
+      "pix": 150.0,
+      "piy": 150.0
+    },
+    "surface_w": 6.300853125,
+    "optic_position": 59.66,
+    "optic_sign": 1,
+    "optic_type": "capillary",
+    "last_position": null
+  },
+  "check": {
+    "source": "manual notes (approximate positions)",
+    "notes": [
+      {
+        "srn": 120,
+        "srz": 0,
+        "st": -0.9,
+        "sz": 38.45,
+        "sn": 7.8,
+        "cps": 59.66
+      },
+      {
+        "srn": 92,
+        "srz": 0,
+        "st": -1.8,
+        "sz": 38.75,
+        "sn": 7.8,
+        "cps": 59.68
+      },
+      {
+        "srn": 91,
+        "srz": 2.5,
+        "st": -1.3,
+        "sz": 38.75,
+        "sn": 7.8,
+        "cps": 59.65
+      },
+      {
+        "srn": 92,
+        "srz": -1.7,
+        "st": -2.2,
+        "sz": 38.75,
+        "sn": 7.8,
+        "cps": 59.79
+      }
+    ],
+    "fit_with_free_srn_axis": {
+      "srn_axis_u": 0.781,
+      "srn_axis_v": -0.293,
+      "srz_offset_t": 0.392,
+      "srz_offset_n": 10.052,
+      "max_residual_mm": 0.04
+    },
+    "previous": "2026-09-18 16:00:00"
+  }
+}

@@ -74,10 +74,18 @@ All inputs come from ARPES viewer:
    - *Manual ΔSRn / SRz*.
 4. *Compute new position*, choose a solution, *Send to Stage & Optics tab*.
 
-By default the sample point is kept where it was during the Map (motor differences from the model), so
-errors of ST0 / SZ0 / SN_f largely cancel and the optic stays as it was; the accuracy depends mainly on the
-calibrated SRn / SRz axis positions. *Put the point on the analyzer focus* behaves like *Bring target to focus*
-instead, and then the optic moves accordingly. **Analyzer geometry** (slit horizontal at ANTARES = default, signs of θ
+**Focus** (how the point is found again):
+- *Keep the point where measured (SN adjusts)*, default: the point stays at the same place on the beam as
+  during the Map (in the analyzer focus if it was there); ST / SZ / SN compensate, the optic does not move,
+  and errors of ST0 / SZ0 / SN_f largely cancel.
+- *Keep SN, refocus with the optic*: the usual practice. SRn alone keeps the surface plane, so nothing changes,
+  but with SRz ≠ 0 the point slides along the beam and leaves the analyzer focus (with the 2026-10-24
+  configuration ≈ 0.1 mm for 2° SRz, 0.2–0.3 mm for 5°). The result shows this shift and turns red above 50 µm.
+- *Put the point on the analyzer focus*: like *Bring target to focus* (absolute).
+
+The accuracy depends mainly on the calibrated SRn / SRz axes; the SRn axis in plate coordinates also changes
+by the mounting tolerance each time a plate is mounted.
+**Analyzer geometry** (slit horizontal at ANTARES = default, signs of θ
 and φ seen from the analyzer, rotation sense) is a setting remembered between sessions: check it once on a
 known sample (e.g. turn by the computed ΔSRn and see whether the direction lands on the slit, else flip the sign).
 

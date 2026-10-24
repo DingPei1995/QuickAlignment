@@ -148,3 +148,25 @@ def test_calibration_2026_09_18_reproduces_rotated_map():
         assert rel.new.st == pytest.approx(second.st, abs=2e-3)
         assert rel.new.sz == pytest.approx(second.sz, abs=2e-3)
         assert rel.new.sn == pytest.approx(second.sn, abs=2e-3)
+
+
+def test_calibration_2026_10_24_matches_manual_srz_notes():
+    """Manual notes, SN fixed at 7.8: SRz turns from SRn 92 / SRz 0 (ST -1.8, SZ 38.75, CPS 59.68)."""
+    from pathlib import Path
+
+    from quickalignment.calibration import CalibrationStore
+
+    root = Path(__file__).resolve().parent.parent
+    record = next(r for r in CalibrationStore(root / "configs").records() if r.created == "2026-10-24 16:00:00")
+    model = StageModel(record.config)
+    h = 7.8 - record.config.sn_f
+    start = MotorPositions(st=-1.8, sz=38.75, sn=7.8, srn=92, srz=0)
+    for srn, srz, st, cps in ((91, 2.5, -1.3, 59.65), (92, -1.7, -2.2, 59.79)):
+        rel = relocate(model, SampleLayout(), start, srn, srz, record.optics, 59.68, default_height=h, keep_sn=True)
+        assert rel.new.sn == 7.8 and rel.new.sz == pytest.approx(38.75, abs=0.05)
+        assert rel.new.st == pytest.approx(st, abs=0.1)
+        assert rel.optic_new == pytest.approx(cps, abs=0.1)
+    # the configuration's own capillary reference: CPS 59.66 focuses on the analyzer focus
+    first = MotorPositions(st=-0.9, sz=38.45, sn=7.8, srn=120, srz=0)
+    rel = relocate(model, SampleLayout(), first, 120, 0, record.optics, None, default_height=h)
+    assert rel.optic_new == pytest.approx(59.66, abs=1e-6)
