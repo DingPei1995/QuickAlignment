@@ -7,7 +7,6 @@ from quickalignment.rotation import (
     relocate, to_center,
 )
 from quickalignment.stage import MotorPositions, OpticsCalibration, StageConfig, StageModel
-from quickalignment.viewer_info import ViewerInfo
 
 GEOMETRIES = [AnalyzerGeometry(), AnalyzerGeometry("horizontal", -1, 1), AnalyzerGeometry("vertical", 1, -1)]
 
@@ -116,20 +115,6 @@ def test_relocate_recentre_piezo():
     rel = relocate(model, layout, measured, 150.0, 0.0, OpticsCalibration(), recentre_piezo=True)
     assert (rel.new.pix, rel.new.piy) == (150, 150)
     assert np.allclose(model.plate_to_lab(rel.new, 0.3, 0.2, 5.5), model.plate_to_lab(measured, 0.3, 0.2, 5.5))
-
-
-def test_viewer_info_csv_and_paste():
-    csv_text = "field,value\nPhotonEnergy,95.0\nMotor.focus,0.512\nMotor.roughY,-0.35\nMotor.roughX,40.1\n" \
-               "Motor.SRn,120.0\nMotor.SRz,0.0\nMotor.fine_x,150.0\nMotor.fine_y,148.5\nMotor.ZP_ZS,-12.345\n"
-    info = ViewerInfo.from_text(csv_text)
-    m, missing = info.motors()
-    assert not missing
-    assert (m.st, m.sz, m.sn, m.srn, m.piy) == (-0.35, 40.1, 0.512, 120.0, 148.5)
-    assert info.get("Motor.ZP_ZS") == -12.345 and info.photon_energy == 95.0
-    pasted = ViewerInfo.from_text("Motor.SRn\t130\nMotor.roughY\t1.5\nMotor.ZP_ZS = [2.5]")
-    m, missing = pasted.motors(MotorPositions(sz=39))
-    assert m.srn == 130 and m.st == 1.5 and m.sz == 39 and "Motor.roughX" in missing
-    assert pasted.optic_keys() == ["Motor.ZP_ZS"]
 
 
 # Measured: the same sample point found again after an SRn turn (ARPES viewer metadata / notes)

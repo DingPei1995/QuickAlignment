@@ -22,6 +22,7 @@ def window(monkeypatch, tmp_path):
     from quickalignment.geometry import STANDARD_PLATE
 
     monkeypatch.setattr(app_module, "ask_plate", lambda *a, **k: STANDARD_PLATE)
+    monkeypatch.setattr(app_module, "ask_setup", lambda *a, **k: (STANDARD_PLATE, "zone plate + OSA"))
     # closing asks whether to save the configuration: answer "Discard" unless a test says otherwise
     monkeypatch.setattr(QtWidgets.QMessageBox, "question", lambda *a, **k: QtWidgets.QMessageBox.Discard)
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
@@ -77,6 +78,7 @@ def test_draw_move_resize_and_edit(window):
     assert s.height == 1.25 and s.u == 0
     assert ed.items[id(s)].pos().x() == 0
     assert ed.table.item(0, 7).text() == "ok"
+    assert ed.default_height() == 0.525  # Si wafer substrate
 
     # second, overlapping sample is flagged
     ed.add_sample(Sample("X", u=0, v=s.v, length=1, width=1))
@@ -369,48 +371,44 @@ def test_initial_calibration_window(tmp_path):
     win.close()
 
 
-def test_rotation_tab_from_viewer_metadata(window):
-    from quickalignment.viewer_info import ViewerInfo
+def test_rotation_tab(window):
+    from quickalignment.stage import MotorPositions
 
     win = window
     win.editor.set_layout(win.editor.layout_model.__class__(samples=[Sample("WSe2", length=6, width=6, height=0.2)]))
     panel = win.rotation
-    panel.set_info(ViewerInfo.from_text(
-        "field,value\nMotor.roughY,0.0\nMotor.roughX,40.0\nMotor.focus,0.2\nMotor.SRn,120\nMotor.SRz,0\n"
-        "Motor.fine_x,150\nMotor.fine_y,150\nMotor.ZP_ZS,-5.5\nPhotonEnergy,95\n"))
-    assert panel.optic_key.currentText() == "Motor.ZP_ZS" and panel.measured_optic.value() == -5.5
-    panel.rotation.setValue(30.0)
-    panel.goal.setCurrentIndex(0)
+    st = win.stage
+    st.record = replace(st.record, config=replace(st.record.config, srn_axis_u=1.2, srn_axis_v=-1.0, srz_offset_n=10.0))
+    panel.measured.set_value(MotorPositions(st=0.3, sz=40.2, sn=0.2, srn=120, srz=0, pix=100, piy=200))
+    panel.measured_optic.setValue(-5.5)
+    assert panel.optic_label.text() == "Zone plate position"
+
+    # SRn only: the surface plane stays, so SN needs no correction
+    panel.new_srn.setValue(150.0)
     panel.compute()
-    assert panel.result is not None and panel.result.target == "WSe2"
-    assert abs(abs(panel.result.new.srn - 120) - 30) < 1e-6 or abs(abs(panel.result.new.srn - 120) - 150) < 1e-6
+    r = panel.result
+    assert r.target == "WSe2" and (r.new.pix, r.new.piy) == (150, 150)
+    assert r.new.sn == pytest.approx(0.2) and abs(panel.spot_shift()) < 1e-9
+    assert "no SN correction needed" in panel.focus_label.text()
+    assert not panel.correct_sn.isChecked()
+
+    # SRz with the axis ~10 mm behind the surface: the spot leaves the analyzer focus
+    panel.new_srz.setValue(5.0)
+    panel.compute()
+    assert panel.result.new.sn == pytest.approx(0.2) and abs(panel.spot_shift()) > 0.05
+    assert "correct SN?" in panel.focus_label.text()
     panel.send_to_stage()
-    assert win.stage.motors.value().srn == panel.result.new.srn
-    assert win.stage.optic_pos.value() == panel.result.optic_new
-    # analyzer centre: SRn + SRz
-    panel.goal.setCurrentIndex(3)
-    panel.theta.setValue(8.0)
-    panel.phi.setValue(3.0)
-    panel.compute()
-    assert panel.result is not None and abs(panel.result.new.srz) > 1
+    assert st.motors.value().st == pytest.approx(panel.result.new.st, abs=1e-4) and st.motors.value().sn == pytest.approx(0.2)
+    assert st.optic_pos.value() == pytest.approx(panel.result.optic_new, abs=1e-4)
 
-
-def test_rotation_tab_learns_srn_axis(window):
-    from quickalignment.stage import MotorPositions
-
-    panel = window.rotation
-    panel.measured.set_value(MotorPositions(st=-0.24994375, sz=43.202, sn=0.34838125, srn=132.0005, srz=0.003))
-    panel.second.set_value(MotorPositions(st=0.24625625, sz=42.901, sn=0.34788125, srn=118.0003, srz=0.003))
-    panel.fit_axis()
-    assert panel.use_axis_btn.isEnabled() and abs(panel.axis_fit.lever_arm - 2.379) < 0.01
-    panel.use_axis()
-    assert window.stage.config().srn_axis_v == panel.axis_fit.config.srn_axis_v
-    # the learned axis now predicts the second position from the first
-    panel.goal.setCurrentIndex(4)  # manual
-    panel.d_srn.setValue(118.0003 - 132.0005)
-    panel.new_srz.setValue(0.003)
-    panel.compute()
-    assert abs(panel.result.new.st - 0.24625625) < 2e-3 and abs(panel.result.new.sz - 42.901) < 2e-3
+    panel.correct_sn.setChecked(True)
+    c = panel.corrected
+    assert c.new.sn != pytest.approx(0.2)
+    model = st.model()
+    w = c.uvw[2]
+    assert model.beam_hit(c.new, w)[1] == pytest.approx(model.beam_hit(c.measured, w)[1])
+    panel.send_to_stage()
+    assert st.motors.value().sn == pytest.approx(c.new.sn, abs=1e-4)
 
 
 def test_custom_plate_dialog_and_focus(window, monkeypatch):
@@ -441,3 +439,58 @@ def test_custom_plate_dialog_and_focus(window, monkeypatch):
     st.bring_target_to_focus()
     assert abs(st.motors.value().sn - 3.4) < 1e-6  # SN_f + (8.2 - 5.0) + 0.3
     assert "H = 0.300 mm above the plate top" in st.result_label.text()
+
+
+def test_toolbar_has_no_save_as(window):
+    texts = [w.text() for w in window.findChildren(QtWidgets.QToolButton)]
+    assert "Save" in texts and "Save as…" not in texts
+
+
+def test_samples_placed_goes_to_stage(window, monkeypatch):
+    ed = window.editor
+    ed.add_sample(Sample("A", u=1.0, v=2.0, length=2, width=2, height=0.4))
+    monkeypatch.setattr(QtWidgets.QMessageBox, "question", lambda *a, **k: QtWidgets.QMessageBox.No)
+    assert not ed.confirm_samples_placed()
+    assert window.tabs.currentWidget() is ed and window.stage.start_box.isHidden()
+    monkeypatch.setattr(QtWidgets.QMessageBox, "question", lambda *a, **k: QtWidgets.QMessageBox.Yes)
+    assert ed.confirm_samples_placed()
+    assert window.tabs.currentWidget() is window.stage and not window.stage.start_box.isHidden()
+    # ST = ST0 - x, SZ = SZ0 - y, SN = SN_f + H
+    assert "<td>A</td><td align=right>-1.000</td><td align=right>38.000</td><td align=right>0.400</td>" \
+        in window.stage.start_label.text()
+    monkeypatch.setattr(QtWidgets.QMessageBox, "question", lambda *a, **k: QtWidgets.QMessageBox.Discard)
+
+
+def test_optic_choice_loads_its_configuration(tmp_path, monkeypatch):
+    from datetime import datetime
+
+    from quickalignment.calibration import CalibrationRecord, CalibrationStore
+    from quickalignment.stage import OpticsCalibration, StageConfig
+    from quickalignment.ui.plate_choice import PlateChoiceDialog
+
+    QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    store = CalibrationStore(tmp_path)
+    assert store.latest("capillary").optics.optic_type == "capillary"  # nothing saved yet
+    store.save(CalibrationRecord(comment="cap", optics=OpticsCalibration(optic_type="capillary", optic_position=3.0)),
+               now=datetime(2026, 1, 1))
+    store.save(CalibrationRecord(comment="zp", config=StageConfig(st0=0.2),
+                                 optics=OpticsCalibration(optic_position=53.2)), now=datetime(2026, 2, 1))
+    assert store.latest().comment == "zp"
+    assert store.latest("capillary").comment == "cap"
+    assert store.latest("zone plate + OSA").comment == "zp"
+    store.save(CalibrationRecord(comment="zp2", config=StageConfig(st0=0.3)), now=datetime(2026, 3, 1))
+    (tmp_path / "calibration_2026-01-01_000000_capillary.json").unlink()
+    fallback = store.latest("capillary")  # no capillary file: stage constants of the newest, optic not calibrated
+    assert fallback.config.st0 == 0.3 and fallback.optics.optic_type == "capillary"
+    assert fallback.optics.optic_position == 0.0 and "not calibrated" in fallback.comment
+
+    dlg = PlateChoiceDialog("standard", optic="capillary")
+    assert dlg.optic() == "capillary"
+    dlg.optic_group.button(0).setChecked(True)
+    assert dlg.optic() == "zone plate + OSA"
+    assert PlateChoiceDialog("standard").optic() is None
+
+    monkeypatch.setattr(QtWidgets.QMessageBox, "question", lambda *a, **k: QtWidgets.QMessageBox.Discard)
+    win = MainWindow(store=store, optic="capillary")
+    assert win.stage.optic_type.currentText() == "capillary" and win.rotation.optic_label.text() == "Capillary position"
+    win.close()

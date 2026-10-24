@@ -10,10 +10,11 @@ pip install -r requirements.txt     # PyQt5 (or PySide6), numpy, matplotlib
 
 Double-click **`QuickAlignment.py`** (Windows: `QuickAlignment.pyw` starts without a console window),
 or run `python QuickAlignment.py [session.json]` / `python -m quickalignment`.
-At start-up the program asks which sample plate is mounted (standard Ta plate or gating plate;
-*Change plate…* in the toolbar switches later) and loads the most recently written configuration from
-`configs/` (user or beamline staff, see below). New / Open / Save store the experiment (plate, samples,
-devices, motor positions) in one JSON file.
+At start-up the program asks which sample plate is mounted (standard Ta plate, gating plate or custom
+plate; *Change plate…* in the toolbar switches later) and which focusing optic is used (zone plate + OSA or
+capillary), then loads the most recently written configuration for that optic from `configs/` (user or
+beamline staff, see below). New / Open / Save store the experiment (plate, samples, devices, motor positions)
+in one JSON file; the first *Save* asks for the file name.
 
 ### Configuration files (`configs/`)
 
@@ -22,7 +23,9 @@ devices, motor positions) in one JSON file.
 - `user_config.json`: one single file, overwritten when the user answers *Save* to the question asked on
   closing the program; its first entry is the save time. It holds the configuration in use with the optic
   type, the optic position and the optics reference.
-- At start-up the newest of these files (by its time stamp) is loaded.
+- At start-up the newest of these files (by its time stamp) made with the chosen optic is loaded. If there is
+  none for that optic, the stage constants of the newest file are used and the optic position is left
+  uncalibrated.
 
 ### Samples tab (`docs/app_samples_tab.png`)
 
@@ -35,6 +38,13 @@ y up, front view (sample side) with the tab up), not motor positions; the plate 
   reference edges (left/right, bottom/top) and the distances dx, dy from them to the device centre,
   or drag the blue marker. Devices follow their substrate when it is moved.
 - gating plate: only the 11 × 10.5 mm area above the contact block takes samples
+- *Snap*: mouse drawing / moving / resizing jumps in steps of this size (0 = off); typed values are not rounded.
+  *Default H*: height given to new samples, by default a Si wafer substrate (0.525 mm, standard 100 mm wafer).
+- *Status* column: `ok`, or what is wrong with the placement (outside the sample area / substrate, overlapping).
+- wheel = zoom, middle drag = pan, right click = whole plate again
+- **Samples placed → Stage**: asks whether all samples are marked on the plate; *Yes* opens the Stage & Optics tab
+  with a list of the ST / SZ / SN that put each sample (and device) on the analyzer focus at the initial rotation
+  (SRn = 120, SRz = 0, PIX = PIY = 150 µm).
 
 ### Stage & Optics tab (`docs/app_stage_tab.png`)
 
@@ -54,49 +64,20 @@ Positions here are **absolute motor values** (ST, SZ, SN, …, optic).
 
 ### Rotate sample tab (`docs/app_rotate_tab.png`)
 
-For a sample that was found and measured (Map) but has the wrong in-plane orientation: it gives the new
-SRn (and SRz), the ST / SN / SZ that bring the same sample point back onto the beam, and the optic position.
-All inputs come from ARPES viewer:
+Gives the stage positions that keep a sample point on the beam when the sample is turned.
 
-1. **Measurement**: the Map's metadata. In ARPES viewer, right-click the Map → *Show information* →
-   *Export metadata (.csv)*, then *Load metadata CSV…* here (or *Paste metadata…* with the rows).
-   Read: `Motor.roughY` (ST), `Motor.roughX` (SZ), `Motor.focus` (SN), `Motor.SRn`, `Motor.SRz`,
-   `Motor.fine_x/y` (PIX/PIY) and `Motor.ZP_ZS` (optic in focus during the Map). These are the values
-   ARPES viewer shows (position − offset); missing rows are taken from the Stage tab and listed in red.
-2. **Angles**: from the k-conversion window: *Theta offset* (deflector) and *Phi offset* (slit) of the
-   origin point, and the *Sample rotation* found with *Set rotation from contour…*.
-3. **Goal**:
-   - *Direction along the slit*: ΔSRn = the viewer's sample rotation (e.g. Γ–K or Γ–M along the slit).
-     The line has no direction, so the turn 180° away is offered too (and ±60° are equivalent on a 6-fold lattice).
-   - *Direction along the deflector*: the same + 90°.
-   - *Origin point onto the slit (SRn)*: brings the point (θ, φ), e.g. a K point / Dirac cone, onto θ = 0.
-   - *Origin point to the centre (SRn + SRz)*: brings the point (θ, φ) to the analyzer centre (θ = φ = 0).
-   - *Manual ΔSRn / SRz*.
-4. *Compute new position*, choose a solution, *Send to Stage & Optics tab*.
+1. **Current position**: ST, SN, SZ, SRn, SRz, PIX, PIY with the point of interest on the beam and in focus, and
+   the zone plate / capillary position (*From Stage tab* copies them).
+2. **Wanted angles**: the new SRn and SRz.
+3. **New position**: *Compute new position* gives ST and SZ for these angles with the piezo centred
+   (PIX = PIY = 150 µm) and SN unchanged (default), and the optic position that refocuses. Below, it says how far
+   the beam spot then moves along the beam, i.e. out of the analyzer focus (red above 50 µm: SRn alone keeps the
+   surface plane, SRz does not). Ticking *Correct SN* shows the SN, ST and SZ that keep the point where it was along
+   the beam instead. *Send to Stage & Optics tab* takes the shown solution.
 
-**Focus** (how the point is found again):
-- *Keep the point where measured (SN adjusts)*, default: the point stays at the same place on the beam as
-  during the Map (in the analyzer focus if it was there); ST / SZ / SN compensate, the optic does not move,
-  and errors of ST0 / SZ0 / SN_f largely cancel.
-- *Keep SN, refocus with the optic*: the usual practice. SRn alone keeps the surface plane, so nothing changes,
-  but with SRz ≠ 0 the point slides along the beam and leaves the analyzer focus (on a non-standard plate with
-  the SRz axis ≈ 10 mm behind the surface: ≈ 0.1 mm for 2° SRz, 0.2–0.3 mm for 5°). The result shows this shift
-  and turns red above 50 µm.
-- *Put the point on the analyzer focus*: like *Bring target to focus* (absolute).
-
-**Calibrate on the sample itself.** The beam spot after an optics alignment is only somewhere within the
-analyzer's focal range, and the SRn axis on the plate moves with every mounting (0.5–1.5 mm between the plates
-measured so far). So the tab works from the sample's own first real position (the Map), and section **4. Learn
-this sample's SRn axis** takes the position where the same point was found after the first SRn turn (the next
-Map's metadata): *Fit SRn axis*, then *Use for this sample* puts it into the configuration in use (kept in
-`user_config.json` if saved on closing). Further turns of that sample are then predicted from both.
-`configs/calibration_2026-10-24_170000_zone_plate.json` only gives a starting axis (standard plate, zone plate data
-WWS2 2025-10-01/02: ΔSRn = −14°, ΔST = +0.496, ΔSZ = −0.301, 2.38 mm from the axis) and the zone plate
-reference (ZP_ZS 53.21985 in focus at the first Map; ZP_ZS increasing moves the zone plate towards the sample).
-The SRz axis is not calibrated yet for the standard plate.
-**Analyzer geometry** (slit horizontal at ANTARES = default, signs of θ
-and φ seen from the analyzer, rotation sense) is a setting remembered between sessions: check it once on a
-known sample (e.g. turn by the computed ΔSRn and see whether the direction lands on the slit, else flip the sign).
+The SRn axis position on the plate comes from the configuration (`configs/calibration_2026-10-24_170000_zone_plate.json`:
+standard plate, zone plate data WWS2 2025-10-01/02, 2.38 mm from the axis). The SRz axis is not calibrated yet for
+the standard plate.
 
 ### Initial calibration (`InitialCalibration.py`, `docs/initial_calibration.png`)
 

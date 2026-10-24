@@ -3,7 +3,8 @@
 * drag on an empty part of the plate  -> draw a new sample
 * drag a sample                        -> move it
 * drag a sample edge / corner          -> resize it
-* mouse wheel                          -> zoom, middle button drag -> pan
+* mouse wheel                          -> zoom, middle button drag -> pan,
+                                          right click -> whole plate again
 * Delete key                           -> remove selected samples / devices
 
 A substrate is a sample carrying devices: select it, press "Add device", then
@@ -39,6 +40,7 @@ FIELDS = [None, None, "u", "v", "length", "width", "height", None]
 DEV_COLUMNS = ["Device", "Substrate", "X ref", "dx (mm)", "Y ref", "dy (mm)", "x (mm)", "y (mm)", "Status"]
 DEV_EDITABLE = {0, 3, 5, 6, 7}
 MIN_SIZE = 0.1  # mm
+SI_WAFER_THICKNESS = 0.525  # mm, standard 100 mm (4") Si wafer, the usual device substrate
 
 
 def cosmetic_pen(color, width=1.0, style=Qt.SolidLine) -> QtGui.QPen:
@@ -267,6 +269,9 @@ class PlateView(QtWidgets.QGraphicsView):
             self._pan_start = event.pos()
             self.setCursor(Qt.ClosedHandCursor)
             return
+        if event.button() == Qt.RightButton:
+            self.fit()
+            return
         on_sample = any(
             isinstance(it, (SampleItem, DeviceItem)) or isinstance(it.parentItem(), SampleItem) for it in self.items(event.pos())
         )
@@ -365,8 +370,12 @@ def plate_pixmap(plate: PlateGeometry, size: int = 220) -> QtGui.QPixmap:
 def make_table(columns: list[str]) -> QtWidgets.QTableWidget:
     table = QtWidgets.QTableWidget(0, len(columns))
     table.setHorizontalHeaderLabels(columns)
-    table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.ResizeToContents)
-    table.horizontalHeader().setStretchLastSection(True)
+    header = table.horizontalHeader()
+    header.setSectionResizeMode(QtWidgets.QHeaderView.ResizeToContents)
+    # the spare width goes to the name, not to the status ("ok" or the warnings)
+    header.setSectionResizeMode(0, QtWidgets.QHeaderView.Stretch)
+    table.horizontalHeaderItem(len(columns) - 1).setToolTip(
+        "Check of the placement: “ok”, or what is wrong (outside the sample area / substrate, overlapping)")
     table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
     return table
 
@@ -375,6 +384,7 @@ class PlateEditor(QtWidgets.QWidget):
     """Plate view + sample / device tables + controls."""
 
     layoutChanged = Signal()
+    samplesPlaced = Signal()  # the user confirmed the samples are marked on the plate
 
     def __init__(self, layout: SampleLayout | None = None, parent=None):
         super().__init__(parent)
@@ -404,15 +414,19 @@ class PlateEditor(QtWidgets.QWidget):
         self.snap_box.setDecimals(2)
         self.snap_box.setValue(0.1)
         self.snap_box.setSuffix(" mm")
-        self.snap_box.setToolTip("Grid snap for drawing / moving (0 = off)")
+        self.snap_box.setToolTip("Mouse drawing / moving / resizing jumps in steps of this size,\n"
+                                 "so edges land on round values (0 = off). Typed values are not rounded.")
 
         self.height_box = QtWidgets.QDoubleSpinBox()
         self.height_box.setRange(0.0, 20.0)
         self.height_box.setSingleStep(0.1)
         self.height_box.setDecimals(3)
-        self.height_box.setValue(0.5)
+        self.height_box.setValue(SI_WAFER_THICKNESS)
         self.height_box.setSuffix(" mm")
-        self.height_box.setToolTip("Height H given to newly drawn samples")
+        self.height_box.setToolTip("Height H given to newly drawn samples. Default: Si wafer substrate, "
+                                   f"{SI_WAFER_THICKNESS * 1000:.0f} µm (standard 100 mm wafer).")
+        for b in (self.snap_box, self.height_box):
+            b.setMaximumWidth(b.sizeHint().width())
 
         add_btn = QtWidgets.QPushButton("Add sample")
         add_btn.clicked.connect(self.add_default_sample)
@@ -421,26 +435,38 @@ class PlateEditor(QtWidgets.QWidget):
         dev_btn.clicked.connect(self.add_device_to_selected)
         del_btn = QtWidgets.QPushButton("Delete selected")
         del_btn.clicked.connect(self.delete_selected)
-        fit_btn = QtWidgets.QPushButton("Fit view")
-        fit_btn.clicked.connect(self.view.fit)
+        done_btn = QtWidgets.QPushButton("Samples placed → Stage")
+        done_btn.setToolTip("When all samples are marked on the plate: go to the Stage && Optics tab,\n"
+                            "which then lists where each sample is at the initial rotation.")
+        done_btn.setStyleSheet("font-weight: bold;")
+        done_btn.clicked.connect(self.confirm_samples_placed)
 
         self.info = QtWidgets.QLabel()
         self.info.setWordWrap(True)
         self.cursor_label = QtWidgets.QLabel("cursor: x = –, y = –")
 
-        form = QtWidgets.QFormLayout()
-        form.addRow("Snap", self.snap_box)
-        form.addRow("Default H", self.height_box)
+        form = QtWidgets.QHBoxLayout()
+        form.addWidget(QtWidgets.QLabel("Snap"))
+        form.addWidget(self.snap_box)
+        form.addSpacing(16)
+        form.addWidget(QtWidgets.QLabel("Default H"))
+        form.addWidget(self.height_box)
+        si = QtWidgets.QLabel("(Si wafer substrate)")
+        si.setStyleSheet("color: #555;")
+        form.addWidget(si)
+        form.addStretch(1)
         buttons = QtWidgets.QHBoxLayout()
-        for b in (add_btn, dev_btn, del_btn, fit_btn):
+        for b in (add_btn, dev_btn, del_btn):
             buttons.addWidget(b)
+        buttons.addStretch(1)
+        buttons.addWidget(done_btn)
 
         help_text = QtWidgets.QLabel(
             "Sample plate, front view (sample side), tab up. Coordinates x, y are in mm on the plate "
             "(origin = centre of the back plate, red cross), not motor positions.\n"
             "Drag on empty plate to draw a sample; drag a sample to move it, its edges to resize. "
             "Select a sample and press 'Add device' to mark a device on a substrate. "
-            "Wheel = zoom, middle drag = pan, Del = delete."
+            "Wheel = zoom, middle drag = pan, right click = whole plate, Del = delete."
         )
         help_text.setWordWrap(True)
         help_text.setStyleSheet("color: #555;")
@@ -524,6 +550,21 @@ class PlateEditor(QtWidgets.QWidget):
     # -- model operations ----------------------------------------------------
     def snap_step(self) -> float:
         return self.snap_box.value()
+
+    def default_height(self) -> float:
+        return self.height_box.value()
+
+    def confirm_samples_placed(self) -> bool:
+        answer = QtWidgets.QMessageBox.question(
+            self, "Samples placed?",
+            "Have you marked the positions of all samples on the plate?\n\n"
+            "Yes: go to “Stage & Optics”, which shows where each sample is at the initial rotation.",
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No, QtWidgets.QMessageBox.Yes,
+        )
+        if answer != QtWidgets.QMessageBox.Yes:
+            return False
+        self.samplesPlaced.emit()
+        return True
 
     def set_layout(self, layout: SampleLayout) -> None:
         self.layout_model = layout
@@ -764,12 +805,14 @@ class PlateEditor(QtWidgets.QWidget):
             self.items[id(s)].sync_from_sample(ok=not warnings)
             status = self.table.item(row, len(COLUMNS) - 1)
             status.setText("; ".join(warnings) or "ok")
+            status.setToolTip(status.text())
             status.setForeground(QtGui.QBrush(QtGui.QColor("#c00000" if warnings else "#207020")))
         for row, (s, d) in enumerate(self._device_rows):
             warnings = self.layout_model.device_warnings(s, d)
             self.device_items[id(d)].sync_from_device(ok=not warnings)
             status = self.dev_table.item(row, len(DEV_COLUMNS) - 1)
             status.setText("; ".join(warnings) or "ok")
+            status.setToolTip(status.text())
             status.setForeground(QtGui.QBrush(QtGui.QColor("#c00000" if warnings else "#207020")))
         self._updating_table = False
         self._update_info()

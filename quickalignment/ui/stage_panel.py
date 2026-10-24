@@ -168,9 +168,18 @@ class StagePanel(QtWidgets.QWidget):
         self.cal_status.setWordWrap(True)
         self.cal_status.setStyleSheet("color: #555;")
 
+        # filled when the user confirms in the Samples tab that the samples are placed
+        self.start_label = QtWidgets.QLabel()
+        self.start_label.setWordWrap(True)
+        self.start_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.start_box = QtWidgets.QGroupBox("Where the samples are at the initial rotation")
+        self.start_box.setStyleSheet("QGroupBox { background: #eef6ee; }")
+        QtWidgets.QVBoxLayout(self.start_box).addWidget(self.start_label)
+        self.start_box.hide()
+
         left = QtWidgets.QWidget()
         lv = QtWidgets.QVBoxLayout(left)
-        for w in (motor_box, optic_box, update_btn, self.result_label, self.cal_status):
+        for w in (self.start_box, motor_box, optic_box, update_btn, self.result_label, self.cal_status):
             lv.addWidget(w)
         lv.addStretch(1)
         scroll = QtWidgets.QScrollArea()
@@ -204,6 +213,8 @@ class StagePanel(QtWidgets.QWidget):
         self.optic_type.blockSignals(False)
         self.optic_pos.setValue(record.optics.current_position)
         self._show_record()
+        if not self.start_box.isHidden():
+            self.show_start_positions()
 
     def _show_record(self) -> None:
         record, optics = self.record, self.record.optics
@@ -262,6 +273,27 @@ class StagePanel(QtWidgets.QWidget):
             self.target_combo.addItem(label)
         self.target_combo.setCurrentIndex(max(self.target_combo.findText(current), 0))
         self.target_combo.blockSignals(False)
+        if not self.start_box.isHidden():
+            self.show_start_positions()
+
+    def show_start_positions(self) -> None:
+        """List the ST / SZ / SN putting each sample / device on the analyzer focus at SRn = ref, SRz = 0."""
+        model = self.model()
+        c = model.config
+        rows = []
+        for label in ["plate centre", *self.target_labels()]:
+            st, sz, sn = model.reference_motors(*self.target_point(label))
+            rows.append(f"<tr><td>{label}</td><td align=right>{st:.3f}</td><td align=right>{sz:.3f}</td>"
+                        f"<td align=right>{sn:.3f}</td></tr>")
+        self.start_label.setText(
+            f"At SRn = {c.srn_ref:g}° (plate vertical, tab up), SRz = 0°, PIX = PIY = {c.pi_center:g} µm, "
+            "each sample centre is on the beam at the analyzer focus at:"
+            "<table cellspacing=0 cellpadding=3><tr><th align=left>sample</th><th>ST (mm)</th><th>SZ (mm)</th>"
+            f"<th>SN (mm)</th></tr>{''.join(rows)}</table>"
+            f"(ST = ST0 − x, SZ = SZ0 − y with ST0 = {c.st0:g}, SZ0 = {c.sz0:g}; SN puts the sample surface "
+            "in the analyzer focal plane.) Use <i>Bring target to focus</i> to enter one of them."
+        )
+        self.start_box.show()
 
     def target_labels(self) -> list[str]:
         return [label for label, *_ in self._layout_getter().targets()]

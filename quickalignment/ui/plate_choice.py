@@ -1,10 +1,11 @@
-"""Dialog asking which sample plate is mounted."""
+"""Dialog asking which sample plate (and, at start-up, which focusing optic) is mounted."""
 
 from __future__ import annotations
 
 from ._qt import QtCore, QtWidgets
 from .plate_editor import plate_pixmap
 from ..geometry import PLATES, STANDARD_PLATE, PlateGeometry, custom_plate, custom_plate_params
+from ..stage import OPTIC_TYPES
 
 Qt = QtCore.Qt
 
@@ -21,9 +22,11 @@ FRAME_WIDTH = 300  # every choice gets the same width
 
 
 class PlateChoiceDialog(QtWidgets.QDialog):
-    def __init__(self, current: str | PlateGeometry = "standard", parent=None):
+    """Plate choice; with `optic` (one of OPTIC_TYPES) the focusing optic is asked as well."""
+
+    def __init__(self, current: str | PlateGeometry = "standard", parent=None, optic: str | None = None):
         super().__init__(parent)
-        self.setWindowTitle("Which sample plate is used?")
+        self.setWindowTitle("Which sample plate is used?" if optic is None else "Sample plate and focusing optic")
         key = current.key if isinstance(current, PlateGeometry) else current
         params = custom_plate_params(current) if key == "custom" and isinstance(current, PlateGeometry) else CUSTOM_DEFAULT
         self.group = QtWidgets.QButtonGroup(self)
@@ -64,9 +67,29 @@ class PlateChoiceDialog(QtWidgets.QDialog):
         layout = QtWidgets.QVBoxLayout(self)
         layout.addWidget(QtWidgets.QLabel("<b>Please confirm the sample plate mounted on the manipulator:</b>"))
         layout.addLayout(row)
+        self.optic_group = None
+        if optic is not None:
+            layout.addWidget(self._optic_box(optic))
         layout.addWidget(buttons)
         # the minimum size Qt computes ignores the wrapped texts, which then run into the pictures
         self.setMinimumSize(self.sizeHint())
+
+    def _optic_box(self, optic: str) -> QtWidgets.QGroupBox:
+        box = QtWidgets.QGroupBox("Focusing optic in use (its newest configuration is loaded)")
+        row = QtWidgets.QHBoxLayout(box)
+        self.optic_group = QtWidgets.QButtonGroup(self)
+        for i, name in enumerate(OPTIC_TYPES):
+            radio = QtWidgets.QRadioButton(name[0].upper() + name[1:])
+            radio.setChecked(name == optic)
+            self.optic_group.addButton(radio, i)
+            row.addWidget(radio)
+        row.addStretch(1)
+        return box
+
+    def optic(self) -> str | None:
+        if self.optic_group is None:
+            return None
+        return OPTIC_TYPES[max(self.optic_group.checkedId(), 0)]
 
     def _custom_form(self, params: dict) -> QtWidgets.QFormLayout:
         base = STANDARD_PLATE
@@ -133,3 +156,11 @@ def ask_plate(current: str | PlateGeometry = "standard", parent=None) -> PlateGe
     dlg = PlateChoiceDialog(current, parent)
     ok = dlg.exec() if hasattr(dlg, "exec") else dlg.exec_()
     return dlg.plate() if ok else None
+
+
+def ask_setup(current: str | PlateGeometry = "standard", optic: str = OPTIC_TYPES[0],
+              parent=None) -> tuple[PlateGeometry, str] | None:
+    """Plate and focusing optic (start-up, new session)."""
+    dlg = PlateChoiceDialog(current, parent, optic)
+    ok = dlg.exec() if hasattr(dlg, "exec") else dlg.exec_()
+    return (dlg.plate(), dlg.optic()) if ok else None

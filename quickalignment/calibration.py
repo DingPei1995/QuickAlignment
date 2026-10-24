@@ -95,10 +95,26 @@ class CalibrationStore:
                 continue
         return sorted(out, key=lambda r: (r.created, r.path.name), reverse=True)
 
-    def latest(self) -> CalibrationRecord:
-        """The most recently written configuration, user or staff."""
+    def latest(self, optic: str | None = None) -> CalibrationRecord:
+        """The most recently written configuration, user or staff.
+
+        With `optic` (one of OPTIC_TYPES), the newest configuration made with that
+        optic; if there is none, the stage constants of the newest configuration
+        with an uncalibrated optics reference for that optic.
+        """
         records = self.records()
-        return records[0] if records else CalibrationRecord()
+        if optic is None:
+            return records[0] if records else CalibrationRecord()
+        record = CalibrationRecord(optics=OpticsCalibration(optic_type=optic))
+        for r in records:
+            if r.optic_name == record.optic_name:
+                return r
+        if not records:
+            return record
+        base = records[0]
+        return replace(base, optics=record.optics,
+                       comment=f"no {record.optic_name} configuration: stage constants from {base.label}, "
+                               f"{record.optic_name} position not calibrated")
 
     def save_user(self, record: CalibrationRecord, now: datetime | None = None) -> CalibrationRecord:
         """Overwrite user_config.json with `record`, time-stamped at the top of the file."""
