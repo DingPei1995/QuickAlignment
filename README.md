@@ -91,7 +91,9 @@ this sample's SRn axis** takes the position where the same point was found after
 Map's metadata): *Fit SRn axis*, then *Use for this sample* puts it into the configuration in use (kept in
 `user_config.json` if saved on closing). Further turns of that sample are then predicted from both.
 `configs/calibration_2026-10-24_170000.json` only gives a starting axis (standard plate, zone plate data
-WWS2 2025-10-01/02: ΔSRn = −14°, ΔST = +0.496, ΔSZ = −0.301, 2.38 mm from the axis).
+WWS2 2025-10-01/02: ΔSRn = −14°, ΔST = +0.496, ΔSZ = −0.301, 2.38 mm from the axis) and the zone plate
+reference (ZP_ZS 53.21985 in focus at the first Map; ZP_ZS increasing moves the zone plate towards the sample).
+The SRz axis is not calibrated yet for the standard plate.
 **Analyzer geometry** (slit horizontal at ANTARES = default, signs of θ
 and φ seen from the analyzer, rotation sense) is a setting remembered between sessions: check it once on a
 known sample (e.g. turn by the computed ΔSRn and see whether the direction lands on the slit, else flip the sign).

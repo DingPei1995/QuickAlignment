@@ -184,3 +184,21 @@ def test_keep_sn_slides_along_the_beam_with_srz():
         rel = relocate(model, SampleLayout(), start, srn, srz, ref, 59.68, default_height=1.301, keep_sn=True)
         assert rel.new.sn == 7.8 and rel.new.st == pytest.approx(st, abs=0.1)
         assert rel.optic_new == pytest.approx(cps, abs=0.1)
+
+
+def test_starting_configuration_zone_plate_reference():
+    """configs/calibration_2026-10-24_170000.json: ZP_ZS 53.21985 focuses on the first WWS2 Map (+ = towards the sample)."""
+    from pathlib import Path
+
+    from quickalignment.calibration import CalibrationStore
+
+    root = Path(__file__).resolve().parent.parent
+    record = next(r for r in CalibrationStore(root / "configs").records() if r.created == "2026-10-24 17:00:00")
+    assert record.optics.enabled and record.optics.optic_sign == 1
+    model = StageModel(record.config)
+    first, second = WWS2_ZONE_PLATE
+    layout = SampleLayout(samples=[Sample("WWS2", u=-0.2, v=-3.0, length=3, width=3, height=0.348)])
+    rel = relocate(model, layout, first, second.srn, second.srz, record.optics)  # optic from the configuration
+    assert rel.optic_measured == pytest.approx(53.21985, abs=1e-3)
+    assert rel.optic_new == pytest.approx(53.21985, abs=1e-3)  # SRn keeps the surface plane
+    assert rel.new.st == pytest.approx(second.st, abs=2e-3) and rel.new.sz == pytest.approx(second.sz, abs=2e-3)
