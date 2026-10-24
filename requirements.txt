@@ -1,0 +1,2 @@
+PyQt5>=5.15  # or PySide6
+pytest  # tests only
