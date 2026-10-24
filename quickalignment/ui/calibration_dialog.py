@@ -139,10 +139,13 @@ class CalibrationDialog(QtWidgets.QDialog):
         self.optic_dir.setCurrentIndex(0 if rec.optics.optic_sign > 0 else 1)
         o = rec.optics
         self.optics_label.setText(
-            f"optic at {o.optic_position:.4f} with ST {o.motors.st:.4f}, SZ {o.motors.sz:.4f}, SN {o.motors.sn:.4f}, "
-            f"SRn {o.motors.srn:g}, SRz {o.motors.srz:g}, surface H = {o.surface_w - self.panel.model().plate.total_thickness:.3f} mm"
-            if o.enabled else "none (optics focus assumed at the analyzer focus)"
+            f"{o.optic_type}: in focus at optic {o.optic_position:.4f} with ST {o.motors.st:.4f}, SZ {o.motors.sz:.4f}, "
+            f"SN {o.motors.sn:.4f}, SRn {o.motors.srn:g}, SRz {o.motors.srz:g}, "
+            f"surface H = {o.surface_w - self.panel.model().plate.total_thickness:.3f} mm"
+            if o.enabled else f"{o.optic_type}: in focus on the analyzer focus at optic {o.optic_position:.4f}"
         )
+        if self.result is None:
+            self.measured_optic.setValue(self.panel.optic_pos.value())
         current = self.ref_combo.currentText()
         self.ref_combo.clear()
         self.ref_combo.addItems(["plate centre"] + self.panel.target_labels())
@@ -191,7 +194,7 @@ class CalibrationDialog(QtWidgets.QDialog):
             html += f"<tr><td><b>{name}</b></td><td>{p:.4f}</td><td>{m:.4f}</td><td><b>{d:+.4f}</b></td></tr>"
         html += "</table>"
         if r.predicted_optic is None:
-            html += "No optics reference yet: the measured optic position becomes the reference.<br>"
+            html += "No optic prediction (the beam misses the plane of the reference).<br>"
         c = r.new_record.config
         html += f"New constants if accepted: ST0 = {c.st0:.4f}, SZ0 = {c.sz0:.4f}, SN_f = {c.sn_f:.4f}"
         self.check_label.setText(html)

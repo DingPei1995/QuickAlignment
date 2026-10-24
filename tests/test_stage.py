@@ -100,10 +100,10 @@ def test_calibrated_prediction():
     layout = SampleLayout(samples=[Sample("A", u=0, v=0, length=6, width=6, height=0.5)])
     cal = OpticsCalibration(enabled=True, motors=MotorPositions(sn=0.6), surface_w=5.5, optic_position=12.0, optic_sign=-1)
     res = focus_correction(model, MotorPositions(sn=0.6), layout, cal)
-    assert res.delta == pytest.approx(0) and res.new_optic_position == pytest.approx(12.0)
+    assert res.delta == pytest.approx(0) and res.required_optic_position == pytest.approx(12.0)
     res = focus_correction(model, MotorPositions(sn=1.6), layout, cal)
     assert res.delta == pytest.approx(np.sqrt(2))
-    assert res.new_optic_position == pytest.approx(12.0 - np.sqrt(2))
+    assert res.required_optic_position == pytest.approx(12.0 - np.sqrt(2))
 
 
 def test_srz_rotation_changes_focus():

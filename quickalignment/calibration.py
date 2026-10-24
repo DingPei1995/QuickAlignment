@@ -1,10 +1,15 @@
-"""Dated calibration configurations and the reference-sample check.
+"""Calibration configurations and the reference-sample check.
 
-Each calibration is a JSON file ``calibration_YYYY-MM-DD_HHMMSS.json`` in the
-configuration folder (default: ``configs/`` next to the program). The newest
-one is loaded at start-up. A check with the reference sample compares where
-the sample was actually found with where the current calibration predicts it;
-accepting the check writes a new dated file.
+Files in the configuration folder (default: ``configs/`` next to the program):
+
+* ``calibration_YYYY-MM-DD_HHMMSS.json``: one file per calibration made by
+  beamline staff (initial calibration, accepted reference check, expert edit).
+* ``user_config.json``: the single user configuration, overwritten each time
+  the user saves on closing the program; its first entry is the save time.
+
+At start-up the newest of all of them (by its time stamp) is loaded. A check
+with the reference sample compares where the sample was actually found with
+where the current calibration predicts it; accepting it writes a new dated file.
 """
 
 from __future__ import annotations
@@ -19,6 +24,7 @@ from .stage import MotorPositions, OpticsCalibration, StageConfig, StageModel
 
 DEFAULT_FOLDER = Path(__file__).resolve().parent.parent / "configs"
 TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
+USER_FILE = "user_config.json"
 
 
 def _from_dict(cls, data: dict):
@@ -34,14 +40,18 @@ class CalibrationRecord:
     optics: OpticsCalibration = field(default_factory=OpticsCalibration)
     check: dict | None = None  # what the reference check measured, for the record
     path: Path | None = None
+    kind: str = "staff"  # "staff" (dated calibration file) or "user" (user_config.json)
 
     @property
     def label(self) -> str:
-        return self.created or "default"
+        if not self.created:
+            return "default"
+        return f"{self.created} (user)" if self.kind == "user" else self.created
 
     def to_dict(self) -> dict:
         return {
             "created": self.created,
+            "kind": self.kind,
             "comment": self.comment,
             "stage_config": asdict(self.config),
             "optics": asdict(self.optics),
@@ -59,6 +69,7 @@ class CalibrationRecord:
             optics=_from_dict(OpticsCalibration, optics),
             check=data.get("check"),
             path=path,
+            kind=data.get("kind", "staff"),
         )
 
 
@@ -69,7 +80,9 @@ class CalibrationStore:
     def records(self) -> list[CalibrationRecord]:
         """All readable configurations, newest first."""
         out = []
-        for path in self.folder.glob("calibration_*.json"):
+        for path in [*self.folder.glob("calibration_*.json"), self.folder / USER_FILE]:
+            if not path.exists():
+                continue
             try:
                 out.append(CalibrationRecord.from_dict(json.loads(path.read_text()), path))
             except (OSError, ValueError, TypeError):
@@ -77,13 +90,27 @@ class CalibrationStore:
         return sorted(out, key=lambda r: (r.created, r.path.name), reverse=True)
 
     def latest(self) -> CalibrationRecord:
+        """The most recently written configuration, user or staff."""
         records = self.records()
         return records[0] if records else CalibrationRecord()
+
+    def save_user(self, record: CalibrationRecord, now: datetime | None = None) -> CalibrationRecord:
+        """Overwrite user_config.json with `record`, time-stamped at the top of the file."""
+        now = now or datetime.now()
+        self.folder.mkdir(parents=True, exist_ok=True)
+        based_on = record.label if record.kind == "staff" else (record.check or {}).get("based_on", record.label)
+        record = replace(
+            record, created=now.strftime(TIME_FORMAT), kind="user",
+            comment=f"user configuration (based on {based_on})", check={"based_on": based_on},
+        )
+        path = self.folder / USER_FILE
+        path.write_text(json.dumps(record.to_dict(), indent=2))
+        return replace(record, path=path)
 
     def save(self, record: CalibrationRecord, now: datetime | None = None) -> CalibrationRecord:
         now = now or datetime.now()
         self.folder.mkdir(parents=True, exist_ok=True)
-        record = replace(record, created=now.strftime(TIME_FORMAT))
+        record = replace(record, created=now.strftime(TIME_FORMAT), kind="staff")
         path = self.folder / f"calibration_{now:%Y-%m-%d_%H%M%S}.json"
         i = 1
         while path.exists():
@@ -131,21 +158,15 @@ def check_reference(
     predicted = model.motors_for_target(u, v, w, measured.srn, measured.srz, measured.pix, measured.piy)
     d_st, d_sz, d_sn = measured.st - predicted.st, measured.sz - predicted.sz, measured.sn - predicted.sn
 
-    predicted_optic = None
     cal = record.optics
-    if cal.enabled:
-        ref = model.beam_hit(cal.motors, cal.surface_w)
-        hit = model.beam_hit(measured, w)
-        if ref is not None and hit is not None:
-            predicted_optic = cal.optic_position + cal.optic_sign * float(hit[1] - ref[1])
+    hit = model.beam_hit(measured, w)
+    predicted_optic = None if hit is None else cal.position_for_focus(model, float(hit[1]))
 
     c = record.config
     new_record = CalibrationRecord(
         comment=comment or f"reference check on {target}",
         config=replace(c, st0=c.st0 + d_st, sz0=c.sz0 + d_sz, sn_f=c.sn_f + d_sn),
-        optics=OpticsCalibration(
-            enabled=True, motors=measured, surface_w=w, optic_position=measured_optic, optic_sign=cal.optic_sign
-        ),
+        optics=replace(cal, enabled=True, motors=measured, surface_w=w, optic_position=measured_optic),
         check={
             "target": target,
             "plate": plate.key,

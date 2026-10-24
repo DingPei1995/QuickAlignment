@@ -1,14 +1,15 @@
 """Sample plate geometry and sample layout for the ANTARES sample stage.
 
-Plate frame (u, v), in mm, as seen from the analyzer with SRn = 120 (plate
-vertical, tab up) and SRz = 0:
+Plate frame (u, v), in mm, fixed to the back plate (identical for all plate
+types), front view (sample side) with the tab up:
 
-* origin: centre of the 18 x 15.5 mm plate body
-* +u: to the right (same direction as +ST, and as PIX 0 -> 300)
-* +v: up (same direction as +SZ, and as PIY 0 -> 300)
+* origin: centre of the 18 x 15.5 mm back plate
+* +u: to the right (at SRn = 120, SRz = 0: the direction +ST and PIX 0 -> 300
+  move the plate)
+* +v: up (likewise for +SZ and PIY 0 -> 300)
 
-Heights are measured along the plate normal, towards the analyzer, from the
-back face of the plate.
+Heights w are measured along the plate normal, from the back face towards
+the sample surface.
 """
 
 from __future__ import annotations
@@ -116,7 +117,7 @@ Y_EDGES = ("bottom", "top")
 class Device:
     """A small device on a substrate, located from two substrate edges.
 
-    Edges are named as seen from the analyzer at SRn = 120: dx is the
+    Edges are named in the plate front view with the tab up: dx is the
     distance from the chosen left/right edge, dy from the chosen bottom/top
     edge, both to the device centre. length/width are only for display.
     """
@@ -147,7 +148,7 @@ class Sample:
     """A rectangular sample on the riser face.
 
     (u, v) is the sample centre in the plate frame; length runs along u,
-    width along v, height along the plate normal (towards the analyzer).
+    width along v, height along the plate normal (out of the plate surface).
     """
 
     name: str
@@ -235,8 +236,9 @@ class SampleLayout:
 
     def to_dict(self) -> dict:
         return {
-            "frame": "plate frame seen from analyzer at SRn=120: origin = plate body centre, "
-            "+u right (PIX), +v up (PIY), mm; ST = ST0 - u, SZ = SZ0 - v, SN = SN_f + H (w measured from the back face)",
+            "frame": "plate frame, front view with the tab up: origin = centre of the back plate, "
+            "+u right, +v up, mm; at SRn=120, SRz=0 a point comes onto the beam at ST = ST0 - u, SZ = SZ0 - v, "
+            "SN = SN_f + H",
             "plate_type": self.plate.key,
             "samples": [asdict(s) for s in self.samples],
         }

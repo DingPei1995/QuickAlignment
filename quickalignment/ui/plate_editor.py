@@ -32,8 +32,8 @@ COLOR_PAD = QtGui.QColor("#e8c400")
 COLOR_SCREW = QtGui.QColor("#4a3c36")
 
 # x / y: plate coordinates (mm, relative to the plate, not motor positions):
-# origin = centre of the 18 x 15.5 mm back plate, x right, y up, seen from the
-# analyzer with the tab up
+# origin = centre of the 18 x 15.5 mm back plate, x right, y up, front view
+# (sample side) with the tab up
 COLUMNS = ["Name", "Type", "x (mm)", "y (mm)", "L (mm)", "W (mm)", "H (mm)", "Status"]
 FIELDS = [None, None, "u", "v", "length", "width", "height", None]
 DEV_COLUMNS = ["Device", "Substrate", "X ref", "dx (mm)", "Y ref", "dy (mm)", "x (mm)", "y (mm)", "Status"]
@@ -436,7 +436,7 @@ class PlateEditor(QtWidgets.QWidget):
             buttons.addWidget(b)
 
         help_text = QtWidgets.QLabel(
-            "Sample plate seen from the analyzer, tab up. Coordinates x, y are in mm on the plate "
+            "Sample plate, front view (sample side), tab up. Coordinates x, y are in mm on the plate "
             "(origin = centre of the back plate, red cross), not motor positions.\n"
             "Drag on empty plate to draw a sample; drag a sample to move it, its edges to resize. "
             "Select a sample and press 'Add device' to mark a device on a substrate. "

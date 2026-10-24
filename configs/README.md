@@ -1,6 +1,10 @@
-# Calibration configurations
+# Configurations
 
-QuickAlignment stores each calibration here as `calibration_YYYY-MM-DD_HHMMSS.json` and loads the newest
-one at start-up. New files are written by the Calibration window (*Accept and save as new configuration*
-after a reference-sample check, or *Save edited constants* in expert mode). Older files are kept as history
-and can be selected again in the Calibration window.
+- `calibration_YYYY-MM-DD_HHMMSS.json`: one file per calibration made by beamline staff, written by
+  InitialCalibration.py or by the Calibration window (*Accept and save as new configuration* after a
+  reference-sample check, *Save edited constants* in expert mode). Older files are kept as history and can
+  be selected again in the Calibration window.
+- `user_config.json`: the single user configuration, overwritten when the user answers *Save* on closing
+  QuickAlignment; its first entry (`created`) is the save time.
+
+At start-up QuickAlignment loads the newest of all these files, by their time stamp.

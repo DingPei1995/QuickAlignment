@@ -31,7 +31,7 @@ up in the residuals.
 
 One small, sharp feature that can be found with the beam (corner of a reference sample, a mark),
 close to the plate centre so that it stays reachable when rotating. Note its plate coordinates
-x, y (mm, from the centre of the back plate, seen from the analyzer with the tab up) and its height H
+x, y (mm, from the centre of the back plate, front view with the tab up) and its height H
 above the plate surface. **Use the same feature in every set.**
 
 ## Sets

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sys
 
-from .calibration import CalibrationRecord, CalibrationStore
+from .calibration import USER_FILE, CalibrationRecord, CalibrationStore
 from .geometry import SampleLayout
 from .session import Session
 from .ui._qt import QtWidgets, exec_app
@@ -68,8 +68,35 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _on_record(self, record: CalibrationRecord) -> None:
         self.stage.set_record(record)
-        self.cal_label.setText(f"Calibration: {record.label}")
+        self.cal_label.setText(f"Configuration: {record.label}")
         self.stage.update_view()
+
+    def save_user_config(self) -> CalibrationRecord:
+        """Write the configuration in use (with the optic as entered) to user_config.json."""
+        saved = self.store.save_user(self.stage.current_record())
+        self._on_record(saved)
+        return saved
+
+    def closeEvent(self, event) -> None:
+        answer = QtWidgets.QMessageBox.question(
+            self,
+            "Save configuration?",
+            "Save the current configuration (stage constants, optic type and position, optics reference)\n"
+            f"to {self.store.folder / USER_FILE}?\n\nIt will be loaded at the next start.",
+            QtWidgets.QMessageBox.Save | QtWidgets.QMessageBox.Discard | QtWidgets.QMessageBox.Cancel,
+            QtWidgets.QMessageBox.Save,
+        )
+        if answer == QtWidgets.QMessageBox.Cancel:
+            event.ignore()
+            return
+        if answer == QtWidgets.QMessageBox.Save:
+            try:
+                self.save_user_config()
+            except OSError as exc:
+                QtWidgets.QMessageBox.critical(self, "Save failed", str(exc))
+                event.ignore()
+                return
+        event.accept()
 
     def session(self) -> Session:
         return Session(self.editor.layout_model, self.stage.motors.value())
