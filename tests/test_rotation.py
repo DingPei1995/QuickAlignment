@@ -187,3 +187,18 @@ def test_starting_configuration_zone_plate_reference():
     assert rel.optic_measured == pytest.approx(53.21985, abs=1e-3)
     assert rel.optic_new == pytest.approx(53.21985, abs=1e-3)  # SRn keeps the surface plane
     assert rel.new.st == pytest.approx(second.st, abs=2e-3) and rel.new.sz == pytest.approx(second.sz, abs=2e-3)
+
+
+def test_relocate_to_focus_within_motor_limits():
+    model = StageModel(StageConfig(srz_offset_n=10.0))
+    measured = model.motors_for_target(0.5, 1.0, 5.5, srn=120, srz=0)
+    free = relocate(model, SampleLayout(), measured, 140.0, 6.0, OpticsCalibration(), to_analyzer_focus=True,
+                    default_height=0.5)
+    assert free.focus_distance < 1e-9 and free.measured_focus_distance < 1e-9
+    # SN cannot reach: ST, SN, SZ are orthonormal, so clamping SN alone is the closest reachable position
+    limits = {"sn": (-10.0, free.new.sn - 0.03)}
+    near = relocate(model, SampleLayout(), measured, 140.0, 6.0, OpticsCalibration(), to_analyzer_focus=True,
+                    default_height=0.5, limits=limits)
+    assert near.new.sn == pytest.approx(free.new.sn - 0.03)
+    assert (near.new.st, near.new.sz) == pytest.approx((free.new.st, free.new.sz))
+    assert near.focus_distance == pytest.approx(0.03)

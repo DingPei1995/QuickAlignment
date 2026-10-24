@@ -372,41 +372,41 @@ def test_initial_calibration_window(tmp_path):
 
 
 def test_rotation_tab(window):
-    from quickalignment.stage import MotorPositions
-
     win = window
     win.editor.set_layout(win.editor.layout_model.__class__(samples=[Sample("WSe2", length=6, width=6, height=0.2)]))
     panel = win.rotation
     st = win.stage
     st.record = replace(st.record, config=replace(st.record.config, srn_axis_u=1.2, srn_axis_v=-1.0, srz_offset_n=10.0))
-    panel.measured.set_value(MotorPositions(st=0.3, sz=40.2, sn=0.2, srn=120, srz=0, pix=100, piy=200))
+    # a point of the sample on the analyzer focus, piezo off centre
+    panel.measured.set_value(st.model().motors_for_target(0.3, -0.2, 5.2, srn=120, srz=0, pix=100, piy=200))
     panel.measured_optic.setValue(-5.5)
     assert panel.optic_label.text() == "Zone plate position"
 
-    # SRn only: the surface plane stays, so SN needs no correction
+    # SRn only: the surface plane stays, the point stays on the analyzer focus
     panel.new_srn.setValue(150.0)
     panel.compute()
     r = panel.result
     assert r.target == "WSe2" and (r.new.pix, r.new.piy) == (150, 150)
-    assert r.new.sn == pytest.approx(0.2) and abs(panel.spot_shift()) < 1e-9
+    assert r.new.sn == pytest.approx(r.measured.sn) and r.focus_distance < 1e-6
     assert "no SN correction needed" in panel.focus_label.text()
     assert not panel.correct_sn.isChecked()
 
-    # SRz with the axis ~10 mm behind the surface: the spot leaves the analyzer focus
+    # SRz with the axis ~10 mm behind the surface: with SN kept the point leaves the analyzer focus
     panel.new_srz.setValue(5.0)
     panel.compute()
-    assert panel.result.new.sn == pytest.approx(0.2) and abs(panel.spot_shift()) > 0.05
+    r = panel.result
+    assert r.new.sn == pytest.approx(r.measured.sn) and r.focus_distance > 0.05
     assert "correct SN?" in panel.focus_label.text()
     panel.send_to_stage()
-    assert st.motors.value().st == pytest.approx(panel.result.new.st, abs=1e-4) and st.motors.value().sn == pytest.approx(0.2)
-    assert st.optic_pos.value() == pytest.approx(panel.result.optic_new, abs=1e-4)
+    assert st.motors.value().st == pytest.approx(r.new.st, abs=1e-4) and st.motors.value().sn == pytest.approx(r.new.sn)
+    assert st.optic_pos.value() == pytest.approx(r.optic_new, abs=1e-4)
 
+    # corrected: SN, ST, SZ put the point on the analyzer focus, the optic focuses there (as when measured)
     panel.correct_sn.setChecked(True)
     c = panel.corrected
-    assert c.new.sn != pytest.approx(0.2)
-    model = st.model()
-    w = c.uvw[2]
-    assert model.beam_hit(c.new, w)[1] == pytest.approx(model.beam_hit(c.measured, w)[1])
+    assert c.focus_distance < 1e-6 and abs(c.new.sn - r.measured.sn) > 1e-3
+    assert c.optic_new == pytest.approx(-5.5)
+    assert "on the analyzer focus" in panel.corrected_label.text()
     panel.send_to_stage()
     assert st.motors.value().sn == pytest.approx(c.new.sn, abs=1e-4)
 

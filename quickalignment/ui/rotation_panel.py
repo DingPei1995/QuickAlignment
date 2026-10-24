@@ -4,8 +4,9 @@
    beam and in focus, and the optic (zone plate / capillary) position there;
 2. the wanted SRn, SRz;
 3. the new ST / SZ with the piezo centred (PIX = PIY = 150 µm) and SN kept,
-   with how far the beam spot then moves along the beam (out of the analyzer
-   focus); optionally SN is corrected so the point stays where it was.
+   with how far the point then is from the analyzer focus; optionally SN, ST,
+   SZ and the optic are corrected to put the point on the analyzer focus (or
+   as close as the motor ranges allow).
 """
 
 from __future__ import annotations
@@ -16,7 +17,8 @@ from ..rotation import relocate
 
 Qt = QtCore.Qt
 
-SPOT_SHIFT_WARNING = 0.05  # mm along the beam
+FOCUS_WARNING = 0.05  # mm from the analyzer focus
+LIMITS = {name: MOTOR_SPECS[name][1:3] for name in ("st", "sn", "sz")}
 
 
 class RotationPanel(QtWidgets.QWidget):
@@ -67,9 +69,10 @@ class RotationPanel(QtWidgets.QWidget):
         self.result_label.setStyleSheet("font-size: 13px; padding: 6px; background: #f6f6f6; border: 1px solid #ddd;")
         self.focus_label = QtWidgets.QLabel()
         self.focus_label.setWordWrap(True)
-        self.correct_sn = QtWidgets.QCheckBox("Correct SN (keep the point where it is now along the beam)")
-        self.correct_sn.setToolTip("Off (default): SN stays, the optic refocuses.\n"
-                                   "On: SN, ST and SZ move so the point stays in the analyzer focus; the optic stays.")
+        self.correct_sn = QtWidgets.QCheckBox("Correct SN (put the point on the analyzer focus)")
+        self.correct_sn.setToolTip("Off (default): SN stays, ST / SZ keep the point on the beam, the optic refocuses.\n"
+                                   "On: SN, ST, SZ and the optic move so the point is on the analyzer focus\n"
+                                   "(absolute: relies on the configuration's ST0 / SZ0 / SN_f and rotation axes).")
         self.correct_sn.toggled.connect(self._show)
         self.corrected_label = QtWidgets.QLabel()
         self.corrected_label.setWordWrap(True)
@@ -119,10 +122,11 @@ class RotationPanel(QtWidgets.QWidget):
     def compute(self) -> None:
         model, layout, m = self.stage.model(), self._layout_getter(), self.measured.value()
         args = (model, layout, m, self.new_srn.value(), self.new_srz.value(), self.stage.calibration(),
-                self.measured_optic.value(), True, False, self._height_getter())
+                self.measured_optic.value())
+        common = dict(recentre_piezo=True, default_height=self._height_getter())
         try:
-            self.result = relocate(*args, keep_sn=True)
-            self.corrected = relocate(*args, keep_sn=False)
+            self.result = relocate(*args, keep_sn=True, **common)
+            self.corrected = relocate(*args, to_analyzer_focus=True, limits=LIMITS, **common)
         except ValueError as exc:
             self.result = self.corrected = None
             self.result_label.setText(f"<b>{exc}</b>")
@@ -130,12 +134,6 @@ class RotationPanel(QtWidgets.QWidget):
             return
         self._show()
 
-    def spot_shift(self) -> float | None:
-        """How far the beam spot moves along the beam with SN kept (mm, + = downstream)."""
-        r = self.result
-        model, w = self.stage.model(), r.uvw[2]
-        old, new = model.beam_hit(r.measured, w), model.beam_hit(r.new, w)
-        return None if old is None or new is None else float(new[1] - old[1])
 
     def _table(self, r, names) -> str:
         rows = []
@@ -164,20 +162,21 @@ class RotationPanel(QtWidgets.QWidget):
             f"At SRn = {r.new.srn:.3f}°, SRz = {r.new.srz:.3f}°, PIX = PIY = {pi:g} µm, SN kept:"
             + self._table(r, ("st", "sz", "sn")) + f"Point: <b>{r.target}</b> (plate x = {u:.3f}, y = {v:.3f} mm)."
         )
-        shift = self.spot_shift()
-        if shift is None:
-            self.focus_label.setText("")
+        text = (f"With SN kept the point is {r.focus_distance * 1000:.0f} µm from the analyzer focus "
+                f"(now: {r.measured_focus_distance * 1000:.0f} µm, model); the optic refocuses on it.")
+        if r.focus_distance > FOCUS_WARNING:
+            text = (f"<span style='color:#b00'><b>{text}</b> Too far from the analyzer focus, the data would be "
+                    "distorted: correct SN?</span>")
         else:
-            text = (f"With SN kept the beam spot moves {abs(shift) * 1000:.0f} µm "
-                    f"{'downstream' if shift > 0 else 'upstream'} along the beam, i.e. out of the analyzer focus "
-                    "(the optic refocuses on it).")
-            if abs(shift) > SPOT_SHIFT_WARNING:
-                text = f"<span style='color:#b00'><b>{text}</b> This is far from the analyzer focus: correct SN?</span>"
-            else:
-                text = f"<span style='color:#207020'>{text} Small: no SN correction needed.</span>"
-            self.focus_label.setText(text)
+            text = f"<span style='color:#207020'>{text} Close enough: no SN correction needed.</span>"
+        self.focus_label.setText(text)
         c = self.corrected
-        self.corrected_label.setText("With SN corrected (the point stays where it is now along the beam):"
+        if c.focus_distance < 1e-4:
+            where = "on the analyzer focus"
+        else:
+            where = (f"<span style='color:#b00'><b>closest reachable position: {c.focus_distance * 1000:.0f} µm "
+                     "from the analyzer focus</b> (motor range)</span>")
+        self.corrected_label.setText(f"With SN corrected, the point is {where}:"
                                      + self._table(c, ("st", "sz", "sn")))
 
     def chosen(self):

@@ -38,7 +38,7 @@ y up, front view (sample side) with the tab up), not motor positions; the plate 
   reference edges (left/right, bottom/top) and the distances dx, dy from them to the device centre,
   or drag the blue marker. Devices follow their substrate when it is moved.
 - gating plate: only the 11 × 10.5 mm area above the contact block takes samples
-- *Snap*: mouse drawing / moving / resizing jumps in steps of this size (0 = off); typed values are not rounded.
+- mouse drawing / moving / resizing is rounded to 0.1 mm; typed values are not rounded.
   *Default H*: height given to new samples, by default a Si wafer substrate (0.525 mm, standard 100 mm wafer).
 - *Status* column: `ok`, or what is wrong with the placement (outside the sample area / substrate, overlapping).
 - wheel = zoom, middle drag = pan, right click = whole plate again
@@ -71,9 +71,12 @@ Gives the stage positions that keep a sample point on the beam when the sample i
 2. **Wanted angles**: the new SRn and SRz.
 3. **New position**: *Compute new position* gives ST and SZ for these angles with the piezo centred
    (PIX = PIY = 150 µm) and SN unchanged (default), and the optic position that refocuses. Below, it says how far
-   the beam spot then moves along the beam, i.e. out of the analyzer focus (red above 50 µm: SRn alone keeps the
-   surface plane, SRz does not). Ticking *Correct SN* shows the SN, ST and SZ that keep the point where it was along
-   the beam instead. *Send to Stage & Optics tab* takes the shown solution.
+   the point then is from the analyzer focus (model; red above 50 µm, where the data would be distorted: SRn alone
+   keeps the surface plane, SRz does not). Ticking *Correct SN* shows the SN, ST, SZ and optic position that put the
+   point on the analyzer focus (absolute: relies on ST0 / SZ0 / SN_f and the rotation axes of the configuration).
+   If a motor range does not allow it, the closest reachable position is given with its distance from the focus
+   (ranges: `MOTOR_SPECS` in `quickalignment/ui/stage_panel.py`). *Send to Stage & Optics tab* takes the shown
+   solution.
 
 The SRn axis position on the plate comes from the configuration (`configs/calibration_2026-10-24_170000_zone_plate.json`:
 standard plate, zone plate data WWS2 2025-10-01/02, 2.38 mm from the axis). The SRz axis is not calibrated yet for

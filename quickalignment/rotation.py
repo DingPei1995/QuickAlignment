@@ -201,6 +201,13 @@ class Relocation:
     optic_measured: float
     optic_new: float | None
     optic_source: str
+    focus_distance: float = 0.0  # mm, model distance of the point from the analyzer focus at the new position
+    measured_focus_distance: float = 0.0  # ... at the measured position
+
+
+def focus_distance(model: StageModel, m: MotorPositions, u: float, v: float, w: float) -> float:
+    """Distance (mm) of plate point (u, v, w) from the analyzer focus (lab origin)."""
+    return float(np.linalg.norm(model.plate_to_lab(m, u, v, w)))
 
 
 def relocate(
@@ -215,6 +222,7 @@ def relocate(
     to_analyzer_focus: bool = False,
     default_height: float = 0.0,
     keep_sn: bool = False,
+    limits: dict[str, tuple[float, float]] | None = None,
 ) -> Relocation:
     """Stage positions putting the measured sample point back on the beam after rotating to (srn, srz).
 
@@ -227,6 +235,10 @@ def relocate(
     is how the stage is usually run (SN fixed in the analyzer focal plane).
     `measured_optic`: the optic position at which the measurement was in
     focus (e.g. Motor.ZP_ZS); None uses the configuration's optics reference.
+    `limits`: travel ranges {"st"|"sn"|"sz": (lo, hi)}. ST, SN, SZ move along
+    orthonormal directions, so clamping each one gives the reachable position
+    closest to the wanted one (with `to_analyzer_focus`: closest to the focus);
+    `focus_distance` tells what is left.
     """
     hit, uv, w, target = beam_on_layout(model, measured, layout)
     if hit is None or not any(target.split("/")[0] == s.name for s in layout.samples):
@@ -251,6 +263,8 @@ def relocate(
         d_sn = measured.sn - new.sn
         new.sn += d_sn
         new.st -= d_sn
+    for name, (lo, hi) in (limits or {}).items():
+        setattr(new, name, float(min(max(getattr(new, name), lo), hi)))
 
     if measured_optic is not None:
         ref = replace(optics, enabled=True, motors=measured, surface_w=w, optic_position=measured_optic)
@@ -260,7 +274,8 @@ def relocate(
     optic_measured = ref.position_for_focus(model, float(hit[1]))
     new_hit = model.beam_hit(new, w)
     optic_new = None if new_hit is None else ref.position_for_focus(model, float(new_hit[1]))
-    return Relocation(measured, new, (u, v, w), target, optic_measured, optic_new, source)
+    return Relocation(measured, new, (u, v, w), target, optic_measured, optic_new, source,
+                      focus_distance(model, new, u, v, w), focus_distance(model, measured, u, v, w))
 
 
 @dataclass
@@ -306,5 +321,5 @@ def fit_srn_axis(model: StageModel, positions: list[MotorPositions], w: float) -
 
 __all__ = [
     "AnalyzerGeometry", "AxisFit", "RotationCandidate", "fit_srn_axis", "Relocation", "SLIT_ORIENTATIONS", "align_direction",
-    "analyzer_angles", "emission_in_plate", "emission_lab", "onto_line", "relocate", "to_center", "wrap180",
+    "analyzer_angles", "emission_in_plate", "emission_lab", "focus_distance", "onto_line", "relocate", "to_center", "wrap180",
 ]

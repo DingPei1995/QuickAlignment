@@ -40,6 +40,7 @@ FIELDS = [None, None, "u", "v", "length", "width", "height", None]
 DEV_COLUMNS = ["Device", "Substrate", "X ref", "dx (mm)", "Y ref", "dy (mm)", "x (mm)", "y (mm)", "Status"]
 DEV_EDITABLE = {0, 3, 5, 6, 7}
 MIN_SIZE = 0.1  # mm
+SNAP_STEP = 0.1  # mm; mouse drawing / moving / resizing is rounded to this grid (typed values are not)
 SI_WAFER_THICKNESS = 0.525  # mm, standard 100 mm (4") Si wafer, the usual device substrate
 
 
@@ -408,15 +409,6 @@ class PlateEditor(QtWidgets.QWidget):
         self.dev_table.itemChanged.connect(self._on_dev_table_edit)
         self.dev_table.itemSelectionChanged.connect(self._on_dev_table_selection)
 
-        self.snap_box = QtWidgets.QDoubleSpinBox()
-        self.snap_box.setRange(0.0, 2.0)
-        self.snap_box.setSingleStep(0.05)
-        self.snap_box.setDecimals(2)
-        self.snap_box.setValue(0.1)
-        self.snap_box.setSuffix(" mm")
-        self.snap_box.setToolTip("Mouse drawing / moving / resizing jumps in steps of this size,\n"
-                                 "so edges land on round values (0 = off). Typed values are not rounded.")
-
         self.height_box = QtWidgets.QDoubleSpinBox()
         self.height_box.setRange(0.0, 20.0)
         self.height_box.setSingleStep(0.1)
@@ -425,8 +417,7 @@ class PlateEditor(QtWidgets.QWidget):
         self.height_box.setSuffix(" mm")
         self.height_box.setToolTip("Height H given to newly drawn samples. Default: Si wafer substrate, "
                                    f"{SI_WAFER_THICKNESS * 1000:.0f} µm (standard 100 mm wafer).")
-        for b in (self.snap_box, self.height_box):
-            b.setMaximumWidth(b.sizeHint().width())
+        self.height_box.setMaximumWidth(self.height_box.sizeHint().width())
 
         add_btn = QtWidgets.QPushButton("Add sample")
         add_btn.clicked.connect(self.add_default_sample)
@@ -446,9 +437,6 @@ class PlateEditor(QtWidgets.QWidget):
         self.cursor_label = QtWidgets.QLabel("cursor: x = –, y = –")
 
         form = QtWidgets.QHBoxLayout()
-        form.addWidget(QtWidgets.QLabel("Snap"))
-        form.addWidget(self.snap_box)
-        form.addSpacing(16)
         form.addWidget(QtWidgets.QLabel("Default H"))
         form.addWidget(self.height_box)
         si = QtWidgets.QLabel("(Si wafer substrate)")
@@ -464,7 +452,8 @@ class PlateEditor(QtWidgets.QWidget):
         help_text = QtWidgets.QLabel(
             "Sample plate, front view (sample side), tab up. Coordinates x, y are in mm on the plate "
             "(origin = centre of the back plate, red cross), not motor positions.\n"
-            "Drag on empty plate to draw a sample; drag a sample to move it, its edges to resize. "
+            "Drag on empty plate to draw a sample; drag a sample to move it, its edges to resize "
+            "(mouse positions are rounded to 0.1 mm). "
             "Select a sample and press 'Add device' to mark a device on a substrate. "
             "Wheel = zoom, middle drag = pan, right click = whole plate, Del = delete."
         )
@@ -549,7 +538,7 @@ class PlateEditor(QtWidgets.QWidget):
 
     # -- model operations ----------------------------------------------------
     def snap_step(self) -> float:
-        return self.snap_box.value()
+        return SNAP_STEP
 
     def default_height(self) -> float:
         return self.height_box.value()
