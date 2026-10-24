@@ -107,7 +107,7 @@ older configuration can be selected for the session. There is no calibration in 
 configuration comes from InitialCalibration (all constants fitted and checked at test points within
 0.05 mm), and what remains for a sample – mostly the error of drawing it on the plate – is corrected with
 *Found here* in the Stage & Optics tab. A configuration error of 0.05 mm, absorbed that way, leaves a few
-10 µm at other rotations (tested). If *Found here* has to move a sample by more than 1 mm, the program
+10 µm at other rotations (tested). If *Found here* has to move a sample by more than 0.3 mm, the program
 suggests checking whether the configuration is outdated (motors re-homed): then beamline staff run
 InitialCalibration.
 

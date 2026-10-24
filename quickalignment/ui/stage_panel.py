@@ -42,7 +42,7 @@ CONFIG_SPECS = {
     "srz_offset_n": ("SRz axis offset along +SN", " mm"),
 }
 TOLERANCE = 1e-3  # mm; below this a move is reported as not needed
-LARGE_FOUND_OFFSET = 1.0  # mm; a larger "Found here" correction hints at an outdated configuration
+LARGE_FOUND_OFFSET = 0.3  # mm; a larger "Found here" correction hints at an outdated configuration
 
 
 def spin(value: float, lo: float = -1000, hi: float = 1000, decimals: int = 3, step: float = 0.1, suffix: str = " mm"):
