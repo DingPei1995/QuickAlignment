@@ -1,0 +1,74 @@
+field,value
+start_time,2026-09-18T15:46:23
+end_time,2026-09-18T16:04:38
+duration,18m:14s
+MBS.Acqui_mode,Fixed
+MBS.ENo_Steps,983
+MBS.EScale_Max,110.98359143767985
+MBS.EScale_Min,103.01583983767985
+MBS.EScale_Mult,0.0081138
+MBS.SoftBin_Y,1
+MBS.act_scans,58
+MBS.center_ke,107.0
+MBS.defl_x,0.0
+MBS.defl_y,0.0
+MBS.end_ke,110.99170523767985
+MBS.end_x,1234
+MBS.end_y,950
+MBS.frames,100
+MBS.lens_mode,L4Ang0d8
+MBS.max_count,0
+MBS.no_scans,200
+MBS.no_slices,800
+MBS.passenergy,PE100
+MBS.start_ke,103.01583983767985
+MBS.start_x,252
+MBS.start_y,151
+MBS.step_size,0.0081138
+MBS.width,7.975865399999999
+Mono.current_behaviour,Modified Petersen
+Mono.current_constraint,0.40087494875784313
+Mono.current_grating_name,1300 tr/mm
+Mono.current_resolution_criterion,Fixed Slits
+Mono.current_slot_name,#2 - 1300 --> [24.000000 - 1100.000000]
+Mono.encoder_constraint,0.4008877882121424
+Mono.energy,115.00184696110746
+Mono.energy_post,115.00251359355714
+Mono.exit_slit_aperture,99.99817168455809
+Mono.resolution,19.750126537856424
+HU60.gap,17.554900000000004
+HU60.phase,-0.00030000000000000003
+HU256.current_bx1,0.9954925000000001
+HU256.current_bx2,0.4058875
+HU256.current_bzp,0.0
+Machine.current,450.13523202328
+Machine.function_mode,TOP-UP
+Machine.life_time,9.62836600086954
+SampleTemperature_K,nan
+Traj.actuator_1_1.delta,0.5
+Traj.actuator_1_1.from,-12.0
+Traj.actuator_1_1.name,i12-m-cx1/ex/mbs/deflx
+Traj.actuator_1_1.steps,48
+Traj.actuator_1_1.to,12.0
+PhotonEnergy,115.00184696110746
+Grating,1300 tr/mm
+exitSlit,99.99817168455809
+resolution,19.750126537856424
+_group,/DeflX_0002
+_case,3
+loader.name,SOLEIL ANTARES
+axis0.role,angle
+Motor.focus,6.498646875
+Motor.roughY,-1.001471874999997
+Motor.roughX,39.345
+Motor.SRn,103.999790352
+Motor.SRz,0.0007753530000013079
+Motor.ZP_ZS,-20.00085
+Motor.ZP_ZX,0.5518000000000001
+Motor.ZP_ZT,3.1505
+Motor.OSA_S,19.99965
+Motor.OSA_X,0.5003000000000007
+Motor.OSA_Z,-4.9993
+Motor.Pinhole_S,-0.0036265625
+Motor.Pinhole_X,-7.00046432504654
+Motor.Pinhole_Z,-4.998295000028611
