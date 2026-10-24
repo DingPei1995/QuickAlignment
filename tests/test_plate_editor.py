@@ -325,16 +325,76 @@ def test_initial_calibration_window(tmp_path):
 
     for row in range(2, 5):
         win.table.item(row, 0).setCheckState(Qt.Checked)
-    win.optic_pos.setValue(4.2)
+    win.table.item(0, 7).setText("4.2")
+    win.table.item(3, 7).setText("4.2")
+    win.optic_type.setCurrentIndex(1)  # capillary
     win.compute()
-    assert win.save_btn.isEnabled()
+    assert win.save_btn.isEnabled() and "Optics reference" in win.result_label.text()
     assert win.result.config.st0 == pytest.approx(0.2, abs=1e-5)
     assert win.result.config.srz_offset_n == pytest.approx(-0.3, abs=1e-5)
+
+    # front / side view of the entered feature, with the expected positions of the sets
+    win.show_feature()
+    assert win.feature_dialog.isVisible() and "Expected positions" in win.feature_dialog.info.text()
+    assert len(win.feature_dialog.figure.axes) == 2
+    win.ref_x.setValue(8.0)  # off the riser: flagged
+    assert "outside the sample area" in win.feature_dialog.info.text()
+    win.ref_x.setValue(1.0)
+    win.feature_dialog.close()
+
     win.save()
-    rec = store.latest()
+    rec = store.latest("capillary")
+    assert rec.path.name.endswith("_capillary.json") and rec.optics.optic_type == "capillary"
     assert rec.config.srn_axis_u == pytest.approx(0.5, abs=1e-5)
-    assert rec.optics.enabled and rec.optics.optic_position == 4.2
+    assert rec.optics.enabled and rec.optics.optic_position == pytest.approx(4.2)
     assert "Saved" in win.result_label.text()
+    assert not store.latest("zone plate + OSA").optics.enabled
+
+    # correction of the saved configuration after re-homing: one set, ST0 / SZ0 / SN_f only
+    win.optic_type.setCurrentIndex(1)
+    assert win.base_record().path == rec.path
+    win.fit_mode.setCurrentIndex(1)
+    shifted = StageModel(replace(rec.config, st0=0.25, sz0=40.2, sn_f=0.05), STANDARD_PLATE)
+    m = shifted.motors_for_target(1.0, -0.5, 5.3, srn=120.0, srz=0.0)
+    for col, value in ((4, m.st), (5, m.sz), (6, m.sn), (7, "")):
+        win.table.item(0, col).setText(value if value == "" else f"{value:.6f}")
+    for row in range(1, 5):
+        win.table.item(row, 0).setCheckState(Qt.Unchecked)
+    win.compute()
+    assert win.save_btn.isEnabled() and "kept" in win.result_label.text()
+    win.save()
+    corrected = store.latest("capillary")
+    assert corrected.path != rec.path and corrected.check["type"] == "configuration correction"
+    assert (corrected.config.st0, corrected.config.sz0, corrected.config.sn_f) == pytest.approx((0.25, 40.2, 0.05), abs=1e-5)
+    assert corrected.config.srn_axis_u == rec.config.srn_axis_u
+    assert corrected.optics.optic_position == rec.optics.optic_position  # kept: no optic position entered
+    win.close()
+
+
+def test_main_window_loads_initial_calibration(monkeypatch, tmp_path):
+    """A configuration written by InitialCalibration is the one QuickAlignment starts with, for its optic."""
+    import quickalignment.app as app_module
+    from quickalignment.calibration import CalibrationStore
+    from quickalignment.geometry import STANDARD_PLATE
+    from quickalignment.initial_calibration import fit_initial_calibration, initial_record, protocol_sets
+    from quickalignment.stage import StageConfig, StageModel
+
+    truth = StageModel(StageConfig(st0=0.2, sz0=40.3, sn_f=-0.1, srn_axis_u=0.5, srz_offset_n=-0.3), STANDARD_PLATE)
+    sets = protocol_sets()[:3]
+    for s in sets:
+        m = truth.motors_for_target(0.0, 0.0, 5.0, srn=s.srn, srz=s.srz)
+        s.st, s.sz, s.sn, s.optic = m.st, m.sz, m.sn, 7.5
+    res = fit_initial_calibration(sets, STANDARD_PLATE, (0.0, 0.0, 5.0))
+    store = CalibrationStore(tmp_path / "configs")
+    saved = store.save(initial_record(res, STANDARD_PLATE, (0.0, 0.0, 5.0), optic_type="capillary"))
+
+    monkeypatch.setattr(app_module, "ask_setup", lambda *a, **k: (STANDARD_PLATE, "capillary"))
+    QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    win = MainWindow(store=store, optic="capillary")
+    st = win.stage
+    assert st.record.path == saved.path and st.optic_type.currentText() == "capillary"
+    assert st.optic_pos.value() == pytest.approx(7.5)
+    assert st.config().sz0 == pytest.approx(40.3, abs=1e-6)
     win.close()
 
 

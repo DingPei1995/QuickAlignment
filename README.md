@@ -93,7 +93,11 @@ the standard plate.
 
 Separate program for the first start or after re-homing the motors: beamline staff measure one reference
 feature in 3 (minimum) or 5 (recommended) stage orientations, the constants are fitted and saved as a new
-configuration. Protocol: [`docs/initial_calibration_protocol.md`](docs/initial_calibration_protocol.md).
+configuration for the chosen optic (zone plate + OSA or capillary). *Show front / side view*
+(`docs/initial_calibration_feature_view.png`) draws the plate with the entered feature to check its position.
+The optic position at best focus can be noted in every set (the optics reference is their mean). *Fit: Correct
+ST0, SZ0, SN_f* corrects an existing configuration from a single set, keeping its axes.
+Protocol: [`docs/initial_calibration_protocol.md`](docs/initial_calibration_protocol.md).
 
 ### Calibration window (toolbar *Calibration…*, `docs/calibration_dialog.png`)
 
