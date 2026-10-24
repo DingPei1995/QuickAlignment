@@ -7,6 +7,10 @@
   ST / SZ: a point drawn at (ST, SZ) comes onto the beam with those motor
   values (current SRn and piezo, SRz = 0), so the beam spot sits at the
   current ST, SZ.
+
+`draw_reference_feature` draws the reference feature of the initial
+calibration on the plate alone (front and side view), to check the entered
+position before measuring.
 """
 
 from __future__ import annotations
@@ -15,7 +19,7 @@ import numpy as np
 from matplotlib.lines import Line2D
 from matplotlib.patches import Circle, Polygon
 
-from .geometry import SampleLayout
+from .geometry import PlateGeometry, SampleLayout
 from .stage import N_HAT, T_HAT, BeamResult, MotorPositions, StageModel
 
 X_HAT = np.array([1.0, 0.0, 0.0])
@@ -185,4 +189,93 @@ def draw_schematic(
     ax_top, ax_plane = fig.subplots(1, 2)
     _draw_top_view(ax_top, model, m, layout, result, optic_type)
     _draw_sample_plane(ax_plane, model, m, layout, result)
+    fig.tight_layout()
+
+
+def feature_warnings(plate: PlateGeometry, u: float, v: float) -> list[str]:
+    """Why a reference feature at (u, v) on the plate looks wrong."""
+    r0, s0, r1, s1 = plate.riser_bounds()
+    if not (r0 <= u <= r1 and s0 <= v <= s1):
+        return [f"the feature is outside the sample area of the plate ({r0:g} … {r1:g} × {s0:g} … {s1:g} mm)"]
+    return []
+
+
+def draw_reference_feature(
+    fig, plate: PlateGeometry, u: float, v: float, h: float, srn_axis: tuple[float, float] | None = None
+) -> None:
+    """Front view (from the analyzer, tab up) and side view (analyzer to the right) of the plate with the feature."""
+    fig.clear()
+    ax_front, ax_side = fig.subplots(1, 2, gridspec_kw={"width_ratios": [3, 2]})
+    w_top = plate.total_thickness + h
+    bad = bool(feature_warnings(plate, u, v))
+    c_feature = "#c00000" if bad else C_BEAM
+
+    def rect(ax, x0, y0, x1, y1, **kw):
+        ax.add_patch(Polygon([(x0, y0), (x1, y0), (x1, y1), (x0, y1)], closed=True, **kw))
+
+    # front view, plate coordinates
+    ax = ax_front
+    ax.add_patch(Polygon(plate.outline(), closed=True, fc=C_BASE, ec="k", lw=0.8))
+    rect(ax, *plate.riser_bounds(), fc=C_RISER, ec="k", lw=0.8)
+    if plate.contact_block:
+        rect(ax, *plate.contact_block, fc=C_BLOCK, ec="k", lw=0.8)
+        for pad in plate.contact_pads:
+            rect(ax, *pad, fc=C_PAD, ec="#8a7400", lw=0.6)
+        for su, sv in plate.screws:
+            ax.add_patch(Circle((su, sv), plate.screw_diameter / 2, fc=C_SCREW, ec="k", lw=0.6))
+    ax.axhline(0, color="k", lw=0.5, ls=":")
+    ax.axvline(0, color="k", lw=0.5, ls=":")
+    ax.axhline(v, color=c_feature, lw=0.8, ls="--")
+    ax.axvline(u, color=c_feature, lw=0.8, ls="--")
+    ax.plot(u, v, "x", color=c_feature, ms=12, mew=2.5)
+    ax.add_patch(Circle((u, v), 0.6, fc="none", ec=c_feature, lw=1.2))
+    if srn_axis is not None:
+        ax.plot(*srn_axis, "o", mfc="none", mec=C_SRN_AXIS, ms=9, mew=1.5)
+    hw, top = plate.width / 2, plate.height / 2 + plate.neck_height + plate.tab_height
+    ax.set_xlim(-hw - 1.5, hw + 1.5)
+    ax.set_ylim(plate.lowest_v() - 1.5, top + 1.5)
+    ax.set_aspect("equal")
+    ax.set_xlabel("x (mm)")
+    ax.set_ylabel("y (mm)")
+    ax.grid(alpha=0.25)
+    ax.set_title(f"{plate.name}\nFront view (from the analyzer, tab up): x = {u:g} mm, y = {v:g} mm", fontsize=9)
+    handles = [
+        Line2D([], [], ls="none", marker="x", color=c_feature, ms=8, mew=2, label="reference feature"),
+        Line2D([], [], ls=":", color="k", lw=0.8, label="plate centre"),
+    ]
+    if srn_axis is not None:
+        handles.append(Line2D([], [], ls="none", marker="o", mfc="none", mec=C_SRN_AXIS, ms=8, mew=1.5,
+                              label="SRn axis (base configuration)"))
+    ax.legend(handles=handles, loc="upper center", bbox_to_anchor=(0.5, -0.16), ncol=3, fontsize=7, frameon=False)
+
+    # side view: height w to the right (towards the analyzer), y up
+    ax = ax_side
+    half = plate.height / 2
+    rect(ax, 0, -half, plate.base_thickness, half, fc=C_BASE, ec="k", lw=0.8)
+    rect(ax, 0, half, plate.base_thickness, top, fc=C_BASE, ec="k", lw=0.8)
+    _, s0, _, s1 = plate.riser_bounds()
+    rect(ax, plate.base_thickness, s0, plate.total_thickness, s1, fc=C_RISER, ec="k", lw=0.8)
+    if plate.contact_block:
+        _, c0, _, c1 = plate.contact_block
+        rect(ax, 0, c0, plate.contact_block_top, c1, fc=C_BLOCK, ec="k", lw=0.8)
+        r = plate.screw_diameter / 2
+        for sv in sorted({sv for _, sv in plate.screws}):
+            rect(ax, plate.contact_block_top, sv - r, plate.screw_top, sv + r, fc=C_SCREW, ec="k", lw=0.6)
+    if h > 0:  # the sample carrying the feature, drawn 1 mm high
+        rect(ax, plate.total_thickness, v - 0.5, w_top, v + 0.5, fc=C_SAMPLE, ec="k", lw=0.8)
+    ax.axvline(plate.total_thickness, color="k", lw=0.5, ls=":")
+    ax.axhline(v, color=c_feature, lw=0.8, ls="--")
+    ax.plot(w_top, v, "x", color=c_feature, ms=12, mew=2.5)
+    x_max = max(plate.total_thickness, plate.screw_top, w_top) + 4
+    ax.annotate("", (x_max, top - 0.5), (x_max - 2.5, top - 0.5), arrowprops=dict(arrowstyle="-|>", color=C_ANALYZER))
+    ax.text(x_max - 0.2, top + 0.2, "analyzer", color=C_ANALYZER, fontsize=7, ha="right", va="bottom")
+    ax.set_xlim(-1, x_max + 0.5)
+    ax.set_ylim(plate.lowest_v() - 1.5, top + 1.5)
+    ax.set_aspect("equal")
+    ax.set_xlabel("height above the back face (mm)")
+    ax.set_ylabel("y (mm)")
+    ax.grid(alpha=0.25)
+    ax.set_title(
+        f"Side view\nH = {h:g} mm above the plate surface ({plate.total_thickness:g}) → w = {w_top:g} mm", fontsize=9,
+    )
     fig.tight_layout()

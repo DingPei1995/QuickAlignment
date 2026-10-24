@@ -15,6 +15,14 @@ by least squares and give residuals to judge the result.
 The SRn reference angle (plate vertical) stays fixed: with a single reference
 feature it cannot be separated from the SRn axis position (that would need a
 second feature, i.e. the plate orientation).
+
+A correction of an existing configuration fits only ST0, SZ0, SN_f (the axes
+are kept from it): one set is enough.
+
+The optic position at best focus may be noted in every set. The feature is on
+the beam at the analyzer focus each time, so every noted position predicts the
+optics reference; their mean is taken and the scatter shows how well the optic
+focus can be reproduced.
 """
 
 from __future__ import annotations
@@ -25,9 +33,10 @@ import numpy as np
 
 from .calibration import CalibrationRecord
 from .geometry import PlateGeometry
-from .stage import MotorPositions, OpticsCalibration, StageConfig, StageModel
+from .stage import OPTIC_TYPES, MotorPositions, OpticsCalibration, StageConfig, StageModel
 
 FIT_PARAMS = ("st0", "sz0", "sn_f", "srn_axis_u", "srn_axis_v", "srz_offset_t", "srz_offset_n")
+CORRECTION_PARAMS = ("st0", "sz0", "sn_f")  # correction of an existing configuration: axes kept
 PARAM_LABELS = {
     "st0": "ST0",
     "sz0": "SZ0",
@@ -60,6 +69,7 @@ class MeasurementSet:
     pix: float = 150.0
     piy: float = 150.0
     use: bool = True
+    optic: float | None = None  # optic position at best focus, if noted
 
     def motors(self) -> MotorPositions:
         return MotorPositions(st=self.st, sn=self.sn, sz=self.sz, srn=self.srn, srz=self.srz, pix=self.pix, piy=self.piy)
@@ -110,11 +120,12 @@ def fit_initial_calibration(
     plate: PlateGeometry,
     ref_uvw: tuple[float, float, float],
     base: StageConfig | None = None,
+    params: tuple[str, ...] = FIT_PARAMS,
 ) -> FitResult:
-    """Least-squares fit of the stage constants (Gauss-Newton, numerical Jacobian)."""
+    """Least-squares fit of the stage constants `params` (Gauss-Newton, numerical
+    Jacobian); the other constants are kept from `base`."""
     base = base or StageConfig()
     sets = [s for s in sets if s.use]
-    params = FIT_PARAMS
     x = np.array([getattr(base, p) for p in params], float)
 
     def res(xv):
@@ -156,31 +167,82 @@ def fit_initial_calibration(
     return FitResult(config, params, sigma, per_set, rms, dof, sets)
 
 
+@dataclass
+class OpticsFit:
+    optics: OpticsCalibration
+    residuals: list[tuple[str, float]]  # per set with an optic position: model - measured
+    rms: float
+    sigma: float | None  # 1-sigma of the reference position, with 2 or more positions
+
+
+def fit_optics(
+    result: FitResult,
+    plate: PlateGeometry,
+    ref_uvw: tuple[float, float, float],
+    optic_sign: int = 1,
+    optic_type: str = OPTIC_TYPES[0],
+) -> OpticsFit:
+    """Optics reference from the optic positions noted in the sets.
+
+    The reference state is the first set with an optic position. Each noted
+    position, moved along the beam by the fitted model from where the beam met
+    the feature in its set to where it met it in the reference set, predicts
+    the reference position; the mean is used. Without any optic position the
+    reference stays at the analyzer focus (not calibrated).
+    """
+    noted = [s for s in result.sets if s.optic is not None]
+    if not noted:
+        return OpticsFit(OpticsCalibration(optic_sign=optic_sign, optic_type=optic_type), [], 0.0, None)
+    model = StageModel(result.config, plate)
+    w = ref_uvw[2]
+    cal = OpticsCalibration(
+        enabled=True, motors=noted[0].motors(), surface_w=w, optic_sign=optic_sign, optic_type=optic_type,
+    )
+    y_ref = cal.reference_y(model)
+    hits = [model.beam_hit(s.motors(), w) for s in noted]
+    ys = [y_ref if h is None else float(h[1]) for h in hits]
+    predicted = np.array([s.optic - optic_sign * (y - y_ref) for s, y in zip(noted, ys)])
+    cal = replace(cal, optic_position=float(predicted.mean()))
+    residuals = [(s.name, cal.position_for_focus(model, y) - s.optic) for s, y in zip(noted, ys)]
+    r = np.array([d for _, d in residuals])
+    sigma = float(predicted.std(ddof=1) / np.sqrt(len(noted))) if len(noted) > 1 else None
+    return OpticsFit(cal, residuals, float(np.sqrt(np.mean(r**2))), sigma)
+
+
 def initial_record(
     result: FitResult,
     plate: PlateGeometry,
     ref_uvw: tuple[float, float, float],
-    optic_position: float | None,
     optic_sign: int = 1,
+    optic_type: str = OPTIC_TYPES[0],
     comment: str = "",
+    base_label: str | None = None,
+    kept_optics: OpticsCalibration | None = None,
 ) -> CalibrationRecord:
-    """Configuration record from a fit; the first set (reference) becomes the optics reference."""
-    optics = OpticsCalibration(optic_sign=optic_sign)
-    if optic_position is not None and result.sets:
-        optics = OpticsCalibration(
-            enabled=True, motors=result.sets[0].motors(), surface_w=ref_uvw[2],
-            optic_position=optic_position, optic_sign=optic_sign,
-        )
+    """Configuration record from a fit, with the optics reference from the sets' optic positions.
+
+    `base_label`: the configuration that was corrected (correction fit), for the record.
+    `kept_optics`: optics reference used when no set has an optic position
+    (e.g. the corrected configuration's).
+    """
+    optics = fit_optics(result, plate, ref_uvw, optic_sign, optic_type)
+    if not optics.residuals and kept_optics is not None:
+        optics = replace(optics, optics=replace(kept_optics, optic_type=optic_type, last_position=None))
+    kind = "initial calibration" if set(result.params) >= set(FIT_PARAMS) else "configuration correction"
+    check = {
+        "type": kind,
+        "plate": plate.key,
+        "reference_uvw": list(ref_uvw),
+        "sets": [asdict(s) for s in result.sets],
+        "fitted": list(result.params),
+        "rms_mm": result.rms,
+        "optic_residuals": [d for _, d in optics.residuals],
+    }
+    if base_label is not None:
+        check["base"] = base_label
     return CalibrationRecord(
-        comment=comment or f"initial calibration ({len(result.sets)} sets, rms {result.rms * 1000:.1f} um)",
+        comment=comment or f"{kind} ({len(result.sets)} sets, rms {result.rms * 1000:.1f} um)",
         config=result.config,
-        optics=optics,
-        check={
-            "type": "initial calibration",
-            "plate": plate.key,
-            "reference_uvw": list(ref_uvw),
-            "sets": [asdict(s) for s in result.sets],
-            "fitted": list(result.params),
-            "rms_mm": result.rms,
-        },
+        optics=optics.optics,
+        check=check,
     )
