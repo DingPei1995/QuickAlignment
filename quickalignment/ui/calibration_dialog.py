@@ -12,7 +12,7 @@ from __future__ import annotations
 from dataclasses import replace
 
 from ._qt import QtCore, QtWidgets, Signal
-from .stage_panel import CONFIG_SPECS, OPTIC_DIRECTIONS, MotorForm, spin
+from .stage_panel import CONFIG_SPECS, OPTIC_DIRECTIONS, MotorForm, align_labels, spin
 from ..calibration import CalibrationRecord, CalibrationStore, CheckResult, check_reference
 from ..stage import StageConfig
 
@@ -85,6 +85,7 @@ class CalibrationDialog(QtWidgets.QDialog):
         cb.addWidget(self.check_label)
         cb.addWidget(self.comment)
         cb.addWidget(self.accept_btn)
+        align_labels(cf, self.measured, of)
 
         # -- constants (locked unless expert mode) -------------------------------------
         self.expert = QtWidgets.QCheckBox("Expert mode: edit the constants directly")
@@ -100,8 +101,9 @@ class CalibrationDialog(QtWidgets.QDialog):
         self.optic_dir.addItems(OPTIC_DIRECTIONS)
         kf.addRow("Optic motor direction", self.optic_dir)
         self.optics_label = QtWidgets.QLabel()
-        self.optics_label.setWordWrap(True)
-        kf.addRow("Optics reference", self.optics_label)
+        # explicit line breaks: a word-wrapped label in this form was cut off
+        kf.addRow(QtWidgets.QLabel("Optics reference:"))
+        kf.addRow(self.optics_label)
         self.save_expert_btn = QtWidgets.QPushButton("Save edited constants as new configuration")
         self.save_expert_btn.clicked.connect(self.save_expert)
         kf.addRow(self.expert)
@@ -124,13 +126,17 @@ class CalibrationDialog(QtWidgets.QDialog):
 
         self._set_expert(False)
         self.refresh()
+        # open large enough for the wrapped texts (the minimum size Qt computes ignores them)
+        self.resize(self.sizeHint())
 
     # -- display -----------------------------------------------------------------
     def refresh(self) -> None:
         """Re-read the folder and show the record in use."""
         rec = self.panel.record
         where = rec.path.name if rec.path else "not saved"
-        self.current_label.setText(f"In use: <b>{rec.label}</b> ({where})<br>{rec.comment}")
+        # the comment can be long: as a tooltip it cannot squeeze the rest of the window
+        self.current_label.setText(f"In use: <b>{rec.label}</b> ({where})")
+        self.current_label.setToolTip(rec.comment)
         self._records = self.store.records()
         self.history.clear()
         for i, r in enumerate(self._records):
@@ -143,8 +149,9 @@ class CalibrationDialog(QtWidgets.QDialog):
         self.optic_dir.setCurrentIndex(0 if rec.optics.optic_sign > 0 else 1)
         o = rec.optics
         self.optics_label.setText(
-            f"{o.optic_type}: in focus at optic {o.optic_position:.4f} with ST {o.motors.st:.4f}, SZ {o.motors.sz:.4f}, "
-            f"SN {o.motors.sn:.4f}, SRn {o.motors.srn:g}, SRz {o.motors.srz:g}, "
+            f"{o.optic_type}: in focus at optic {o.optic_position:.4f}<br>"
+            f"with ST {o.motors.st:.4f}, SZ {o.motors.sz:.4f}, SN {o.motors.sn:.4f},<br>"
+            f"SRn {o.motors.srn:.3f}, SRz {o.motors.srz:.3f}, "
             f"surface H = {o.surface_w - self.panel.model().plate.total_thickness:.3f} mm"
             if o.enabled else f"{o.optic_type}: in focus on the analyzer focus at optic {o.optic_position:.4f}"
         )

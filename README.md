@@ -121,12 +121,12 @@ the sample height do (moving the surface 1 mm along SN moves the beam spot √2 
 
 Both plates share the same back plate (18 × 15.5 × 1.1 mm Ta with tab), which defines the common reference frame.
 
-- **Standard** (SOLEIL drawing "Plaquette avec rehausse"): 11 mm wide riser, protruding surface 5.0 mm above the back face.
-- **Gating** (drawing "Assemblage V7"): same riser; sample area = upper 10.5 mm of the riser;
+- **Standard** (SOLEIL drawing "Plaquette avec rehausse"): 11 mm wide raised part, height 5.0 mm (from the back face).
+- **Gating** (drawing "Assemblage V7"): same raised part; sample area = upper 10.5 mm of it;
   below it a 6 mm contact block (3 gold pads, 4 screws, top ≈ 5.2 mm, screw heads ≈ 6.0 mm), reaching 1 mm below the plate.
-- **Custom** (*Custom plate* in the plate dialog): the standard back plate without its riser, carrying a block
-  centred on the plate; enter its length (x), width (y) and the height of its top above the back face
-  (standard plate: 5.0 mm). Samples go on the block; the block is saved with the session.
+- **Custom** (*Custom plate* in the plate dialog): the standard back plate without its raised part, carrying a
+  block centred left–right; enter its length (x), width (y), centre y and height (measured from the back face of
+  the plate, like the 5.0 mm of the standard plate). Samples go on the block; the block is saved with the session.
   SN keeps referring to the standard plate: the block top is in focus at `SN = SN_f + (h − 5.0)`, a sample on it at
   `SN = SN_f + (h − 5.0) + H`.
 
@@ -136,8 +136,8 @@ See `docs/geometry_draft_v2.png` (regenerate with `python docs/draw_geometry.py`
 
 - Top view: beam along +y; the analyzer focal plane runs upper-left → lower-right at 45°; the analyzer sits
   lower-left of the sample.
-- **SN** ⟂ analyzer focal plane; SN = SN_f (≈0, calibrated; e.g. −0.1 after maintenance) puts the riser top of the
-  standard plate (5.0 mm above the back face) in the analyzer focal plane, whatever plate is mounted; SN = 65 is
+- **SN** ⟂ analyzer focal plane; SN = SN_f (≈0, calibrated; e.g. −0.1 after maintenance) puts the top of the
+  standard plate (height 5.0 mm from the back face) in the analyzer focal plane, whatever plate is mounted; SN = 65 is
   the transfer position. A sample of height H is in focus at `SN = SN_f + H` (custom plate: `SN_f + (h − 5.0) + H`).
   In practice the sample surface is moved onto the line drawn on the camera image ("SN = 0" line, = analyzer
   focal plane), so the SN read there differs from sample to sample; the Stage & Optics result shows which surface

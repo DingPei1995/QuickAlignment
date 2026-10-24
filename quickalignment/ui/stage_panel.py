@@ -54,17 +54,52 @@ def spin(value: float, lo: float = -1000, hi: float = 1000, decimals: int = 3, s
     return box
 
 
+def equal_row(*widgets) -> QtWidgets.QHBoxLayout:
+    """A row of widgets (buttons, panels) that all get the same width."""
+    row = QtWidgets.QHBoxLayout()
+    width = max(w.sizeHint().width() for w in widgets)
+    for w in widgets:
+        w.setMinimumWidth(width)
+        row.addWidget(w, 1)
+    return row
+
+
+def form_labels(form: QtWidgets.QFormLayout) -> list:
+    out = []
+    for i in range(form.rowCount()):
+        item = form.itemAt(i, QtWidgets.QFormLayout.LabelRole)
+        if item is not None and item.widget() is not None:
+            out.append(item.widget())
+    return out
+
+
+def align_labels(*parts) -> None:
+    """Give the label column of several forms (QFormLayout or MotorForm) the same
+    width, so that their input fields start at the same x."""
+    labels = [w for p in parts for w in (p.labels if isinstance(p, MotorForm) else form_labels(p))]
+    width = max(w.sizeHint().width() for w in labels)
+    for w in labels:
+        w.setMinimumWidth(width)
+
+
 class MotorForm(QtWidgets.QWidget):
     def __init__(self, motors: MotorPositions | None = None, parent=None):
         super().__init__(parent)
         motors = motors or MotorPositions()
         self.boxes = {}
+        self.labels = []  # first column, see align_labels
         grid = QtWidgets.QGridLayout(self)
         grid.setContentsMargins(0, 0, 0, 0)
         for i, (name, (label, lo, hi, dec, step, suffix)) in enumerate(MOTOR_SPECS.items()):
             self.boxes[name] = spin(getattr(motors, name), lo, hi, dec, step, suffix)
-            grid.addWidget(QtWidgets.QLabel(label), i // 2, 2 * (i % 2))
+            text = QtWidgets.QLabel(label)
+            if i % 2 == 0:
+                self.labels.append(text)
+            grid.addWidget(text, i // 2, 2 * (i % 2))
             grid.addWidget(self.boxes[name], i // 2, 2 * (i % 2) + 1)
+        # both columns of fields equally wide, labels only as wide as needed
+        grid.setColumnStretch(1, 1)
+        grid.setColumnStretch(3, 1)
 
     def value(self) -> MotorPositions:
         return MotorPositions(**{k: b.value() for k, b in self.boxes.items()})
@@ -116,11 +151,9 @@ class StagePanel(QtWidgets.QWidget):
         of = QtWidgets.QFormLayout(optic_box)
         of.addRow("Type", self.optic_type)
         of.addRow("Optic position", self.optic_pos)
-        buttons = QtWidgets.QHBoxLayout()
-        buttons.addWidget(use_btn)
-        buttons.addWidget(ref_btn)
-        of.addRow(buttons)
+        of.addRow(equal_row(use_btn, ref_btn))
         of.addRow(self.optic_ref_label)
+        align_labels(self.motors, of)
 
         update_btn = QtWidgets.QPushButton("Update schematic && optics")
         update_btn.setMinimumHeight(36)
@@ -177,7 +210,7 @@ class StagePanel(QtWidgets.QWidget):
         if optics.enabled:
             m = optics.motors
             ref = (f"in focus at optic {optics.optic_position:.4f} with ST {m.st:.4f}, SZ {m.sz:.4f}, SN {m.sn:.4f}, "
-                   f"SRn {m.srn:g}, SRz {m.srz:g}")
+                   f"SRn {m.srn:.3f}, SRz {m.srz:.3f}")
         else:
             ref = f"in focus on the analyzer focus at optic {optics.optic_position:.4f}"
         self.optic_ref_label.setText(f"Optics reference: {ref}")

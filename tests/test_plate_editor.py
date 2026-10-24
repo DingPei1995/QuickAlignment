@@ -264,7 +264,7 @@ def test_gating_plate(window):
     ok = ed.add_sample(Sample("ok", u=0, v=2, length=3, width=3))
     low = ed.add_sample(Sample("low", u=0, v=-4, length=2, width=2))
     assert ed.layout_model.warnings(ok) == []
-    assert "outside riser" in ed.layout_model.warnings(low)
+    assert "outside sample area" in ed.layout_model.warnings(low)
     # beam on the contact block
     m = st.model().motors_for_target(-4.0, -7.0, GATING_PLATE.contact_block_top, srn=120, srz=0)
     st.motors.set_value(m)
@@ -281,7 +281,7 @@ def test_change_plate_keeps_samples(window):
     window.change_plate()
     assert window.editor.layout_model.plate.key == "gating"
     assert [s.name for s in window.editor.layout_model.samples] == ["A"]
-    assert window.editor.table.item(0, 7).text() == "outside riser"
+    assert window.editor.table.item(0, 7).text() == "outside sample area"
 
 
 def test_calibration_check_and_accept(window):
@@ -423,12 +423,15 @@ def test_custom_plate_dialog_and_focus(window, monkeypatch):
     dlg.custom_length.setValue(6.0)  # editing the block selects the custom plate
     dlg.custom_width.setValue(4.0)
     dlg.custom_height.setValue(8.2)
+    dlg.custom_center_y.setValue(1.5)  # only left-right is centred
     plate = dlg.plate()
-    assert plate.key == "custom" and plate.riser_bounds() == (-3.0, -2.0, 3.0, 2.0)
-    assert "SN_f +3.200" in dlg.custom_note.text()
+    assert plate.key == "custom" and plate.riser_bounds() == (-3.0, -0.5, 3.0, 3.5)
+    dlg.custom_center_y.setValue(6.0)  # the block would stick out at the top
+    assert "must fit" in dlg.custom_note.text()
+    dlg.custom_center_y.setValue(1.5)
     assert PlateChoiceDialog(plate).plate() == plate  # reopens with the plate in use
 
-    monkeypatch.setattr(app_module, "ask_plate", lambda *a, **k: custom_plate(6.0, 4.0, 8.2))
+    monkeypatch.setattr(app_module, "ask_plate", lambda *a, **k: custom_plate(6.0, 4.0, 8.2, 0.5))
     window.change_plate()
     window.editor.add_sample(Sample("A", u=0, v=0, length=2, width=2, height=0.3))
     st = window.stage

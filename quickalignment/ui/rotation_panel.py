@@ -14,7 +14,7 @@ import math
 from dataclasses import replace
 
 from ._qt import QtCore, QtWidgets, Signal
-from .stage_panel import MotorForm, spin
+from .stage_panel import MotorForm, align_labels, equal_row, spin
 from ..rotation import (
     SLIT_ORIENTATIONS, AnalyzerGeometry, align_direction, fit_srn_axis, onto_line, relocate, to_center, wrap180,
 )
@@ -105,10 +105,7 @@ class RotationPanel(QtWidgets.QWidget):
         self.measured_optic.setToolTip("Optic position at which the measurement was in focus.")
         meas_box = QtWidgets.QGroupBox("1. Measurement (ARPES viewer → Show information)")
         mb = QtWidgets.QVBoxLayout(meas_box)
-        row = QtWidgets.QHBoxLayout()
-        for b in (load_btn, paste_btn, copy_btn):
-            row.addWidget(b)
-        mb.addLayout(row)
+        mb.addLayout(equal_row(load_btn, paste_btn, copy_btn))
         mb.addWidget(self.info_label)
         hint = QtWidgets.QLabel("Stage positions of the Map / Cut, read from its metadata (editable).")
         hint.setWordWrap(True)
@@ -219,17 +216,13 @@ class RotationPanel(QtWidgets.QWidget):
         note.setWordWrap(True)
         note.setStyleSheet("color: #777;")
         ab.addWidget(note)
-        row = QtWidgets.QHBoxLayout()
-        for b in (second_load, second_paste, second_stage):
-            row.addWidget(b)
-        ab.addLayout(row)
+        ab.addLayout(equal_row(second_load, second_paste, second_stage))
         ab.addWidget(self.second)
-        row = QtWidgets.QHBoxLayout()
-        row.addWidget(fit_btn)
-        row.addWidget(self.use_axis_btn)
-        ab.addLayout(row)
+        ab.addLayout(equal_row(fit_btn, self.use_axis_btn))
         ab.addWidget(self.axis_label)
 
+        # every section's fields start at the same x
+        align_labels(self.measured, of, af, gf, self.second, geo_f)
         for w in (meas_box, ang_box, goal_box, axis_box, geo_box):
             lv.addWidget(w)
         lv.addStretch(1)

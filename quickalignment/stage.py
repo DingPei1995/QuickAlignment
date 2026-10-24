@@ -255,7 +255,7 @@ def beam_on_layout(model: StageModel, m: MotorPositions, layout: SampleLayout) -
     if plate.contact_block:
         surfaces.append((plate.contact_block_top, plate.contact_block, "contact block"))
     for w, bounds, name in surfaces + [
-        (plate.total_thickness, (r0, s0, r1, s1), "riser (no sample)"),
+        (plate.total_thickness, (r0, s0, r1, s1), "plate surface (no sample)"),
         (plate.base_thickness, (-plate.width / 2, -plate.height / 2, plate.width / 2, plate.height / 2), "base plate"),
     ]:
         hit = model.beam_hit(m, w)

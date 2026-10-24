@@ -26,15 +26,16 @@ Rect = tuple[float, float, float, float]  # (u_min, v_min, u_max, v_max)
 
 @dataclass(frozen=True)
 class PlateGeometry:
-    """Sample plate geometry. Defaults: Ta plate with 4 mm riser
+    """Sample plate geometry. Defaults: standard Ta plate, height 5.0 mm
     (SOLEIL drawing "Plaquette avec rehausse")."""
 
     key: str = "standard"
-    name: str = "Standard Ta plate (4 mm riser)"
+    name: str = "Standard Ta plate (height 5.0 mm)"
     width: float = 18.0
     height: float = 15.5
     riser_width: float = 11.0
-    riser_length: float | None = None  # riser extent along v, centred (None: full plate height)
+    riser_length: float | None = None  # riser extent along v (None: full plate height)
+    riser_center_v: float = 0.0  # riser centre along v, used with riser_length
     base_thickness: float = 1.1
     total_thickness: float = 5.0
     neck_width: float = 1.8
@@ -83,7 +84,8 @@ class PlateGeometry:
     def riser_bounds(self) -> Rect:
         """(u_min, v_min, u_max, v_max) of the sample area on the riser top face."""
         if self.riser_length is not None:
-            return (-self.riser_width / 2, -self.riser_length / 2, self.riser_width / 2, self.riser_length / 2)
+            c, h = self.riser_center_v, self.riser_length / 2
+            return (-self.riser_width / 2, c - h, self.riser_width / 2, c + h)
         bottom = -self.height / 2 if self.sample_area_bottom is None else self.sample_area_bottom
         return (-self.riser_width / 2, bottom, self.riser_width / 2, self.height / 2)
 
@@ -115,27 +117,30 @@ PLATES = {p.key: p for p in (STANDARD_PLATE, GATING_PLATE)}
 SN_REFERENCE_W = STANDARD_PLATE.total_thickness
 
 
-def custom_plate(length: float, width: float, height: float) -> PlateGeometry:
-    """User plate: the standard back plate without its riser, carrying a block
-    of `length` (along u) x `width` (along v) centred on the plate, whose top
-    face is `height` mm above the back face (standard plate: 5.0)."""
+def custom_plate(length: float, width: float, height: float, center_y: float = 0.0) -> PlateGeometry:
+    """User plate: the standard back plate without its raised part, carrying a
+    block of `length` (along u, centred left-right) x `width` (along v, centred
+    at v = `center_y`), whose top face is `height` mm above the back face of
+    the plate (standard plate: 5.0)."""
     base = STANDARD_PLATE
-    if not (0 < length <= base.width and 0 < width <= base.height):
+    eps = 1e-9
+    if not (0 < length <= base.width + eps and 0 < width and abs(center_y) + width / 2 <= base.height / 2 + eps):
         raise ValueError(f"The block must fit on the {base.width:g} × {base.height:g} mm back plate.")
     if height <= base.base_thickness:
         raise ValueError(f"The block top must be above the back plate ({base.base_thickness:g} mm).")
     return PlateGeometry(
         key="custom",
-        name=f"Custom plate ({length:g} × {width:g} mm block, top {height:g} mm)",
+        name=f"Custom plate ({length:g} × {width:g} mm at y = {center_y:g}, height {height:g} mm)",
         riser_width=length,
         riser_length=width,
+        riser_center_v=center_y,
         total_thickness=height,
     )
 
 
 def custom_plate_params(plate: PlateGeometry) -> dict:
     u0, v0, u1, v1 = plate.riser_bounds()
-    return {"length": u1 - u0, "width": v1 - v0, "height": plate.total_thickness}
+    return {"length": u1 - u0, "width": v1 - v0, "height": plate.total_thickness, "center_y": (v0 + v1) / 2}
 
 
 X_EDGES = ("left", "right")
@@ -221,7 +226,7 @@ class SampleLayout:
         r0, s0, r1, s1 = self.plate.riser_bounds()
         eps = 1e-9
         if u0 < r0 - eps or v0 < s0 - eps or u1 > r1 + eps or v1 > s1 + eps:
-            out.append("outside riser")
+            out.append("outside sample area")
         if sample.length <= 0 or sample.width <= 0 or sample.height < 0:
             out.append("invalid size")
         for other in self.samples:

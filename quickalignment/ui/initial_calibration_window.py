@@ -10,7 +10,7 @@ from __future__ import annotations
 import sys
 
 from ._qt import QtCore, QtWidgets, exec_app
-from .stage_panel import OPTIC_DIRECTIONS, spin
+from .stage_panel import OPTIC_DIRECTIONS, align_labels, equal_row, spin
 from ..calibration import CalibrationStore
 from ..geometry import PLATES
 from ..initial_calibration import (
@@ -85,7 +85,11 @@ class InitialCalibrationWindow(QtWidgets.QMainWindow):
         # measurement sets
         self.table = QtWidgets.QTableWidget(0, len(COLS))
         self.table.setHorizontalHeaderLabels(COLS)
-        self.table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Stretch)
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(QtWidgets.QHeaderView.Stretch)
+        # "Use" and "Set" fit their contents, the numeric columns share the rest equally
+        header.setSectionResizeMode(0, QtWidgets.QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(1, QtWidgets.QHeaderView.ResizeToContents)
         self.table.setMinimumHeight(200)
         add_btn = QtWidgets.QPushButton("Add set")
         add_btn.clicked.connect(lambda: self._add_row(MeasurementSet(f"{self.table.rowCount() + 1} extra", 120.0, 0.0)))
@@ -133,10 +137,8 @@ class InitialCalibrationWindow(QtWidgets.QMainWindow):
 
         right = QtWidgets.QWidget()
         rv = QtWidgets.QVBoxLayout(right)
-        top = QtWidgets.QHBoxLayout()
-        top.addWidget(ref_box)
-        top.addWidget(optics_box)
-        rv.addLayout(top)
+        align_labels(rf, of)
+        rv.addLayout(equal_row(ref_box, optics_box))
         rv.addWidget(sets_box, 0)
         rv.addWidget(compute_btn)
         result_scroll = QtWidgets.QScrollArea()
