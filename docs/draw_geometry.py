@@ -18,6 +18,8 @@ CH_H, CH_W = 2.0, 0.5              # bottom chamfer
 # ---- Example sample (L along ST, W along Z, H along SN) ----
 S_L, S_W, S_H = 3.0, 2.0, 0.5
 S_OFF = (1.5, 2.0)                 # sample centre on plate (ST, Z) relative to plate centre
+SRN_AXIS = (-1.0, -2.0)            # SRn axis piercing point on plate (ST, Z), adjustable
+SRZ_AXIS_N = 2.0                   # SRz axis position along SN behind the sample surface, adjustable
 
 u_t = np.array([1, -1]) / np.sqrt(2)   # +ST  (ST<0 -> upper-left)
 u_n = np.array([1, 1]) / np.sqrt(2)    # +SN  (away from analyzer)
@@ -121,7 +123,7 @@ body = [(-w, h), (-w, -h + CH_H), (-w + CH_W, -h), (w - CH_W, -h), (w, -h + CH_H
 ax.add_patch(Polygon(body, closed=True, fc="#c9c9c9", ec="k", lw=1.3))
 ax.add_patch(Rectangle((-W_RISER / 2, -h), W_RISER, H_PLATE, fc="#e3e3e3", ec="k", lw=1.3))
 ax.add_patch(Rectangle((S_OFF[0] - S_L / 2, S_OFF[1] - S_W / 2), S_L, S_W, fc="tab:orange", ec="k"))
-ax.text(S_OFF[0] + S_L / 2 + 0.3, S_OFF[1] + 1.2, "样品 L×W", fontsize=10, color="tab:orange")
+ax.text(S_OFF[0] - S_L / 2 - 0.2, S_OFF[1] + S_W / 2 + 0.4, "样品 L×W", fontsize=10, color="tab:orange")
 # beam spot at (ST0, SZ0)
 ax.plot(0, 0, "+", color="tab:red", ms=18, mew=2.2)
 ax.text(0.4, -1.3, "光斑/焦点\n(ST0=0, SZ0=40)", color="tab:red", fontsize=9)
@@ -140,10 +142,22 @@ arrow(ax, o, o + [0, 4], color="tab:green")
 ax.text(o[0] + 4.3, o[1] - 0.3, "+ST (指向右下)", color="tab:green", fontsize=10)
 ax.text(o[0] - 0.6, o[1] + 4.5, "+Z (SZ↑)", color="tab:green", fontsize=10)
 ax.text(-12.5, 13.8, "SZ: 40 = 中心, 35 = 样品台下移 5 mm", color="tab:green", fontsize=9)
-# SRn rotation
-ax.add_patch(Arc((0, 0), 26, 26, theta1=60, theta2=110, color="tab:purple", lw=1.6))
-arrow(ax, (13 * np.cos(np.radians(100)), 13 * np.sin(np.radians(100))),
-      (13 * np.cos(np.radians(112)), 13 * np.sin(np.radians(112))), color="tab:purple")
+# SRn rotation (axis offset from plate centre / beam spot)
+ax.plot(*SRN_AXIS, "o", mfc="none", mec="tab:purple", ms=9, mew=2)
+ax.plot(*SRN_AXIS, ".", color="tab:purple", ms=4)
+ax.text(SRN_AXIS[0] - 6.6, SRN_AXIS[1] - 1.6, "SRn 转轴\n(偏移 a_t, a_z 可调)", color="tab:purple", fontsize=9)
+cx, cz = SRN_AXIS
+ax.add_patch(Arc((cx, cz), 30, 30, theta1=65, theta2=105, color="tab:purple", lw=1.6))
+arrow(ax, (cx + 15 * np.cos(np.radians(98)), cz + 15 * np.sin(np.radians(98))),
+      (cx + 15 * np.cos(np.radians(110)), cz + 15 * np.sin(np.radians(110))), color="tab:purple")
+# piezo stage (rides on SRn, sample frame)
+po = np.array([S_OFF[0] + S_L / 2 + 0.6, S_OFF[1] - S_W / 2 - 0.2])
+arrow(ax, po, po + [3, 0], color="tab:brown", ms=10, lw=1.3)
+arrow(ax, po, po + [0, 3], color="tab:brown", ms=10, lw=1.3)
+ax.text(po[0] + 3.1, po[1] - 0.4, "PIX", color="tab:brown", fontsize=9)
+ax.text(po[0] - 0.3, po[1] + 3.2, "PIY", color="tab:brown", fontsize=9)
+ax.text(0.2, -15.3, "压电台 (随 SRn/SRz 转动, 样品坐标):\nPIX 0→300 µm = 左→右, PIY 0→300 µm = 下→上\n中心 150,150",
+        color="tab:brown", fontsize=8)
 ax.text(-11.5, 11.0, "SRn 120→130\n逆时针 (绕样品法线)", color="tab:purple", fontsize=10)
 ax.set_xlim(-14.5, 15)
 ax.set_ylim(-16, 15.5)
@@ -160,7 +174,9 @@ ax.add_patch(Rectangle((S_H, -h), T_RISER, H_PLATE, fc="#e3e3e3", ec="k"))
 ax.add_patch(Rectangle((S_H + T_RISER, -h), T_BASE, H_PLATE + NECK_H + TAB_H, fc="#c9c9c9", ec="k"))
 ax.add_patch(Rectangle((0, S_OFF[1] - S_W / 2), S_H, S_W, fc="tab:orange", ec="k"))
 ax.plot([0, 0], [-12, 14], "--", color="tab:blue")
-ax.text(0.15, -11.6, "焦平面\nSN=0", color="tab:blue", fontsize=9)
+ax.text(0.15, -12.4, "分析器焦点\nSN_f ≈ 0 (可调)", color="tab:blue", fontsize=9)
+ax.plot([SRZ_AXIS_N, SRZ_AXIS_N], [-14, 14.5], "-.", color="tab:purple", lw=1.2)
+ax.text(SRZ_AXIS_N + 0.2, 14.6, "SRz 轴? (偏移可调)", color="tab:purple", fontsize=8)
 arrow(ax, (-9, 0), (-0.3, 0), color="tab:blue", lw=2)
 ax.text(-9, 0.6, "分析器方向", color="tab:blue", fontsize=10)
 ax.annotate("", (S_H, -h - 1), (S_H + T_TOTAL, -h - 1), arrowprops=dict(arrowstyle="<->"))
@@ -172,7 +188,7 @@ ax.annotate("", (0, S_OFF[1] + S_W / 2 + 0.7), (S_H, S_OFF[1] + S_W / 2 + 0.7), 
 ax.text(-3.2, S_OFF[1] + S_W / 2 + 1.4, "H 样品高", fontsize=9, color="tab:orange")
 arrow(ax, (S_H + T_TOTAL + 1.2, -4), (S_H + T_TOTAL + 5.5, -4), color="tab:green")
 ax.text(S_H + T_TOTAL + 1.2, -5.2, "+SN (→65 传样)", fontsize=9, color="tab:green")
-ax.text(-9.5, -15.2, "SN_focus = SN0 + 5.0 + H   (SN0 可调)", fontsize=10, color="tab:green")
+ax.text(-9.5, -15.2, "SN_cmd = SN_f + 5.0 + H   (表面送到焦点)", fontsize=10, color="tab:green")
 ax.set_xlim(-10, 12)
 ax.set_ylim(-16, 15.5)
 ax.set_aspect("equal")
@@ -181,4 +197,4 @@ ax.set_xlabel("沿 SN / mm")
 ax.set_ylabel("Z / mm")
 
 fig.tight_layout()
-fig.savefig("geometry_draft_v1.png", dpi=130)
+fig.savefig("geometry_draft_v2.png", dpi=130)
