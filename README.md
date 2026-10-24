@@ -95,8 +95,10 @@ Separate program for the first start or after re-homing the motors: beamline sta
 feature in 3 (minimum) or 5 (recommended) stage orientations, the constants are fitted and saved as a new
 configuration for the chosen optic (zone plate + OSA or capillary). *Show front / side view*
 (`docs/initial_calibration_feature_view.png`) draws the plate with the entered feature to check its position.
-The optic position at best focus can be noted in every set (the optics reference is their mean). *Fit: Correct
-ST0, SZ0, SN_f* corrects an existing configuration from a single set, keeping its axes.
+The optic position at best focus can be noted in every set (optic + = towards the sample); all constants and
+the optics reference are fitted every time and compared with the newest configuration. After *Compute*, test
+points at other rotations are predicted: staff tick *Found* (within 0.05 mm) or enter the real ST, SZ and
+optic position, and the configuration is corrected with them, round after round, until it is good enough.
 Protocol: [`docs/initial_calibration_protocol.md`](docs/initial_calibration_protocol.md).
 
 ### Calibration window (toolbar *Calibration…*, `docs/calibration_dialog.png`)

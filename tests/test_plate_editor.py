@@ -295,27 +295,31 @@ def test_calibration_check_and_accept(window):
 def test_initial_calibration_window(tmp_path):
     from quickalignment.calibration import CalibrationStore
     from quickalignment.geometry import STANDARD_PLATE
+    from quickalignment.initial_calibration import on_beam
     from quickalignment.stage import StageConfig, StageModel
-    from quickalignment.ui.initial_calibration_window import InitialCalibrationWindow
+    from quickalignment.ui.initial_calibration_window import T_FOUND, T_OPTIC, T_ST, T_SZ, InitialCalibrationWindow
 
     QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     store = CalibrationStore(tmp_path / "configs")
     win = InitialCalibrationWindow(store)
-    assert win.table.rowCount() == 5
+    assert win.table.rowCount() == 5 and win.test_table.rowCount() == 0
+    assert not hasattr(win, "optic_dir") and not hasattr(win, "fit_mode") and not hasattr(win, "base_combo")
 
     # empty table: incomplete sets are reported, nothing to save
     win.compute()
     assert "Incomplete" in win.result_label.text() and not win.save_btn.isEnabled()
 
     truth = StageModel(StageConfig(st0=0.2, sz0=40.3, sn_f=-0.1, srn_axis_u=0.5, srz_offset_n=-0.3), STANDARD_PLATE)
+    uvw, focus = (1.0, -0.5, 5.3), 4.2
     win.ref_x.setValue(1.0)
     win.ref_y.setValue(-0.5)
     win.ref_h.setValue(0.3)
     for row in range(5):
         srn, srz = float(win.table.item(row, 2).text()), float(win.table.item(row, 3).text())
-        m = truth.motors_for_target(1.0, -0.5, 5.3, srn=srn, srz=srz)
+        m = truth.motors_for_target(*uvw, srn=srn, srz=srz)
         for col, value in ((4, m.st), (5, m.sz), (6, m.sn)):
             win.table.item(row, col).setText(f"{value:.6f}")
+    win.table.item(0, 7).setText("4.2")
 
     # only 2 sets ticked -> not enough data
     for row in range(2, 5):
@@ -323,15 +327,56 @@ def test_initial_calibration_window(tmp_path):
     win.compute()
     assert "Not enough data" in win.result_label.text()
 
-    for row in range(2, 5):
-        win.table.item(row, 0).setCheckState(Qt.Checked)
-    win.table.item(0, 7).setText("4.2")
-    win.table.item(3, 7).setText("4.2")
+    # sets 1-3, with a mistake in set 3: compute -> first round of test points
+    win.table.item(2, 0).setCheckState(Qt.Checked)
+    win.table.item(2, 4).setText(f"{float(win.table.item(2, 4).text()) + 0.3:.6f}")
     win.optic_type.setCurrentIndex(1)  # capillary
     win.compute()
-    assert win.save_btn.isEnabled() and "Optics reference" in win.result_label.text()
-    assert win.result.config.st0 == pytest.approx(0.2, abs=1e-5)
-    assert win.result.config.srz_offset_n == pytest.approx(-0.3, abs=1e-5)
+    assert win.save_btn.isEnabled() and win.correct_btn.isEnabled()
+    assert "Optic at analyzer focus" in win.result_label.text() and "newest configuration" in win.result_label.text()
+    n = win.test_table.rowCount()
+    assert n == 6 and all(t.round == 1 and not t.answered for t in win.tests)
+
+    def answer_round():
+        """Staff go to every open test point: Found, or the real ST, SZ, optic."""
+        found = 0
+        for row in range(win.test_table.rowCount()):
+            t = win.tests[row]
+            if t.answered:
+                continue
+            st, sz, optic = on_beam(truth, uvw, t.srn, t.srz, t.sn, t.pix, t.piy, focus)
+            if max(abs(st - t.pred_st), abs(sz - t.pred_sz), abs(optic - t.pred_optic)) <= 0.05:
+                win.test_table.item(row, T_FOUND).setCheckState(Qt.Checked)
+                found += 1
+            else:
+                for col, value in ((T_ST, st), (T_SZ, sz), (T_OPTIC, optic)):
+                    win.test_table.item(row, col).setText(f"{value:.6f}")
+        return found
+
+    # editing the angles of an open test point predicts it again
+    old = win.tests[0].pred_st
+    win.test_table.item(0, 2).setText("155")
+    assert win.tests[0].srn == 155 and win.tests[0].pred_st != old
+
+    assert answer_round() < n
+    win.correct_btn.click()  # round 1 answers added to the fit, round 2 predicted
+    assert win.result.tests and win.test_table.rowCount() == 2 * n
+    assert "round 1:" in win.test_status.text()
+    # answered rows of round 1 are read-only now
+    assert not (win.test_table.item(0, T_ST).flags() & Qt.ItemIsEditable)
+    assert "Residuals of the test points" in win.result_label.text()
+
+    # the outlier set is unticked, staff iterate until all test points are found
+    win.table.item(2, 0).setCheckState(Qt.Unchecked)
+    for _ in range(3):
+        answer_round()
+        win.compute()
+        if "All test points of round" in win.test_status.text():
+            break
+    assert "All test points of round" in win.test_status.text()
+    # found = within 0.05 mm, only the measured test points are fitted
+    assert win.result.config.st0 == pytest.approx(0.2, abs=0.01)
+    assert win.result.config.srz_offset_n == pytest.approx(-0.3, abs=0.05)
 
     # front / side view of the entered feature, with the expected positions of the sets
     win.show_feature()
@@ -342,32 +387,19 @@ def test_initial_calibration_window(tmp_path):
     win.ref_x.setValue(1.0)
     win.feature_dialog.close()
 
+    answer_round()  # the last round only checks: kept in the record
     win.save()
     rec = store.latest("capillary")
     assert rec.path.name.endswith("_capillary.json") and rec.optics.optic_type == "capillary"
-    assert rec.config.srn_axis_u == pytest.approx(0.5, abs=1e-5)
-    assert rec.optics.enabled and rec.optics.optic_position == pytest.approx(4.2)
+    assert rec.optics.enabled and rec.optics.optic_sign == 1
+    assert rec.config.srn_axis_u == pytest.approx(0.5, abs=0.05)
+    assert rec.check["test_rounds"] >= 2 and len(rec.check["test_points"]) > rec.check["test_points_fitted"]
     assert "Saved" in win.result_label.text()
     assert not store.latest("zone plate + OSA").optics.enabled
 
-    # correction of the saved configuration after re-homing: one set, ST0 / SZ0 / SN_f only
-    win.optic_type.setCurrentIndex(1)
-    assert win.base_record().path == rec.path
-    win.fit_mode.setCurrentIndex(1)
-    shifted = StageModel(replace(rec.config, st0=0.25, sz0=40.2, sn_f=0.05), STANDARD_PLATE)
-    m = shifted.motors_for_target(1.0, -0.5, 5.3, srn=120.0, srz=0.0)
-    for col, value in ((4, m.st), (5, m.sz), (6, m.sn), (7, "")):
-        win.table.item(0, col).setText(value if value == "" else f"{value:.6f}")
-    for row in range(1, 5):
-        win.table.item(row, 0).setCheckState(Qt.Unchecked)
-    win.compute()
-    assert win.save_btn.isEnabled() and "kept" in win.result_label.text()
-    win.save()
-    corrected = store.latest("capillary")
-    assert corrected.path != rec.path and corrected.check["type"] == "configuration correction"
-    assert (corrected.config.st0, corrected.config.sz0, corrected.config.sn_f) == pytest.approx((0.25, 40.2, 0.05), abs=1e-5)
-    assert corrected.config.srn_axis_u == rec.config.srn_axis_u
-    assert corrected.optics.optic_position == rec.optics.optic_position  # kept: no optic position entered
+    # the main program puts the optic in focus where the staff found it
+    from quickalignment.initial_calibration import optic_focus_of
+    assert optic_focus_of(rec, STANDARD_PLATE) == pytest.approx(focus, abs=0.01)
     win.close()
 
 
