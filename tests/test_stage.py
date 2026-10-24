@@ -124,3 +124,22 @@ def test_device_target_detected():
     assert (du, dv) == (-2.0, 1.0)
     m = model.motors_for_target(du, dv, 5.3, srn=120, srz=0)
     assert focus_correction(model, m, layout, OpticsCalibration()).target == "Sub/D1"
+
+
+def test_custom_plate_keeps_standard_sn_reference():
+    from quickalignment.geometry import custom_plate
+
+    # after maintenance the analyzer plane may sit at SN_f = -0.1
+    cfg = StageConfig(sn_f=-0.1)
+    plate = custom_plate(6.0, 4.0, 8.2)
+    model, standard = StageModel(cfg, plate), StageModel(cfg)
+    m = MotorPositions(sn=-0.4, srn=150, srz=3)
+    # the same stage puts the same lab point at the same plate height: SN refers to the stage, not the plate
+    assert close(model.plate_to_lab(m, 1, 2, 7.0), standard.plate_to_lab(m, 1, 2, 7.0))
+    # block top (8.2) with a 0.3 mm sample is in focus at SN = SN_f + (8.2 - 5.0) + 0.3
+    assert np.isclose(model.reference_motors(0, 0, 8.5)[2], -0.1 + 3.2 + 0.3)
+    target = model.motors_for_target(1.0, -1.0, 8.5, 120, 0)
+    assert np.isclose(target.sn, 3.4)
+    # a surface put on the analyzer focal plane (camera "SN = 0" line) reads back its height
+    assert np.isclose(model.focal_plane_height(target), 8.5)
+    assert np.isclose(model.focal_plane_height(MotorPositions(sn=-0.1)), 5.0)

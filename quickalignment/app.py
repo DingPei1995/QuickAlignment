@@ -113,14 +113,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self.stage.update_view()
 
     def new_session(self) -> None:
-        plate = ask_plate(self.editor.layout_model.plate.key, self)
+        plate = ask_plate(self.editor.layout_model.plate, self)
         if plate is None:
             return
         self._path = None
         self.set_session(Session(layout=SampleLayout(plate=plate)))
 
     def change_plate(self) -> None:
-        plate = ask_plate(self.editor.layout_model.plate.key, self)
+        plate = ask_plate(self.editor.layout_model.plate, self)
         if plate is None:
             return
         session = self.session()

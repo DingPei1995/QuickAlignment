@@ -13,10 +13,11 @@ Stack, bottom to top: ST/SN/SZ translations -> SRz -> SRn -> PIX/PIY -> plate.
 Plate frame (u, v, w): see geometry.py. It is fixed to the back plate,
 which is identical for all plate types: w is the height above the back
 face, towards the analyzer. At SRn = 120, SRz = 0 the plate axes are
-u -> t, v -> z, w -> -n. At SN = SN_f the protruding plate surface (riser
-top, w = total_thickness = 5.0) lies in the analyzer focal plane, so a
-surface at height w is in focus for SN = SN_f + (w - 5.0), i.e.
-SN = SN_f + H for a sample of height H.
+u -> t, v -> z, w -> -n. At SN = SN_f the riser top of the standard plate
+(w = SN_REFERENCE_W = 5.0) lies in the analyzer focal plane, whatever plate is
+mounted, so a surface at height w is in focus for SN = SN_f + (w - 5.0):
+SN = SN_f + H for a sample of height H on a 5.0 mm plate, and
+SN = SN_f + (h - 5.0) + H on a custom plate whose block top is at h.
 """
 
 from __future__ import annotations
@@ -25,7 +26,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from .geometry import PlateGeometry, SampleLayout
+from .geometry import SN_REFERENCE_W, PlateGeometry, SampleLayout
 
 T_HAT = np.array([1.0, -1.0, 0.0]) / np.sqrt(2)
 N_HAT = np.array([1.0, 1.0, 0.0]) / np.sqrt(2)
@@ -41,7 +42,7 @@ class StageConfig:
 
     st0: float = 0.0  # ST putting the plate centre on the focus
     sz0: float = 40.0  # SZ putting the plate centre on the focus
-    sn_f: float = 0.0  # SN putting the protruding plate surface (riser top) in the focal plane
+    sn_f: float = 0.0  # SN putting the standard plate's riser top (w = 5.0) in the focal plane
     srn_ref: float = 120.0  # SRn with the plate vertical, tab up
     pi_center: float = 150.0  # um
     srn_axis_u: float = 0.0  # SRn axis position on the plate (mm, plate frame, piezo centred)
@@ -81,13 +82,13 @@ class StageModel:
     # -- pieces of the transform -------------------------------------------
     def _translation(self, m: MotorPositions) -> np.ndarray:
         c = self.config
-        # + total_thickness: SN_f refers to the riser top, not the back face
-        return (m.st - c.st0) * T_HAT + (m.sn - c.sn_f + self.plate.total_thickness) * N_HAT + (m.sz - c.sz0) * Z_HAT
+        # + SN_REFERENCE_W: SN_f refers to the standard riser top, not the back face
+        return (m.st - c.st0) * T_HAT + (m.sn - c.sn_f + SN_REFERENCE_W) * N_HAT + (m.sz - c.sz0) * Z_HAT
 
     def _srz_axis_local(self) -> np.ndarray:
         """A point of the SRz axis in plate coordinates (SRn = 120, piezo centred)."""
         c = self.config
-        return np.array([c.srz_offset_t, 0.0, self.plate.total_thickness - c.srz_offset_n])
+        return np.array([c.srz_offset_t, 0.0, SN_REFERENCE_W - c.srz_offset_n])  # fixed to the stage
 
     def _piezo(self, m: MotorPositions) -> np.ndarray:
         c = self.config
@@ -131,7 +132,12 @@ class StageModel:
     def reference_motors(self, u: float, v: float, w: float) -> tuple[float, float, float]:
         """(ST, SZ, SN) putting plate point (u, v, w) on the focus at SRn = ref, SRz = 0, piezo centred."""
         c = self.config
-        return c.st0 - u, c.sz0 - v, c.sn_f + w - self.plate.total_thickness
+        return c.st0 - u, c.sz0 - v, c.sn_f + w - SN_REFERENCE_W
+
+    def focal_plane_height(self, m: MotorPositions) -> float:
+        """Plate height w of the surface that lies in the analyzer focal plane at these positions
+        (the camera "SN = 0" line), measured along the plate normal through the analyzer focus."""
+        return float(self.lab_to_plate(m, np.zeros(3))[2])
 
     def reference_to_plate(self, st: float, sz: float) -> tuple[float, float]:
         c = self.config
@@ -156,7 +162,7 @@ class StageModel:
         """ST/SN/SZ putting plate point (u, v, w) on the analyzer focus for the given rotations."""
         c = self.config
         m = MotorPositions(
-            st=c.st0, sn=c.sn_f - self.plate.total_thickness, sz=c.sz0, srn=srn, srz=srz,
+            st=c.st0, sn=c.sn_f - SN_REFERENCE_W, sz=c.sz0, srn=srn, srz=srz,
             pix=c.pi_center if pix is None else pix, piy=c.pi_center if piy is None else piy,
         )
         p = self.plate_to_lab(m, u, v, w)

@@ -1,3 +1,5 @@
+import pytest
+
 from quickalignment.geometry import PlateGeometry, Sample, SampleLayout
 
 
@@ -42,3 +44,21 @@ def test_plate_types_roundtrip(tmp_path):
     path = tmp_path / "g.json"
     layout.save(path)
     assert SampleLayout.load(path).plate is GATING_PLATE
+
+
+def test_custom_plate(tmp_path):
+    from quickalignment.geometry import custom_plate
+
+    plate = custom_plate(6.0, 4.0, 8.2)
+    assert plate.riser_bounds() == (-3.0, -2.0, 3.0, 2.0)  # centred on the plate
+    assert plate.total_thickness == 8.2 and plate.base_thickness == 1.1
+    layout = SampleLayout(plate=plate, samples=[Sample("A", 0, 0, 2, 2, 0.3), Sample("B", 3.5, 0)])
+    assert layout.warnings(layout.samples[0]) == []
+    assert "outside riser" in layout.warnings(layout.samples[1])
+    path = tmp_path / "c.json"
+    layout.save(path)
+    assert SampleLayout.load(path).plate == plate
+    with pytest.raises(ValueError):
+        custom_plate(20.0, 4.0, 8.0)  # wider than the back plate
+    with pytest.raises(ValueError):
+        custom_plate(6.0, 4.0, 1.0)  # below the back plate

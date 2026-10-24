@@ -411,3 +411,30 @@ def test_rotation_tab_learns_srn_axis(window):
     panel.new_srz.setValue(0.003)
     panel.compute()
     assert abs(panel.result.new.st - 0.24625625) < 2e-3 and abs(panel.result.new.sz - 42.901) < 2e-3
+
+
+def test_custom_plate_dialog_and_focus(window, monkeypatch):
+    from quickalignment.geometry import custom_plate
+    from quickalignment.ui.plate_choice import PlateChoiceDialog
+    import quickalignment.app as app_module
+
+    dlg = PlateChoiceDialog("standard")
+    assert dlg.plate().key == "standard"
+    dlg.custom_length.setValue(6.0)  # editing the block selects the custom plate
+    dlg.custom_width.setValue(4.0)
+    dlg.custom_height.setValue(8.2)
+    plate = dlg.plate()
+    assert plate.key == "custom" and plate.riser_bounds() == (-3.0, -2.0, 3.0, 2.0)
+    assert "SN_f +3.200" in dlg.custom_note.text()
+    assert PlateChoiceDialog(plate).plate() == plate  # reopens with the plate in use
+
+    monkeypatch.setattr(app_module, "ask_plate", lambda *a, **k: custom_plate(6.0, 4.0, 8.2))
+    window.change_plate()
+    window.editor.add_sample(Sample("A", u=0, v=0, length=2, width=2, height=0.3))
+    st = window.stage
+    st.record = replace(st.record, config=replace(st.record.config, sn_f=-0.1))
+    st.refresh_targets()
+    st.target_combo.setCurrentText("A")
+    st.bring_target_to_focus()
+    assert abs(st.motors.value().sn - 3.4) < 1e-6  # SN_f + (8.2 - 5.0) + 0.3
+    assert "H = 0.300 mm above the plate top" in st.result_label.text()

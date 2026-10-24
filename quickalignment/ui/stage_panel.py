@@ -263,15 +263,29 @@ class StagePanel(QtWidgets.QWidget):
         self.result_label.setText(self.describe(res))
         self.last_result = res
 
+    def describe_focal_plane(self) -> str:
+        """Which surface height is on the analyzer focal plane (the camera "SN = 0" line) now.
+
+        SN_f refers to the standard plate, so a surface put on that line shows its height
+        above the plate top whatever SN reads (e.g. SN_f = -0.1 after maintenance)."""
+        model, m = self.model(), self.motors.value()
+        plate = model.plate
+        w = model.focal_plane_height(m)
+        _, _, sn_top = model.reference_motors(0.0, 0.0, plate.total_thickness)
+        return (f"Analyzer focal plane (camera “SN = 0” line) at these positions: surface "
+                f"H = {w - plate.total_thickness:.3f} mm above the plate top "
+                f"(plate top in focus at SN = {sn_top:.3f}, SN_f = {self.config().sn_f:.3f}).")
+
     def describe(self, res) -> str:
         if res.hit is None:
-            return "<b>The beam misses the plate</b> (or runs parallel to it)."
+            return "<b>The beam misses the plate</b> (or runs parallel to it).<br>" + self.describe_focal_plane()
         st, sz, sn = self.model().reference_motors(*res.plate_uv, res.surface_w)
         lines = [
             f"Beam lands on <b>{res.target}</b>: the point that comes onto the beam at ST = {st:.3f}, "
             f"SZ = {sz:.3f}, SN = {sn:.3f} with SRn = {self.config().srn_ref:g}, SRz = 0.",
             f"Beam spot is {abs(res.hit[1]):.3f} mm {'downstream' if res.hit[1] > 0 else 'upstream'} of the analyzer focus."
             if abs(res.hit[1]) >= TOLERANCE else "Beam spot is on the analyzer focus.",
+            self.describe_focal_plane(),
         ]
         if abs(res.required_optic_position - res.optic_position) < TOLERANCE:
             lines.append(f"<b>Optic position {res.optic_position:.4f}: in focus on {res.target}.</b>")
