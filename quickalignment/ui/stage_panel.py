@@ -312,11 +312,15 @@ class StagePanel(QtWidgets.QWidget):
         self._fill_distances()
 
     def _fill_distances(self) -> None:
-        """One field per optic solid: the distance of its front from the focus (working distance)."""
+        """One field per optic solid: the distance of its front from the focus (working distance). A part of
+        another solid ("OSA arm" of "OSA") has no field: it moves with it."""
         while self.distance_form.rowCount():
             self.distance_form.removeRow(0)
         self.distance_boxes = []
-        for i, body in enumerate(self.record.collision_geometry().optics):
+        optics = self.record.collision_geometry().optics
+        for i, body in enumerate(optics):
+            if any(body.name.startswith(f"{other.name} ") for other in optics):
+                continue
             box = spin(body.distance, 0, 500, 2, 0.5)
             box.setToolTip(f"Distance of the {body.name} front from the focus along the beam, used by the anti-collision\n"
                            "check (for this session; beamline staff keep it in the configuration). "
@@ -329,7 +333,11 @@ class StagePanel(QtWidgets.QWidget):
     def _set_distance(self, index: int, value: float) -> None:
         geo = self.record.collision_geometry()
         optics = list(geo.optics)
-        optics[index] = replace(optics[index], distance=value)
+        main = optics[index]
+        shift = value - main.distance
+        for i, body in enumerate(optics):  # the solid and its parts
+            if i == index or body.name.startswith(f"{main.name} "):
+                optics[i] = replace(body, distance=body.distance + shift)
         self.record = replace(self.record, collision=replace(geo, optics=tuple(optics)))
         self.limits_label.hide()  # computed for the old distances
 

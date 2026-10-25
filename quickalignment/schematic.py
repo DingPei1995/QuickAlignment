@@ -71,6 +71,7 @@ def _solids(layout: SampleLayout):
 def _cone_outline(body: SolidBody, origin: np.ndarray, axis: np.ndarray, length: float | None = None) -> np.ndarray:
     """Top-view outline (x, y) of a cone body whose axis lies in the horizontal plane."""
     side = np.array([-axis[1], axis[0], 0.0])
+    origin = origin - body.offset * side  # + offset: towards the analyzer side (collision.py)
     s0, s1 = body.distance, body.distance + (body.length if length is None else min(length, body.length))
     r0, r1 = body.tip_radius, body.radius_at(s1)
     pts = [origin + s0 * axis + r0 * side, origin + s1 * axis + r1 * side,
@@ -139,7 +140,8 @@ def _draw_top_view(ax, model: StageModel, m: MotorPositions, layout: SampleLayou
             ax.text(-b.tip_radius - 0.8, y, b.name, color=C_OPTIC, fontsize=7, ha="right", va="center", clip_on=True)
     x_label = max([4.0] + [b.tip_radius + 0.8 for b in collision.optics if b.moves and b.distance <= near + 1])
     ax.text(x_label, oy, f"{optic_type}\nat {result.optic_position:.4f}\nfront {near:g} mm\nfrom its focus"
-            + "".join(f"\n{b.name} (fixed) {b.distance:g} mm\nbefore ref. focus" for b in fixed),
+            + "".join(f"\n{b.name} (fixed) {b.distance:g} mm\nbefore ref. focus" for b in fixed
+                      if not any(b.name.startswith(f"{o.name} ") for o in fixed)),  # parts (OSA arm) not again
             color=C_OPTIC, fontsize=7, va="center")
     ax.text(-1.2, fy, "optic focus", color=C_OPTIC, fontsize=7, ha="right", va="center")
     required = result.required_optic_position

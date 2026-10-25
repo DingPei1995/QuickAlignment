@@ -52,7 +52,10 @@ class SolidBody:
     (0: cylinder, or plate) over `length` mm behind the front face. A thin plate
     across the beam (zone plate, OSA) is square, half_angle 0 and a short
     length (its thickness); `height` (square only, 0: as wide as it is) makes
-    it a rectangle, `height` tall, e.g. a narrow upright shield. Optic bodies with
+    it a rectangle, `height` tall, e.g. a narrow upright shield; `offset` shifts the
+    body across the axis horizontally (mm, + towards the analyzer side), e.g. a
+    thin arm beside the beam (a square body with a small `tip_radius`, half its
+    thickness, and a long `length`). Optic bodies with
     `moves` follow the optic motor (their focus point is the optic focus);
     the others (the OSA, not moved when the zone plate refocuses) stay where
     they are for the configuration's optics reference.
@@ -66,6 +69,7 @@ class SolidBody:
     moves: bool = True
     square: bool = False
     height: float = 0.0
+    offset: float = 0.0
 
     @property
     def extra_height(self) -> float:
@@ -86,9 +90,11 @@ ANALYZER_A1 = SolidBody("analyzer (MBS A1)", distance=30.0, tip_radius=10.0, hal
 # distance 26.613 mm at 100 eV (beamline data); the focal length f = D dr / lambda grows with the photon energy, so at
 # 95 eV it is 26.613 * 95 / 100 = 25.28 mm. OSA: the copper shield just in front of the plate, estimated on the
 # design view at 100 eV (no scale: plate and zone plate distance as references, 1.3 ... 5.4 mm): 3.5 mm before the
-# focus; not moved when the zone plate refocuses (so the same at 95 eV); the main limit. At 45° incidence, 3.5 mm
-# upstream the surface is 3.5 mm to one side of the beam and the analyzer acceptance edge 2 mm to the other: the
-# shield is narrow across (3 mm, estimate) and tall (20 mm, estimate).
+# focus; not moved when the zone plate refocuses (so the same at 95 eV); the main limit. Top view from a photo of the
+# shield in use: a thin blade running along the beam (45° to the plate surface) on the analyzer side, its end bent
+# across the beam (the tab with the aperture) close to the sample. At 45° incidence, 3.5 mm upstream the surface is
+# 3.5 mm to one side of the beam and the analyzer acceptance edge 2 mm to the other: tab about 2 mm wide (from 0.5 mm
+# on the plate side to the arm), arm 1.5 mm from the beam, 15 mm long; 0.2 mm thick, 20 mm tall (estimates).
 # Capillary (Sigray, 5 µm spot): working distance 10 mm (beamline). Shape from the design top and side views of the
 # capillary, sizes from the chamber top view (scale from the plate, 18 × 5 mm there: 4.4 px/mm, ±10 %). From the
 # focus: a round nose 3.7 mm wide, 0.7 mm long, front at 10 mm; the head, chamfered on both sides from 5.4 mm wide at
@@ -98,7 +104,9 @@ ANALYZER_A1 = SolidBody("analyzer (MBS A1)", distance=30.0, tip_radius=10.0, hal
 # r + margin < d - margin, and a cone only if its half angle is below the angle between beam and surface.
 DEFAULT_OPTIC_BODIES = {
     "zone plate + OSA": (
-        SolidBody("OSA", distance=3.5, tip_radius=1.5, length=0.2, moves=False, square=True, height=20.0),
+        SolidBody("OSA", distance=3.5, tip_radius=1.05, length=0.2, moves=False, square=True, height=20.0, offset=0.55),
+        SolidBody("OSA arm", distance=3.5, tip_radius=0.1, length=15.0, moves=False, square=True, height=20.0,
+                  offset=1.5),
         SolidBody("zone plate", distance=25.28, tip_radius=5.0, length=0.5, square=True),
     ),
     "capillary": (
@@ -139,10 +147,10 @@ class CollisionGeometry:
             for key in ("moves", "square"):
                 if key in raw:
                     values[key] = bool(raw[key])
-            for key in ("distance", "tip_radius", "half_angle", "length", "height"):
+            for key in ("distance", "tip_radius", "half_angle", "length", "height", "offset"):
                 if key in raw:
                     v = float(raw[key])
-                    if not math.isfinite(v) or v < 0 or (key == "half_angle" and v >= 90):
+                    if not math.isfinite(v) or (v < 0 and key != "offset") or (key == "half_angle" and v >= 90):
                         raise ValueError(f"collision: {values['name']}.{key} = {raw[key]!r} is not valid.")
                     values[key] = v
             return SolidBody(**values)
@@ -204,6 +212,7 @@ class _Placed:
         side = np.cross(self.axis, Z_HAT)
         side = side / np.linalg.norm(side) if np.linalg.norm(side) > 1e-9 else np.array([1.0, 0.0, 0.0])
         self.sides = np.array([side, np.cross(side, self.axis)])
+        self.origin = self.origin + self.body.offset * side  # sides[0] points to the analyzer side of the beam
         return self
 
     def _across(self, rel: np.ndarray, s: np.ndarray) -> np.ndarray:
