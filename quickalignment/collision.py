@@ -74,12 +74,11 @@ class SolidBody:
 # (r >= 30 tan 15° = 8 mm), so the outer radius is taken as 10 mm; the 35° cone angle is an estimate.
 ANALYZER_A1 = SolidBody("analyzer (MBS A1)", distance=30.0, tip_radius=10.0, half_angle=35.0, length=150.0)
 
-# PLACEHOLDERS until measured on the beamline; the working distances can be entered in the Stage & Optics tab.
-# Zone plate and OSA: thin square plates across the beam, farther from the sample than the capillary tip. Zone plate
-# focal length f = D dr / lambda (lambda = 13.05 nm at 95 eV): D = 1.5 mm, outermost zone dr = 250 nm (a typical EUV
-# zone plate for a ~1 µm spot) give f ≈ 29 mm. The OSA (diameter D/2) must pass the whole first-order cone, so it is
-# at most f/2 ≈ 14 mm from the focus; it is closer to the sample than the zone plate, the main limit, and is not moved
-# when the zone plate refocuses.
+# The working distances can be entered in the Stage & Optics tab.
+# Zone plate and OSA: thin square plates across the beam (10 × 10 mm, 0.5 mm: placeholders). Zone plate: working
+# distance 26.613 mm at 100 eV (beamline data); the focal length f = D dr / lambda grows with the photon energy, so at
+# 95 eV it is 26.613 * 95 / 100 = 25.28 mm. OSA: 14 mm (placeholder); it is closer to the sample than the zone plate,
+# the main limit, and is not moved when the zone plate refocuses.
 # Capillary (Sigray, 5 µm spot; Sigray publishes no single working distance, 2 mm to 10 cm): measured on the ANTARES
 # design top view (scale from the plate, 18 mm wide and 5 mm thick there: 11 px/mm, ±5 %). From the focus: a square
 # front plate 17.8 mm wide, 3 mm thick, from 17.4 mm; a conical nose, radius 8.2 mm at 17.4 mm opening by 16° to
@@ -91,7 +90,7 @@ ANALYZER_A1 = SolidBody("analyzer (MBS A1)", distance=30.0, tip_radius=10.0, hal
 DEFAULT_OPTIC_BODIES = {
     "zone plate + OSA": (
         SolidBody("OSA", distance=14.0, tip_radius=5.0, length=0.5, moves=False, square=True),
-        SolidBody("zone plate", distance=29.0, tip_radius=5.0, length=0.5, square=True),
+        SolidBody("zone plate", distance=25.28, tip_radius=5.0, length=0.5, square=True),
     ),
     "capillary": (
         SolidBody("capillary front plate", distance=17.4, tip_radius=8.9, length=3.0, square=True),
