@@ -238,6 +238,7 @@ class StagePanel(QtWidgets.QWidget):
         box.addWidget(splitter)
 
         self.last_result = None
+        self._target_labels = None
         self.set_record(self.record)
         self.refresh_targets()
 
@@ -299,18 +300,20 @@ class StagePanel(QtWidgets.QWidget):
 
     # -- targets ----------------------------------------------------------------
     def refresh_targets(self) -> None:
-        current = self.target_combo.currentText()
-        self.target_combo.blockSignals(True)
-        self.target_combo.clear()
-        self.target_combo.addItem("plate centre")
-        for label in self.target_labels():
-            self.target_combo.addItem(label)
-        self.target_combo.setCurrentIndex(max(self.target_combo.findText(current), 0))
-        self.target_combo.blockSignals(False)
-        found = self.found_combo.currentText()
-        self.found_combo.clear()
-        self.found_combo.addItems(self.target_labels())
-        self.found_combo.setCurrentIndex(max(self.found_combo.findText(found), 0))
+        # called on every mouse move while a sample is dragged: the lists only change with the names
+        labels = self.target_labels()
+        if labels != self._target_labels:
+            self._target_labels = labels
+            current = self.target_combo.currentText()
+            self.target_combo.blockSignals(True)
+            self.target_combo.clear()
+            self.target_combo.addItems(["plate centre", *labels])
+            self.target_combo.setCurrentIndex(max(self.target_combo.findText(current), 0))
+            self.target_combo.blockSignals(False)
+            found = self.found_combo.currentText()
+            self.found_combo.clear()
+            self.found_combo.addItems(labels)
+            self.found_combo.setCurrentIndex(max(self.found_combo.findText(found), 0))
         if not self.start_box.isHidden():
             self.show_start_positions()
 

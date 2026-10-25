@@ -16,6 +16,8 @@ Positions and sizes can also be typed in the tables; all views stay in sync.
 
 from __future__ import annotations
 
+import math
+
 from ._qt import QtCore, QtGui, QtWidgets, Signal
 from ..geometry import X_EDGES, Y_EDGES, Device, PlateGeometry, Sample, SampleLayout
 
@@ -727,6 +729,8 @@ class PlateEditor(QtWidgets.QWidget):
                 value = float(text)
             except ValueError:
                 value = None
+            if value is not None and not math.isfinite(value):
+                value = None
             attr = FIELDS[col]
             if value is not None and (attr in ("u", "v") or value >= (0 if attr == "height" else MIN_SIZE)):
                 setattr(s, attr, value)
@@ -775,6 +779,8 @@ class PlateEditor(QtWidgets.QWidget):
             try:
                 value = float(text)
             except ValueError:
+                value = None
+            if value is not None and not math.isfinite(value):
                 value = None
             if value is not None:
                 if col == 3:

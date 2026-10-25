@@ -300,6 +300,8 @@ def fit_initial_calibration(
             null = vt[rank:]  # directions the data cannot see
             missing = [p for i, p in enumerate(params) if np.max(np.abs(null[:, i])) > 1e-3]
             raise NotEnoughData(missing)
+        if not (np.all(np.isfinite(r)) and np.all(np.isfinite(jac))):
+            raise ValueError("non-finite residuals")
         dx = np.linalg.lstsq(jac, -r, rcond=None)[0]
         x = x + dx
         if np.max(np.abs(dx)) < 1e-12:
@@ -309,7 +311,7 @@ def fit_initial_calibration(
     dof = len(r) - len(params)
     sigma = None
     if dof > 0:
-        cov = np.linalg.inv(jac.T @ jac) * float(r @ r) / dof
+        cov = np.linalg.pinv(jac.T @ jac) * float(r @ r) / dof
         sigma = {p: float(np.sqrt(max(cov[i, i], 0.0))) for i, p in enumerate(params)}
     config, optic_focus = unpack(x)
 

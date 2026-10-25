@@ -7,7 +7,7 @@ import sys
 from .calibration import CalibrationRecord, CalibrationStore
 from .geometry import SampleLayout
 from .session import Session
-from .ui._qt import QtWidgets, exec_app
+from .ui._qt import QtWidgets, exec_app, install_excepthook
 from .ui.calibration_dialog import CalibrationDialog
 from .stage import OPTIC_TYPES
 from .ui.plate_choice import ask_plate, ask_setup
@@ -131,24 +131,37 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def save_session(self) -> None:
         """Save to the session's file; the first save asks for the file name."""
-        if self._path is None:
+        path = self._path
+        if path is None:
             path, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Save session", "session.json", "Session (*.json)")
             if not path:
                 return
-            self._path = path
-        self.session().save(self._path)
+        try:
+            self.session().save(path)
+        except OSError as exc:
+            QtWidgets.QMessageBox.critical(self, "Save failed", f"The session could not be saved to\n{path}:\n\n{exc}")
+            return
+        self._path = path
         self.statusBar().showMessage(f"Saved {self._path}")
 
 
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv if argv is None else argv
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication(argv)
-    session = Session.load(argv[1]) if len(argv) > 1 else Session()
+    install_excepthook("QuickAlignment")
+    session, path = Session(), None
+    if len(argv) > 1:
+        try:
+            session, path = Session.load(argv[1]), argv[1]
+        except (OSError, ValueError, TypeError, KeyError) as exc:
+            QtWidgets.QMessageBox.critical(None, "Open failed",
+                                           f"The session {argv[1]} could not be read:\n\n{exc}\n\nStarting empty.")
     # plate and focusing optic are confirmed at every start
     setup = ask_setup(session.layout.plate)
     if setup is None:
         return 0
     session.layout.plate, optic = setup
     win = MainWindow(session, optic=optic)
+    win._path = path
     win.show()
     return exec_app(app)

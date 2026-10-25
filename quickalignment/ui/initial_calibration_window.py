@@ -14,10 +14,11 @@ from __future__ import annotations
 import sys
 from dataclasses import replace
 
+import numpy as np
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
 
-from ._qt import QtCore, QtGui, QtWidgets, exec_app
+from ._qt import QtCore, QtGui, QtWidgets, exec_app, install_excepthook
 from .stage_panel import align_labels, equal_row, out_of_range, spin
 from ..calibration import CalibrationStore
 from ..geometry import PLATES
@@ -602,6 +603,10 @@ class InitialCalibrationWindow(QtWidgets.QMainWindow):
                     "The minimum is 3 sets: SRn = 120 / SRz = 0, one SRn rotation, one SRz rotation.")
             self.result_label.setText(f"<b>{exc}</b><br>{hint}")
             return
+        except (np.linalg.LinAlgError, FloatingPointError, ValueError) as exc:
+            self.result_label.setText(f"<b>The fit failed ({exc}).</b><br>Check the entered numbers (typing errors, "
+                                      "a set far from the others).")
+            return
         self.result = res
         html = "<b>Fitted constants</b><table cellspacing=6><tr><th></th><th>value</th><th>± 1σ</th>"
         html += f"<th>newest configuration ({prev.label})</th><th>change</th></tr>"
@@ -669,7 +674,12 @@ class InitialCalibrationWindow(QtWidgets.QMainWindow):
             self.result, self.plate(), self.ref_uvw(), self.optic(), self.comment.text().strip(),
             tests=[t for t in self.tests if t.answered], previous=self.previous().label,
         )
-        saved = self.store.save(record)
+        try:
+            saved = self.store.save(record)
+        except OSError as exc:
+            QtWidgets.QMessageBox.critical(self, "Save failed", f"The configuration could not be written to "
+                                           f"{self.store.folder}:\n\n{exc}")
+            return
         self.save_btn.setEnabled(False)
         self._show_previous()
         self.result_label.setText(
@@ -680,6 +690,7 @@ class InitialCalibrationWindow(QtWidgets.QMainWindow):
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv if argv is None else argv
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication(argv)
+    install_excepthook("InitialCalibration")
     store = CalibrationStore()
     dialog = ModeDialog(store)
     ok = dialog.exec() if hasattr(dialog, "exec") else dialog.exec_()
