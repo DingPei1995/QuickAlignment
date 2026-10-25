@@ -81,6 +81,40 @@ class SolidBody:
         return self.tip_radius + (s - self.distance) * math.tan(math.radians(self.half_angle))
 
 
+@dataclass(frozen=True)
+class SheetBody:
+    """Thin bent sheet standing upright at the beam (the OSA shield).
+
+    Its top view is the polyline `points` of (along, across) in mm: along =
+    upstream from where the sheet crosses the beam, which is `distance` mm
+    from its focus point; across = from the beam, + towards the analyzer side
+    (as SolidBody.offset). `thickness` across the sheet, `height` vertical,
+    centred on the beam. `moves` as for SolidBody.
+    """
+
+    name: str
+    distance: float
+    points: tuple[tuple[float, float], ...]
+    thickness: float = 0.2
+    height: float = 20.0
+    moves: bool = True
+
+    @property
+    def length(self) -> float:
+        """How far the sheet reaches upstream behind `distance`."""
+        return max(a for a, _ in self.points)
+
+    @property
+    def tip_radius(self) -> float:
+        """Largest distance from the beam (top view)."""
+        return max(abs(x) for _, x in self.points)
+
+    def segments(self) -> list[tuple[tuple[float, float], tuple[float, float]]]:
+        """((s, across), (s, across)) of each straight piece, s from the focus point."""
+        pts = [(self.distance + a, x) for a, x in self.points]
+        return list(zip(pts[:-1], pts[1:]))
+
+
 # MBS A1: front face 30 mm from the focal plane (beamline). The front opening has to pass the ±15° lens acceptance
 # (r >= 30 tan 15° = 8 mm), so the outer radius is taken as 10 mm; the 35° cone angle is an estimate.
 ANALYZER_A1 = SolidBody("analyzer (MBS A1)", distance=30.0, tip_radius=10.0, half_angle=35.0, length=150.0)
@@ -90,11 +124,13 @@ ANALYZER_A1 = SolidBody("analyzer (MBS A1)", distance=30.0, tip_radius=10.0, hal
 # distance 26.613 mm at 100 eV (beamline data); the focal length f = D dr / lambda grows with the photon energy, so at
 # 95 eV it is 26.613 * 95 / 100 = 25.28 mm. OSA: the copper shield just in front of the plate, estimated on the
 # design view at 100 eV (no scale: plate and zone plate distance as references, 1.3 ... 5.4 mm): 3.5 mm before the
-# focus; not moved when the zone plate refocuses (so the same at 95 eV); the main limit. Top view from a photo of the
-# shield in use: a thin blade running along the beam (45° to the plate surface) on the analyzer side, its end bent
-# across the beam (the tab with the aperture) close to the sample. At 45° incidence, 3.5 mm upstream the surface is
-# 3.5 mm to one side of the beam and the analyzer acceptance edge 2 mm to the other: tab about 2 mm wide (from 0.5 mm
-# on the plate side to the arm), arm 1.5 mm from the beam, 15 mm long; 0.2 mm thick, 20 mm tall (estimates).
+# focus where its tab crosses the beam; not moved when the zone plate refocuses (so the same at 95 eV); the main
+# limit. Top view from a photo of the shield in use (four pieces, three bends; lengths estimated, no scale), from the
+# sample side: (1) the shortest piece, parallel to the plate surface, about 1.7 mm in front of it; (2) parallel to
+# the zone plate, across the beam (with the aperture), the beam through its middle, 2.3 mm long;
+# (3) bent upstream on the analyzer side, 20° off the beam axis, so that it stays out of the analyzer acceptance
+# cone (30° from the beam axis seen from the focus); (4) bent again, 15° off the beam axis. 0.2 mm thick, 20 mm tall
+# (estimates).
 # Capillary (Sigray, 5 µm spot): working distance 10 mm (beamline). Shape from the design top and side views of the
 # capillary, sizes from the chamber top view (scale from the plate, 18 × 5 mm there: 4.4 px/mm, ±10 %). From the
 # focus: a round nose 3.7 mm wide, 0.7 mm long, front at 10 mm; the head, chamfered on both sides from 5.4 mm wide at
@@ -104,9 +140,8 @@ ANALYZER_A1 = SolidBody("analyzer (MBS A1)", distance=30.0, tip_radius=10.0, hal
 # r + margin < d - margin, and a cone only if its half angle is below the angle between beam and surface.
 DEFAULT_OPTIC_BODIES = {
     "zone plate + OSA": (
-        SolidBody("OSA", distance=3.5, tip_radius=1.05, length=0.2, moves=False, square=True, height=20.0, offset=0.55),
-        SolidBody("OSA arm", distance=3.5, tip_radius=0.1, length=15.0, moves=False, square=True, height=20.0,
-                  offset=1.5),
+        SheetBody("OSA", distance=3.5, points=((0.71, -1.86), (0.0, -1.15), (0.0, 1.15), (4.13, 2.65), (6.74, 3.35)),
+                  thickness=0.2, height=20.0, moves=False),
         SolidBody("zone plate", distance=25.28, tip_radius=5.0, length=0.5, square=True),
     ),
     "capillary": (
@@ -127,7 +162,7 @@ SAMPLING_ALLOWANCE = SAMPLE_SPACING / math.sqrt(2)
 @dataclass(frozen=True)
 class CollisionGeometry:
     analyzer: SolidBody = ANALYZER_A1
-    optics: tuple[SolidBody, ...] = DEFAULT_OPTIC_BODIES["zone plate + OSA"]
+    optics: tuple[SolidBody | SheetBody, ...] = DEFAULT_OPTIC_BODIES["zone plate + OSA"]
     margin: float = DEFAULT_MARGIN
 
     def to_dict(self) -> dict:
@@ -140,10 +175,22 @@ class CollisionGeometry:
             raise ValueError("collision: expected a JSON object.")
         base = default_geometry(optic_type)
 
-        def body(raw) -> SolidBody:
+        def body(raw) -> SolidBody | SheetBody:
             if not isinstance(raw, dict):
                 raise ValueError("collision: every body must be a JSON object.")
             values = {"name": str(raw.get("name", "body"))}
+            if "points" in raw:  # a bent sheet
+                try:
+                    points = tuple((float(a), float(x)) for a, x in raw["points"])
+                    numbers = [float(raw.get(k, d)) for k, d in (("distance", 0.0), ("thickness", 0.2),
+                                                                 ("height", 20.0))]
+                except (TypeError, ValueError):
+                    raise ValueError(f"collision: {values['name']}: points must be [along, across] pairs.") from None
+                if len(points) < 2 or not all(map(math.isfinite, [v for p in points for v in p] + numbers)) \
+                        or min(numbers) < 0:
+                    raise ValueError(f"collision: {values['name']}: not a valid sheet.")
+                return SheetBody(values["name"], numbers[0], points, numbers[1], numbers[2],
+                                 bool(raw.get("moves", True)))
             for key in ("moves", "square"):
                 if key in raw:
                     values[key] = bool(raw[key])
@@ -242,14 +289,68 @@ class _Placed:
         return np.maximum.reduce([self.distance - s, s - self.end, wall])
 
 
-def placed_bodies(geo: CollisionGeometry, focus_ys, fixed_y: float = 0.0) -> list[_Placed]:
+@dataclass
+class _PlacedSheet:
+    """A SheetBody in the lab: one box per straight piece."""
+
+    body: SheetBody
+    origin: np.ndarray
+    axis: np.ndarray
+    boxes: list = field(init=False)  # (centre, unit vectors (3, 3), half sizes (3,))
+    margin: float = field(init=False)
+
+    def grow(self, margin: float) -> _PlacedSheet:
+        self.margin = margin
+        side = np.cross(self.axis, Z_HAT)
+        side = side / np.linalg.norm(side)  # towards the analyzer side of the beam
+        self.boxes = []
+        for (s0, x0), (s1, x1) in self.body.segments():
+            p0 = self.origin + s0 * self.axis + x0 * side
+            p1 = self.origin + s1 * self.axis + x1 * side
+            u = p1 - p0
+            n = np.linalg.norm(u)
+            if n < 1e-9:
+                continue
+            u = u / n
+            units = np.array([u, np.cross(Z_HAT, u), Z_HAT])
+            half = np.array([n / 2 + margin, self.body.thickness / 2 + margin, self.body.height / 2 + margin])
+            self.boxes.append(((p0 + p1) / 2, units, half))
+        return self
+
+    def _excess(self, p: np.ndarray) -> np.ndarray:
+        """(boxes, ...) of the largest excess over the half sizes: <= 0 inside, else a lower bound of the distance."""
+        return np.array([(np.abs((p - c) @ units.T) - half).max(axis=-1) for c, units, half in self.boxes])
+
+    def inside(self, p: np.ndarray) -> np.ndarray:
+        return (self._excess(p) <= 0).any(axis=0)
+
+    def clearance(self, p: np.ndarray) -> np.ndarray:
+        return self._excess(p).min(axis=0)
+
+    def surface(self) -> np.ndarray:
+        """Points on the (not grown) sheet, for the acceptance check."""
+        out = []
+        for c, units, half in self.boxes:
+            h = half - self.margin
+            for a in np.linspace(-1, 1, 15):
+                for t in (-1, 1):
+                    for z in np.linspace(-1, 1, 9):
+                        out.append(c + units.T @ (np.array([a, t, z]) * h))
+        return np.array(out)
+
+
+def placed_bodies(geo: CollisionGeometry, focus_ys, fixed_y: float = 0.0) -> list:
     """The analyzer, the fixed optic bodies (at the reference focus `fixed_y` along the beam) and the moving
     ones for every optic focus position in focus_ys."""
     grow = geo.margin + SAMPLING_ALLOWANCE
+
+    def place(b, y):
+        return (_PlacedSheet if isinstance(b, SheetBody) else _Placed)(b, y * Y_HAT, -Y_HAT).grow(grow)
+
     out = [_Placed(geo.analyzer, np.zeros(3), -N_HAT).grow(grow)]
-    out += [_Placed(b, fixed_y * Y_HAT, -Y_HAT).grow(grow) for b in geo.optics if not b.moves]
+    out += [place(b, fixed_y) for b in geo.optics if not b.moves]
     for y in focus_ys:
-        out += [_Placed(b, float(y) * Y_HAT, -Y_HAT).grow(grow) for b in geo.optics if b.moves]
+        out += [place(b, float(y)) for b in geo.optics if b.moves]
     return out
 
 
@@ -273,7 +374,7 @@ def in_acceptance(geo: CollisionGeometry, focus_ys, fixed_y: float = 0.0,
     cos_max = math.cos(math.radians(half_angle))
     names = []
     for b in placed_bodies(geo, focus_ys, fixed_y)[1:]:
-        p = _body_surface(b)
+        p = b.surface() if isinstance(b, _PlacedSheet) else _body_surface(b)
         d = np.linalg.norm(p, axis=1)
         along = p @ -N_HAT
         inside = (along > 0) & (along <= geo.analyzer.distance) & (along >= cos_max * d)
@@ -312,24 +413,34 @@ def _first_hit(pts: np.ndarray, e: np.ndarray, bodies: list[_Placed], limit: flo
     without touching a body; within `step` of a body it goes on in steps of `step`."""
     best, by = max(limit, 0.0), "travel"
     for b in bodies:
+        # a point farther from the body than the whole move can never reach it
+        p = pts[b.clearance(pts) <= best]
         moved = 0.0
-        while moved < best:
-            gap = float(b.clearance(pts + moved * e).min())
-            nxt = min(moved + max(gap, step), best)
-            if gap >= step or not b.inside(pts + nxt * e).any():
-                if nxt >= best:
-                    break
-                moved = nxt
+        hit = None
+        while moved < best and len(p):
+            c = b.clearance(p + moved * e)
+            gap = float(c.min())
+            if gap >= step:
+                moved = min(moved + gap, best)
                 continue
-            lo, hi = moved, nxt  # free at lo, hit at hi
+            # close to the body: the next steps at once, for the points they can bring into it
+            nxt = np.minimum(moved + step * np.arange(1, 26), best)
+            near = p[c <= nxt[-1] - moved]
+            inside = b.inside(near[None, :, :] + nxt[:, None, None] * e).any(axis=1)
+            if inside.any():
+                k = int(np.argmax(inside))
+                hit = (nxt[k - 1] if k else moved, nxt[k])
+                break
+            moved = float(nxt[-1])
+        if hit is not None:
+            lo, hi = hit  # free at lo, hit at hi
             while hi - lo > tol:
                 mid = (lo + hi) / 2
-                if b.inside(pts + mid * e).any():
+                if b.inside(p + mid * e).any():
                     hi = mid
                 else:
                     lo = mid
             best, by = lo, b.body.name
-            break
     return best, by
 
 
@@ -355,6 +466,6 @@ def motor_limits(model: StageModel, m: MotorPositions, layout: SampleLayout, geo
 
 
 __all__ = [
-    "ACCEPTANCE_HALF_ANGLE", "ANALYZER_A1", "SAMPLING_ALLOWANCE", "in_acceptance", "CollisionGeometry", "SolidBody", "DEFAULT_OPTIC_BODIES", "Limit", "MOTOR_DIRECTIONS",
+    "ACCEPTANCE_HALF_ANGLE", "ANALYZER_A1", "SAMPLING_ALLOWANCE", "SheetBody", "in_acceptance", "CollisionGeometry", "SolidBody", "DEFAULT_OPTIC_BODIES", "Limit", "MOTOR_DIRECTIONS",
     "collisions", "default_geometry", "motor_limits", "placed_bodies", "surface_points",
 ]

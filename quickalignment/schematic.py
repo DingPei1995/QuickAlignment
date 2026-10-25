@@ -23,7 +23,7 @@ import numpy as np
 from matplotlib.lines import Line2D
 from matplotlib.patches import Circle, Polygon
 
-from .collision import ACCEPTANCE_HALF_ANGLE, CollisionGeometry, SolidBody, default_geometry
+from .collision import ACCEPTANCE_HALF_ANGLE, CollisionGeometry, SheetBody, SolidBody, default_geometry
 from .geometry import PlateGeometry, SampleLayout
 from .stage import N_HAT, T_HAT, BeamResult, rot_z, MotorPositions, StageModel
 
@@ -79,6 +79,18 @@ def _cone_outline(body: SolidBody, origin: np.ndarray, axis: np.ndarray, length:
     return np.array([p[:2] for p in pts])
 
 
+def _sheet_outlines(body: SheetBody, origin: np.ndarray) -> list[np.ndarray]:
+    """Top-view outline (x, y) of each straight piece of a bent sheet on the beam axis (beam along +y)."""
+    out = []
+    for (s0, a0), (s1, a1) in body.segments():
+        p0 = np.array([-a0, origin[1] - s0])  # + across: the analyzer side, -x
+        p1 = np.array([-a1, origin[1] - s1])
+        u = (p1 - p0) / max(np.linalg.norm(p1 - p0), 1e-9)
+        n = np.array([-u[1], u[0]]) * body.thickness / 2
+        out.append(np.array([p0 + n, p1 + n, p1 - n, p0 - n]))
+    return out
+
+
 def _draw_top_content(ax, model: StageModel, m: MotorPositions, layout: SampleLayout, result: BeamResult,
                       collision: CollisionGeometry, hits: tuple[str, ...], fixed_y: float) -> list[np.ndarray]:
     """Plate, analyzer and optic solids, focal plane, beam and spot; returns the plate outlines."""
@@ -110,9 +122,11 @@ def _draw_top_content(ax, model: StageModel, m: MotorPositions, layout: SampleLa
     for b in sorted(collision.optics, key=lambda b: -b.distance):  # the part closest to the focus on top
         bad = b.name in hits
         origin = (fy if b.moves else fixed_y) * Y_HAT
-        ax.add_patch(Polygon(_cone_outline(b, origin, -Y_HAT), closed=True, zorder=2.5,  # hides the beam inside it
-                             fc="#f4b6b6" if bad else "#d9c3b0",
-                             ec=C_BEAM if bad else C_OPTIC, lw=1.5 if bad else 0.8))
+        outlines = _sheet_outlines(b, origin) if isinstance(b, SheetBody) else [_cone_outline(b, origin, -Y_HAT)]
+        for outline in outlines:
+            ax.add_patch(Polygon(outline, closed=True, zorder=2.5,  # hides the beam inside it
+                                 fc="#f4b6b6" if bad else "#d9c3b0",
+                                 ec=C_BEAM if bad else C_OPTIC, lw=1.5 if bad else 0.8))
     ax.plot(0, fy, "o", mfc="none", mec=C_OPTIC, ms=7)
     if hit is not None:
         ax.plot(hit[0], hit[1], "x", color=C_BEAM, ms=9, mew=2)

@@ -5,8 +5,8 @@ import pytest
 
 from quickalignment.calibration import CalibrationRecord
 from quickalignment.collision import (
-    SAMPLING_ALLOWANCE, CollisionGeometry, in_acceptance, SolidBody, collisions, default_geometry, motor_limits, placed_bodies,
-    surface_points,
+    SAMPLING_ALLOWANCE, CollisionGeometry, SheetBody, SolidBody, collisions, default_geometry, in_acceptance,
+    motor_limits, placed_bodies, surface_points,
 )
 from quickalignment.geometry import GATING_PLATE, STANDARD_PLATE, Sample, SampleLayout
 from quickalignment.stage import MotorPositions, StageConfig, StageModel
@@ -127,32 +127,34 @@ def test_collision_now_returns_none():
     assert motor_limits(model, m, layout, ZP, [0.0], TRAVEL) is None
 
 
-def test_default_zone_plate_and_osa_are_thin_plates():
-    """Zone plate (placeholder) a thin square plate across the beam; the OSA, fixed and closer, a tab across the
-    beam on an arm along it, on the analyzer side. A plate front reaching a across the beam on the plate side at
-    distance d along the beam touches a flat surface at 45° when sqrt2 dSN = (d - g) - (a + g)."""
+def test_default_zone_plate_and_osa_shield():
+    """Zone plate (placeholder) a thin square plate across the beam, moving with its motor; the OSA, fixed and
+    closer, a bent sheet: (1) parallel to the plate surface, (2) across the beam, (3), (4) bent away upstream on the
+    analyzer side."""
     zp = default_geometry("zone plate + OSA")
-    osa, arm, plate = zp.optics
-    assert osa.square and plate.square and not osa.moves and not arm.moves and plate.moves
-    assert osa.distance == arm.distance < plate.distance and arm.length > 10 * arm.tip_radius
-    reach = osa.tip_radius - osa.offset  # towards the plate side
-    assert 0 < reach < osa.tip_radius + osa.offset <= arm.offset + arm.tip_radius
-    # the contact point is a sqrt2 + dSN away from the spot along the plate: a (made-up) 40 mm wide sample
+    osa, plate = zp.optics
+    assert isinstance(osa, SheetBody) and not osa.moves and plate.square and plate.moves
+    assert osa.distance < plate.distance
+    pieces = osa.segments()
+    assert len(pieces) == 4
+    (s0, a0), (s1, a1) = pieces[0]
+    assert (s1 - s0) == pytest.approx(-(a1 - a0)) and a0 < a1 < 0  # parallel to the surface (a = -s), plate side
+    (s1, a1), (s2, a2) = pieces[1]
+    assert s1 == s2 == osa.distance and a1 == pytest.approx(-a2) and a2 > 0  # across the beam, centred on it
+    lengths = [np.hypot(q[0] - p[0], q[1] - p[1]) for p, q in pieces]
+    assert lengths[0] == min(lengths)
+    for (p, q) in pieces[2:]:
+        assert q[0] > p[0] and q[1] > p[1] and (q[1] - p[1]) < np.tan(np.radians(30)) * (q[0] - p[0])
+
+    # flat surface in focus: the plate-side end comes against it first; the limit is where the collision starts
     layout = SampleLayout(STANDARD_PLATE, [Sample("big", 0, 0, 40, 15.5, 0.5)])
     model, m = setup(layout)
     lim = motor_limits(model, m, layout, zp, [0.0], TRAVEL)["sn"]
-    expect = ((osa.distance - grown(zp)) - (reach + grown(zp))) / np.sqrt(2)
-    # the plate edge can slip between sampled points by up to about the sampling allowance, never past the margin
+    gap = min((s + a) for (s, a) in [p for piece in pieces for p in piece]) / np.sqrt(2)  # to the surface, mm
     room = m.sn - lim.lo
-    assert lim.lo_by == "OSA" and expect <= room < expect + SAMPLING_ALLOWANCE
-    assert room < ((osa.distance - zp.margin) - (reach + zp.margin)) / np.sqrt(2)
-    # the tab is shifted to the analyzer side (-x): it reaches x = +reach on the plate side, the arm sits at -x
-    tab, arm_body = placed_bodies(zp, [0.0])[1:3]
-    s = osa.distance + osa.length / 2
-    g = grown(zp)
-    assert tab.body.name == "OSA" and tab.inside(np.array([[reach + g - 0.01, -s, 0.0]])).all()
-    assert not tab.inside(np.array([[reach + g + 0.05, -s, 0.0]])).any()
-    assert arm_body.body.name == "OSA arm" and arm_body.inside(np.array([[-arm.offset, -(arm.distance + 10), 5.0]])).all()
+    assert lim.lo_by == "OSA" and gap - grown(zp) - 0.2 < room < gap
+    assert collisions(model, replace(m, sn=lim.lo + 0.01), layout, zp, [0.0]) == []
+    assert collisions(model, replace(m, sn=lim.lo - 0.02), layout, zp, [0.0]) == ["OSA"]
 
 
 def test_optics_stay_out_of_the_analyzer_acceptance():
@@ -182,18 +184,19 @@ def test_configuration_roundtrip():
         CalibrationRecord.from_dict(data)
 
 
-def test_tall_narrow_shield():
-    """A square body with a height is a rectangle across the beam: narrow horizontally, tall vertically."""
-    osa = default_geometry("zone plate + OSA").optics[0]
-    assert osa.square and osa.height > 2 * osa.tip_radius
-    geo = CollisionGeometry(optics=(osa,), margin=0.0)
-    body = [b for b in placed_bodies(geo, [0.0]) if b.body.name == "OSA"][0]
-    s = osa.distance + osa.length / 2
+def test_sheet_inside_and_roundtrip():
+    """A bent sheet is one thin upright box per piece."""
+    sheet = SheetBody("S", distance=4.0, points=((0.0, -1.0), (0.0, 1.0), (3.0, 2.0)), thickness=0.2, height=10.0,
+                      moves=False)
+    geo = CollisionGeometry(optics=(sheet,), margin=0.0)
+    body = placed_bodies(geo, [0.0])[1]
     g = SAMPLING_ALLOWANCE
-    c = -osa.offset  # centre across the beam (the offset is towards the analyzer side, -x)
-    inside = lambda x, z: bool(body.inside(np.array([[c + x, -s, z]]))[0])  # noqa: E731
-    assert inside(0.0, osa.height / 2 - 0.1) and not inside(0.0, osa.height / 2 + g + 0.1)
-    assert inside(osa.tip_radius - 0.1, 0.0) and not inside(osa.tip_radius + g + 0.1, 0.0)
-    assert inside(-osa.tip_radius + 0.1, 0.0) and not inside(-osa.tip_radius - g - 0.1, 0.0)
-    data = CollisionGeometry(optics=(osa,)).to_dict()
-    assert CollisionGeometry.from_dict(data).optics[0].height == osa.height
+    inside = lambda x, s, z=0.0: bool(body.inside(np.array([[x, -s, z]]))[0])  # noqa: E731  (lab x = -across)
+    assert inside(0.0, 4.0) and inside(0.0, 4.0, 4.9) and not inside(0.0, 4.0, 5.0 + g + 0.05)
+    assert not inside(0.0, 4.0 + 0.1 + g + 0.05) and not inside(0.0, 5.0)
+    assert inside(-1.5, 5.5)  # on the bent piece, half way: across 1.5 (analyzer side, -x), 1.5 upstream
+    assert in_acceptance(geo, [0.0]) == []
+    data = geo.to_dict()
+    assert CollisionGeometry.from_dict(data).optics[0] == sheet
+    with pytest.raises(ValueError):
+        CollisionGeometry.from_dict({"optics": [{"name": "S", "points": [[0, 1]]}]})
