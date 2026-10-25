@@ -413,24 +413,34 @@ def _first_hit(pts: np.ndarray, e: np.ndarray, bodies: list[_Placed], limit: flo
     without touching a body; within `step` of a body it goes on in steps of `step`."""
     best, by = max(limit, 0.0), "travel"
     for b in bodies:
+        # a point farther from the body than the whole move can never reach it
+        p = pts[b.clearance(pts) <= best]
         moved = 0.0
-        while moved < best:
-            gap = float(b.clearance(pts + moved * e).min())
-            nxt = min(moved + max(gap, step), best)
-            if gap >= step or not b.inside(pts + nxt * e).any():
-                if nxt >= best:
-                    break
-                moved = nxt
+        hit = None
+        while moved < best and len(p):
+            c = b.clearance(p + moved * e)
+            gap = float(c.min())
+            if gap >= step:
+                moved = min(moved + gap, best)
                 continue
-            lo, hi = moved, nxt  # free at lo, hit at hi
+            # close to the body: the next steps at once, for the points they can bring into it
+            nxt = np.minimum(moved + step * np.arange(1, 26), best)
+            near = p[c <= nxt[-1] - moved]
+            inside = b.inside(near[None, :, :] + nxt[:, None, None] * e).any(axis=1)
+            if inside.any():
+                k = int(np.argmax(inside))
+                hit = (nxt[k - 1] if k else moved, nxt[k])
+                break
+            moved = float(nxt[-1])
+        if hit is not None:
+            lo, hi = hit  # free at lo, hit at hi
             while hi - lo > tol:
                 mid = (lo + hi) / 2
-                if b.inside(pts + mid * e).any():
+                if b.inside(p + mid * e).any():
                     hi = mid
                 else:
                     lo = mid
             best, by = lo, b.body.name
-            break
     return best, by
 
 
