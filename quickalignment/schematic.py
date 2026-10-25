@@ -23,9 +23,9 @@ import numpy as np
 from matplotlib.lines import Line2D
 from matplotlib.patches import Circle, Polygon
 
-from .collision import CollisionGeometry, SolidBody, default_geometry
+from .collision import ACCEPTANCE_HALF_ANGLE, CollisionGeometry, SolidBody, default_geometry
 from .geometry import PlateGeometry, SampleLayout
-from .stage import N_HAT, T_HAT, BeamResult, MotorPositions, StageModel
+from .stage import N_HAT, T_HAT, BeamResult, rot_z, MotorPositions, StageModel
 
 X_HAT = np.array([1.0, 0.0, 0.0])
 Y_HAT = np.array([0.0, 1.0, 0.0])
@@ -33,6 +33,7 @@ Y_HAT = np.array([0.0, 1.0, 0.0])
 C_BASE, C_RISER, C_BLOCK, C_PAD, C_SCREW = "#bdbdbd", "#e3e3e3", "#d0d0d0", "#e8c400", "#4a3c36"
 C_SAMPLE, C_DEVICE = "#ff9a2e", "#1f4fd6"
 C_BEAM, C_ANALYZER, C_OPTIC, C_SRN_AXIS = "#d62728", "#1f77b4", "#8c564b", "tab:purple"
+C_ACCEPTANCE = "#f2a65a"  # electrons accepted by the analyzer
 OPTIC_DRAW_DISTANCE = 22.0  # mm upstream of the optic focus shown at most
 ANALYZER_DRAW_LENGTH = 25.0  # mm of the analyzer cone drawn behind its front
 ZOOM_HALF_WIDTH = 2.5  # mm, half width of the zoom on the beam spot
@@ -90,6 +91,11 @@ def _draw_top_content(ax, model: StageModel, m: MotorPositions, layout: SampleLa
     L = 30
     ax.plot([-L / np.sqrt(2), L / np.sqrt(2)], [L / np.sqrt(2), -L / np.sqrt(2)], "--", color="tab:purple", lw=0.8)
     a = collision.analyzer
+    # electron acceptance cone of the analyzer (from the focus to the analyzer front)
+    reach = a.distance / np.cos(np.radians(ACCEPTANCE_HALF_ANGLE))
+    edges = [rot_z(sign * ACCEPTANCE_HALF_ANGLE) @ (-N_HAT * reach) for sign in (1, -1)]
+    ax.add_patch(Polygon([(0, 0), edges[0][:2], edges[1][:2]], closed=True, fc=C_ACCEPTANCE, ec="none", alpha=0.35,
+                         zorder=0.5))
     bad = a.name in hits
     ax.add_patch(Polygon(_cone_outline(a, np.zeros(3), -N_HAT, ANALYZER_DRAW_LENGTH), closed=True,
                          fc="#f4b6b6" if bad else "#b8d4f0", ec=C_BEAM if bad else C_ANALYZER, lw=1.5 if bad else 1))
@@ -98,12 +104,13 @@ def _draw_top_content(ax, model: StageModel, m: MotorPositions, layout: SampleLa
     hit, fy = result.hit, result.focus_y
     far = max((b.distance + b.length for b in collision.optics), default=10.0)
     y_end = hit[1] if hit is not None else fy + 10
-    ax.plot([0, 0], [fy - far - 8, y_end], color=C_BEAM, lw=1.6)  # a line is clipped to the axes (zoom)
-    ax.annotate("", (0, y_end), (0, y_end - 0.01), arrowprops=dict(arrowstyle="-|>", color=C_BEAM, lw=1.6))
+    ax.plot([0, 0], [fy - far - 8, y_end], color=C_BEAM, lw=1.0)  # a line is clipped to the axes (zoom)
+    ax.annotate("", (0, y_end), (0, y_end - 0.01), arrowprops=dict(arrowstyle="-|>", color=C_BEAM, lw=1.0))
     for b in sorted(collision.optics, key=lambda b: -b.distance):  # the part closest to the focus on top
         bad = b.name in hits
         origin = (fy if b.moves else fixed_y) * Y_HAT
-        ax.add_patch(Polygon(_cone_outline(b, origin, -Y_HAT), closed=True, fc="#f4b6b6" if bad else "#d9c3b0",
+        ax.add_patch(Polygon(_cone_outline(b, origin, -Y_HAT), closed=True, zorder=2.5,  # hides the beam inside it
+                             fc="#f4b6b6" if bad else "#d9c3b0",
                              ec=C_BEAM if bad else C_OPTIC, lw=1.5 if bad else 0.8))
     ax.plot(0, fy, "o", mfc="none", mec=C_OPTIC, ms=7)
     if hit is not None:
@@ -123,8 +130,9 @@ def _draw_top_view(ax, model: StageModel, m: MotorPositions, layout: SampleLayou
     near = min((b.distance for b in collision.optics if b.moves), default=0.0)
     fixed = [b for b in collision.optics if not b.moves]
     far = max((b.distance + b.length for b in collision.optics), default=10.0)
-    oy = fy - min(far, OPTIC_DRAW_DISTANCE) / 2
-    ax.text(0.8, fy - min(far, OPTIC_DRAW_DISTANCE) - 6, "beam", color=C_BEAM, fontsize=8)
+    oy = fy - min(far, 16.0) - 2  # labels below the optic front, clear of the plate
+    gap = min((b.distance + (0.0 if b.moves else fy - fixed_y) for b in collision.optics), default=10.0)
+    ax.text(0.5, fy - gap / 2, "beam", color=C_BEAM, fontsize=7, va="center")  # between the optic front and the spot
     for b in collision.optics:  # name beside each optic part
         y = (fy if b.moves else fixed_y) - b.distance - b.length / 2
         if b.distance + b.length / 2 <= OPTIC_DRAW_DISTANCE:
