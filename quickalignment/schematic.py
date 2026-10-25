@@ -34,7 +34,7 @@ C_BASE, C_RISER, C_BLOCK, C_PAD, C_SCREW = "#bdbdbd", "#e3e3e3", "#d0d0d0", "#e8
 C_SAMPLE, C_DEVICE = "#ff9a2e", "#1f4fd6"
 C_BEAM, C_ANALYZER, C_OPTIC, C_SRN_AXIS = "#d62728", "#1f77b4", "#8c564b", "tab:purple"
 C_ACCEPTANCE = "#f2a65a"  # electrons accepted by the analyzer
-OPTIC_DRAW_DISTANCE = 22.0  # mm upstream of the optic focus shown at most
+OPTIC_DRAW_DISTANCE = 32.0  # mm upstream of the optic focus shown at most
 ANALYZER_DRAW_LENGTH = 25.0  # mm of the analyzer cone drawn behind its front
 ZOOM_HALF_WIDTH = 2.5  # mm, half width of the zoom on the beam spot
 ZOOM_OPTIC_DISTANCE = 5.0  # mm; the zoom is drawn only for an optic front closer than this to its focus
@@ -123,23 +123,24 @@ def _draw_top_view(ax, model: StageModel, m: MotorPositions, layout: SampleLayou
     pts = _draw_top_content(ax, model, m, layout, result, collision, hits, fixed_y)
     a = collision.analyzer
     front = -N_HAT * a.distance
-    ax.text(*(front + T_HAT * (a.tip_radius + 1.5))[:2], f"{a.name}\nfront {a.distance:g} mm\nfrom focus",
-            color=C_ANALYZER, fontsize=7, ha="left", va="center", clip_on=True)
+    ax.text(*(front - N_HAT * 4)[:2], f"{a.name}\nfront {a.distance:g} mm\nfrom focus",  # inside the analyzer
+            color=C_ANALYZER, fontsize=7, ha="center", va="center", clip_on=True)
     ax.text(9, -11, "analyzer focal plane", color="tab:purple", fontsize=7, rotation=-45, clip_on=True)
     fy = result.focus_y
     near = min((b.distance for b in collision.optics if b.moves), default=0.0)
     fixed = [b for b in collision.optics if not b.moves]
     far = max((b.distance + b.length for b in collision.optics), default=10.0)
-    oy = fy - min(far, 16.0) - 2  # labels below the optic front, clear of the plate
+    first = min((b.distance for b in collision.optics), default=10.0)
+    oy = fy - first - 3  # beside the optic front, clear of the plate
     gap = min((b.distance + (0.0 if b.moves else fy - fixed_y) for b in collision.optics), default=10.0)
     ax.text(0.5, fy - gap / 2, "beam", color=C_BEAM, fontsize=7, va="center")  # between the optic front and the spot
-    for b in collision.optics:  # name beside each optic part
+    for b in (collision.optics if fixed else ()):  # parts moving differently (zone plate, OSA): named
         y = (fy if b.moves else fixed_y) - b.distance - b.length / 2
         if b.distance + b.length / 2 <= OPTIC_DRAW_DISTANCE:
             ax.text(-b.tip_radius - 0.8, y, b.name, color=C_OPTIC, fontsize=7, ha="right", va="center", clip_on=True)
-    x_label = max([4.0] + [b.tip_radius + 1.5 for b in collision.optics])
-    ax.text(x_label, oy, f"{optic_type}\nat {result.optic_position:.4f}\nfront {near:g} mm from its focus"
-            + "".join(f"\n{b.name} (fixed) {b.distance:g} mm\nbefore the reference focus" for b in fixed),
+    x_label = max([4.0] + [b.tip_radius + 0.8 for b in collision.optics if b.distance <= first + 1])
+    ax.text(x_label, oy, f"{optic_type}\nat {result.optic_position:.4f}\nfront {near:g} mm\nfrom its focus"
+            + "".join(f"\n{b.name} (fixed) {b.distance:g} mm\nbefore ref. focus" for b in fixed),
             color=C_OPTIC, fontsize=7, va="center")
     ax.text(-1.2, fy, "optic focus", color=C_OPTIC, fontsize=7, ha="right", va="center")
     required = result.required_optic_position

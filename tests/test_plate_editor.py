@@ -658,7 +658,7 @@ def test_working_distances_can_be_entered(window):
     st.distance_boxes[0].setValue(20.0)
     assert st.record.collision_geometry().optics[0].distance == 20.0 and not st.record.collision.optics[0].moves
     st.optic_type.setCurrentText("capillary")  # another optic: its own (default) solids
-    assert [b.distance for b in st.record.collision_geometry().optics] == [7.8, 22.8]
+    assert [b.distance for b in st.record.collision_geometry().optics] == [17.4, 17.4, 25.6]
     st.distance_boxes[0].setValue(15.0)
     assert st.record.collision_geometry().optics[0].distance == 15.0
 
