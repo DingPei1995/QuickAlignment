@@ -16,7 +16,7 @@ from ._qt import QtCore, QtWidgets, Signal
 from ..calibration import CalibrationRecord
 from ..schematic import draw_schematic
 from ..stage import (
-    OPTIC_TYPES, MotorPositions, OpticsCalibration, StageConfig, StageModel, focus_correction, found_offset,
+    OPTIC_TYPES, MotorPositions, OpticsCalibration, StageConfig, StageModel, focus_correction, found_offset, sn_to_focus,
 )
 
 Qt = QtCore.Qt
@@ -43,6 +43,7 @@ CONFIG_SPECS = {
 }
 TOLERANCE = 1e-3  # mm; below this a move is reported as not needed
 LARGE_FOUND_OFFSET = 0.3  # mm; a larger "Found here" correction hints at an outdated configuration
+FOCUS_WARNING = 0.05  # mm from the analyzer focus; farther, the spectra would be distorted
 
 
 def spin(value: float, lo: float = -1000, hi: float = 1000, decimals: int = 3, step: float = 0.1, suffix: str = " mm"):
@@ -131,17 +132,30 @@ class StagePanel(QtWidgets.QWidget):
 
         self.motors = MotorForm()
         self.target_combo = QtWidgets.QComboBox()
-        goto_btn = QtWidgets.QPushButton("Bring target to focus")
-        goto_btn.setToolTip("Compute ST / SN / SZ that put the target on the beam at the analyzer focus,\nkeeping SRn, SRz, PIX, PIY as entered.")
-        goto_btn.clicked.connect(self.bring_target_to_focus)
+        goto_btn = QtWidgets.QPushButton("Bring target onto the beam")
+        goto_btn.setToolTip("Compute ST / SZ that put the target on the beam with SN kept as entered (how the stage\n"
+                            "is run), keeping SRn, SRz, PIX, PIY; tells how far the target then is from the analyzer\n"
+                            "focus. The optic refocuses on it.")
+        goto_btn.clicked.connect(self.bring_target_on_beam)
+        self.correct_sn_btn = QtWidgets.QPushButton("Correct SN")
+        self.correct_sn_btn.setToolTip("Only if the target is too far from the analyzer focus: compute SN, ST, SZ that put it\n"
+                                       "on the analyzer focus (absolute: relies on the configuration's SN_f).")
+        self.correct_sn_btn.clicked.connect(self.bring_target_to_focus)
+        self.goto_label = QtWidgets.QLabel()
+        self.goto_label.setWordWrap(True)
+        self.goto_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.goto_label.hide()
+        for box in self.motors.boxes.values():  # the readout only holds for the positions it was computed for
+            box.valueChanged.connect(self.goto_label.hide)
         motor_box = QtWidgets.QGroupBox("Sample stage (current / planned positions)")
         mb = QtWidgets.QVBoxLayout(motor_box)
         mb.addWidget(self.motors)
         row = QtWidgets.QHBoxLayout()
         row.addWidget(QtWidgets.QLabel("Target"))
         row.addWidget(self.target_combo, 1)
-        row.addWidget(goto_btn)
         mb.addLayout(row)
+        mb.addLayout(equal_row(goto_btn, self.correct_sn_btn))
+        mb.addWidget(self.goto_label)
 
         # focusing optic: absolute position along the beam
         self.optic_type = QtWidgets.QComboBox()
@@ -332,7 +346,8 @@ class StagePanel(QtWidgets.QWidget):
             "<table cellspacing=0 cellpadding=3><tr><th align=left>sample</th><th>ST (mm)</th><th>SZ (mm)</th>"
             f"<th>SN (mm)</th></tr>{''.join(rows)}</table>"
             f"(ST = ST0 − x, SZ = SZ0 − y with ST0 = {c.st0:g}, SZ0 = {c.sz0:g}; SN puts the sample surface "
-            "in the analyzer focal plane.) Use <i>Bring target to focus</i> to enter one of them."
+            "in the analyzer focal plane.) <i>Bring target onto the beam</i> gives ST, SZ for the entered SN, rotations "
+            "and piezo, and how far the target then is from the analyzer focus; <i>Correct SN</i> only if that is too far."
         )
         self.start_box.show()
 
@@ -381,19 +396,66 @@ class StagePanel(QtWidgets.QWidget):
         return None
 
     # -- actions ----------------------------------------------------------------
-    def bring_target_to_focus(self) -> None:
-        t = self.target_point(self.target_combo.currentText())
+    def bring_target_on_beam(self) -> MotorPositions | None:
+        """ST / SZ putting the target on the beam with SN as entered; reports its distance from the analyzer focus."""
+        label = self.target_combo.currentText()
+        t = self.target_point(label)
         if t is None:
-            return
+            return None
+        m = self.motors.value()
+        new = self.model().motors_on_beam(*t, srn=m.srn, srz=m.srz, sn=m.sn, pix=m.pix, piy=m.piy)
+        if not self._go_to(new, "The target cannot be brought onto the beam with SN kept",
+                           "\n\nCorrect SN may reach it (it also moves SN)."):
+            return None
+        self._show_goto(label, t, new)
+        return new
+
+    def bring_target_to_focus(self) -> MotorPositions | None:
+        """Second step, when the target is too far from the analyzer focus with SN kept: SN, ST, SZ putting it there."""
+        label = self.target_combo.currentText()
+        t = self.target_point(label)
+        if t is None:
+            return None
         m = self.motors.value()
         new = self.model().motors_for_target(*t, srn=m.srn, srz=m.srz, pix=m.pix, piy=m.piy)
+        if not self._go_to(new, "The target cannot be brought to the analyzer focus"):
+            return None
+        self._show_goto(label, t, new, m.sn)
+        return new
+
+    def _go_to(self, new: MotorPositions, what: str, hint: str = "") -> bool:
         bad = out_of_range(new)
         if bad:
-            QtWidgets.QMessageBox.warning(self, "Out of range", "The target cannot be brought to the focus:\n"
-                                          + "\n".join(bad) + "\n\nThe positions are not changed.")
-            return
+            QtWidgets.QMessageBox.warning(self, "Out of range", f"{what}:\n" + "\n".join(bad)
+                                          + "\n\nThe positions are not changed." + hint)
+            return False
         self.motors.set_value(new)
         self.update_view()
+        return True
+
+    def _show_goto(self, label: str, t, m: MotorPositions, sn_before: float | None = None) -> None:
+        """Where the target is along the beam after a move, and the SN correction that would remove it."""
+        model = self.model()
+        y = model.beam_position(m, *t)
+        res = self.last_result
+        optic = (f" Optic for focus on it: <b>{res.required_optic_position:.4f}</b>."
+                 if res is not None and res.required_optic_position is not None else "")
+        if sn_before is not None:
+            text = (f"<b>{label}</b> on the analyzer focus: ST = {m.st:.4f}, SZ = {m.sz:.4f}, "
+                    f"<b>SN = {m.sn:.4f}</b> (ΔSN = {m.sn - sn_before:+.4f} mm).{optic}")
+            self.goto_label.setStyleSheet("color: #207020;")
+        else:
+            text = f"<b>{label}</b> on the beam with SN = {m.sn:.4f} kept: ST = {m.st:.4f}, SZ = {m.sz:.4f}.{optic}<br>"
+            if abs(y) < TOLERANCE:
+                text += "It is on the analyzer focus."
+            else:
+                text += (f"It is <b>{abs(y) * 1000:.0f} µm {'downstream' if y > 0 else 'upstream'}</b> of the analyzer "
+                         f"focus (model); ΔSN = {sn_to_focus(model, m, *t):+.4f} mm (ST compensating) would remove it.")
+                text += (" <b>Too far: the spectra would be distorted — Correct SN?</b>" if abs(y) > FOCUS_WARNING
+                         else " Close enough: no SN correction needed.")
+            self.goto_label.setStyleSheet("color: #b00;" if abs(y) > FOCUS_WARNING else "color: #207020;")
+        self.goto_label.setText(text)
+        self.goto_label.show()
 
     def update_view(self) -> None:
         layout = self._layout_getter()

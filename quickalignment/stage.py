@@ -22,7 +22,7 @@ SN = SN_f + (h - 5.0) + H on a custom plate whose block top is at h.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import numpy as np
 
@@ -176,6 +176,29 @@ class StageModel:
         m.sn -= p @ N_HAT
         m.sz -= p @ Z_HAT
         return m
+
+    def motors_on_beam(
+        self, u: float, v: float, w: float, srn: float, srz: float, sn: float,
+        pix: float | None = None, piy: float | None = None,
+    ) -> MotorPositions:
+        """ST/SZ putting plate point (u, v, w) on the beam with SN kept at `sn` (how the stage is run):
+        the point then sits `beam_position` along the beam, and the optic refocuses on it."""
+        return slide_to_sn(self.motors_for_target(u, v, w, srn, srz, pix, piy), sn)
+
+    def beam_position(self, m: MotorPositions, u: float, v: float, w: float) -> float:
+        """Position of plate point (u, v, w) along the beam from the analyzer focus (+ = downstream)."""
+        return float(self.plate_to_lab(m, u, v, w)[1])
+
+
+def slide_to_sn(m: MotorPositions, sn: float) -> MotorPositions:
+    """m with SN set to `sn` and ST compensating (dST = -dSN): the stage moves by sqrt2 * dSN along +y,
+    so a point on the beam stays on it and only slides along it (out of / into the analyzer focus)."""
+    return replace(m, sn=sn, st=m.st - (sn - m.sn))
+
+
+def sn_to_focus(model: StageModel, m: MotorPositions, u: float, v: float, w: float) -> float:
+    """SN change (ST compensating) bringing plate point (u, v, w), on the beam at m, onto the analyzer focus."""
+    return -model.beam_position(m, u, v, w) / np.sqrt(2)
 
 
 def found_offset(model: StageModel, m: MotorPositions, u: float, v: float, w: float) -> tuple[float, float, float]:

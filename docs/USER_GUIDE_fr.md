@@ -154,8 +154,11 @@ Le cadre vert donne, pour chaque échantillon et dispositif, les **ST / SZ / SN 
 (SRn = 120°, SRz = 0°, PIX = PIY = 150 µm) qui mettent son centre sous le faisceau, au foyer de l'analyseur.
 
 1. Entrer les positions moteurs actuelles (valeurs absolues, comme dans le contrôle-commande).
-2. Choisir une **Target** et appuyer sur **Bring target to focus** : ST, SN, SZ sont calculés pour les SRn, SRz, PIX,
-   PIY entrés. Si un moteur sortait de sa course, rien n'est changé et le moteur est indiqué.
+2. Choisir une **Target** et appuyer sur **Bring target onto the beam** : ST et SZ sont calculés pour les SN, SRn,
+   SRz, PIX, PIY entrés (**SN gardé**, comme d'habitude). Le texte indique la distance de la cible au foyer de
+   l'analyseur le long du faisceau (en rouge au-delà de 50 µm : les spectres seraient déformés) et le ΔSN qui
+   l'annulerait. Seulement si elle est jugée trop grande, **Correct SN** donne SN, ST, SZ qui mettent la cible au
+   foyer de l'analyseur. Si un moteur sortait de sa course, rien n'est changé et le moteur est indiqué.
 3. **Optique** : entrer sa position et appuyer sur **Update schematic & optics**. Le schéma montre le faisceau, le
    foyer de l'analyseur, l'optique et la position **nécessaire** pour focaliser sur la surface éclairée.
    *Use required position* la copie dans le champ.
@@ -180,7 +183,7 @@ les ST, SZ qui amènent ce point sous le faisceau et ce qui s'y trouve.
 3. **Compute new position** : ST et SZ avec le piézo centré et **SN gardé**, et la position de l'optique qui
    refocalise. Le texte indique la distance du point au foyer de l'analyseur (en rouge au-delà de 50 µm : les
    spectres seraient déformés). SRn seul garde le plan de la surface ; SRz non.
-4. Cocher **Correct SN** pour voir SN, ST, SZ et l'optique qui mettent le point **au foyer de l'analyseur**. Si une
+4. Seulement si le point est trop loin du foyer, cocher **Correct SN** (décoché à chaque nouveau calcul) pour voir SN, ST, SZ et l'optique qui mettent le point **au foyer de l'analyseur**. Si une
    course moteur ne le permet pas, la position atteignable la plus proche est donnée avec sa distance au foyer.
 5. **Send to Stage & Optics tab** reprend la solution affichée (refusé si hors course).
 

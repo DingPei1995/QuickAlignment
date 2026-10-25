@@ -109,7 +109,7 @@ ANTARES 的光斑在微米量级或更小，而样品托有 18 × 15.5 mm。Quic
 绿色框列出每个样品和 device 在 **初始取向**（SRn = 120°，SRz = 0°，PIX = PIY = 150 µm）下，使其中心位于光斑上且在分析器焦点处的 **ST / SZ / SN**。
 
 1. 输入当前电机位置（绝对值，与控制系统一致）。
-2. 选择 **Target**，按 **Bring target to focus**：按输入的 SRn、SRz、PIX、PIY 计算 ST、SN、SZ。若某个电机会超出行程，数值不会改变，并提示是哪一个。
+2. 选择 **Target**，按 **Bring target onto the beam**：按输入的 SN、SRn、SRz、PIX、PIY 计算 ST、SZ（**SN 不变**，即日常实验的做法）。下方文字说明此时目标沿光束距分析器焦点多远（超过 50 µm 显示为红色：谱会畸变），以及消除该偏离所需的 ΔSN。只有当你判断偏离过大时，才按 **Correct SN**：计算把目标放到分析器焦点上的 SN、ST、SZ。若某个电机会超出行程，数值不会改变，并提示是哪一个。
 3. **聚焦元件**：输入元件位置，按 **Update schematic & optics**。示意图显示光束、分析器焦点、聚焦元件，以及在被照表面上聚焦 **所需的** 位置。*Use required position* 把该位置填入输入框。
 4. 手动聚焦后，**Set as optics reference** 把当前状态作为本次 session 的光学参考。
 5. **Found here: correct its sample**：当某个 device 确实已在光斑上并已聚焦时，输入当前位置，选择该 device 并按此按钮。它所在的样品（连同所有 device）会在图上移动 Δx、Δy、ΔH，即绘图误差。之后所有预测都使用修正后的位置（随 session 保存）。修正量超过 0.3 mm 可能说明配置已过时：请告知线站人员。
@@ -123,7 +123,7 @@ ANTARES 的光斑在微米量级或更小，而样品托有 18 × 15.5 mm。Quic
 1. **Current position**：感兴趣的点位于光斑上且已聚焦时的位置及聚焦元件位置（*From Stage tab* 可直接复制）。
 2. **Wanted angles**：新的 SRn 和 SRz（或使用 *Find angles for a BZ point…*，见下一节）。
 3. **Compute new position**：在压电台居中、**SN 不变** 的情况下给出 ST、SZ，以及重新聚焦所需的元件位置。文字说明该点距离分析器焦点有多远（超过 50 µm 显示为红色：谱会畸变）。只转 SRn 时表面平面不变，转 SRz 时会改变。
-4. 勾选 **Correct SN**，可看到把该点放到 **分析器焦点上** 所需的 SN、ST、SZ 和元件位置。若电机行程不允许，则给出最接近的可达位置及其与焦点的距离。
+4. 只有当该点离焦点过远时，才勾选 **Correct SN**（每次重新计算都会恢复为不勾选），可看到把该点放到 **分析器焦点上** 所需的 SN、ST、SZ 和元件位置。若电机行程不允许，则给出最接近的可达位置及其与焦点的距离。
 5. **Send to Stage & Optics tab** 采用所显示的结果（超出行程时拒绝）。
 
 ## 为布里渊区高对称点寻找转角
