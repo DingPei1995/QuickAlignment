@@ -22,6 +22,7 @@ from .fileio import read_json, write_json
 from .stage import MotorPositions, OpticsCalibration, StageConfig
 
 DEFAULT_FOLDER = Path(__file__).resolve().parent.parent / "configs"
+LIMITS_FILE = "motor_limits.json"  # motor limits set by hand in the Configuration window
 TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 
@@ -149,3 +150,20 @@ class CalibrationStore:
             i += 1
         write_json(path, record.to_dict())
         return replace(record, path=path)
+
+    @property
+    def limits_path(self) -> Path:
+        return self.folder / LIMITS_FILE
+
+    def motor_limits(self) -> dict[str, tuple[float, float]]:
+        """Motor limits set in the Configuration window, {name: (min, max)}; {} if none (a damaged file is ignored)."""
+        try:
+            data = read_json(self.limits_path)
+            out = {str(k): (float(v[0]), float(v[1])) for k, v in data.items()}
+        except (OSError, ValueError, TypeError, KeyError, IndexError, AttributeError):
+            return {}
+        return {k: v for k, v in out.items() if v[0] < v[1]}
+
+    def save_motor_limits(self, limits: dict[str, tuple[float, float]]) -> None:
+        self.folder.mkdir(parents=True, exist_ok=True)
+        write_json(self.limits_path, {k: [float(lo), float(hi)] for k, (lo, hi) in limits.items()})

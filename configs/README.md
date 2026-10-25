@@ -6,4 +6,7 @@
 
 QuickAlignment only reads configurations; it writes none.
 
+- `motor_limits.json` (optional): the ST, SZ, SN, SRn, SRz limits set by hand in the Configuration window
+  (*Motor limits*, `{"st": [min, max], ...}`). Without it the built-in limits are used.
+
 At start-up QuickAlignment loads the newest of these files made with the chosen optic, by their time stamp.

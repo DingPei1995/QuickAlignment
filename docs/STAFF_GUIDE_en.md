@@ -161,6 +161,8 @@ the test points and their residuals, for the record.
 - Damaged or foreign files in `configs/` are skipped. To withdraw a bad configuration, move its file out of
   `configs/` (do not edit it).
 - Users can choose an older configuration for their session in *Configuration…* (read-only).
+- The motor limits of ST, SZ, SN, SRn and SRz can be changed in *Configuration…* → *Motor limits*; they are saved in
+  `configs/motor_limits.json` (delete the file to go back to the built-in limits).
 
 ### Anti-collision solids
 

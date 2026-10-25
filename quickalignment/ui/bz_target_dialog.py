@@ -50,9 +50,8 @@ class BZTargetDialog(QtWidgets.QDialog):
         self.resize(1460, 880)
 
         # -- 1. the map ---------------------------------------------------------------------
-        label, lo, hi, dec, step, suffix = MOTOR_SPECS["srn"]
-        self.map_srn = spin(120.0, lo, hi, dec, step, suffix)
-        self.map_srz = spin(0.0, lo, hi, dec, step, suffix)
+        self.map_srn = spin(120.0, *MOTOR_SPECS["srn"][1:])
+        self.map_srz = spin(0.0, *MOTOR_SPECS["srz"][1:])
         from_btn = QtWidgets.QPushButton("From current position")
         from_btn.setToolTip("SRn / SRz of “1. Current position” in the Rotate sample tab.")
         from_btn.clicked.connect(self.take_current)

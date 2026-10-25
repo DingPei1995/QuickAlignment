@@ -166,6 +166,8 @@ référence optique, les séries, les points de test et leurs résidus, pour mé
   déplacer son fichier hors de `configs/` (ne pas le modifier).
 - Les utilisateurs peuvent choisir une configuration plus ancienne pour leur session dans *Configuration…* (lecture
   seule).
+- Les limites de ST, SZ, SN, SRn et SRz peuvent être modifiées dans *Configuration…* → *Motor limits* ; elles sont
+  enregistrées dans `configs/motor_limits.json` (supprimer ce fichier pour revenir aux limites intégrées).
 
 ### Solides de l'anticollision
 
