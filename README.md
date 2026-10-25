@@ -2,6 +2,16 @@
 
 Quick sample locator / optics positioner for the ANTARES beamline sample stage.
 
+## Guides (PDF)
+
+| | English | 中文 | Français |
+|---|---|---|---|
+| User guide | [en](docs/pdf/QuickAlignment_user_guide_en.pdf) | [zh](docs/pdf/QuickAlignment_user_guide_zh.pdf) | [fr](docs/pdf/QuickAlignment_user_guide_fr.pdf) |
+| Beamline staff guide (InitialCalibration, maintenance) | [en](docs/pdf/QuickAlignment_staff_guide_en.pdf) | [zh](docs/pdf/QuickAlignment_staff_guide_zh.pdf) | [fr](docs/pdf/QuickAlignment_staff_guide_fr.pdf) |
+
+Sources: `docs/USER_GUIDE_*.md`, `docs/STAFF_GUIDE_*.md`. Screenshots: `python devtools/guide_screenshots.py`;
+PDFs: `python devtools/build_guides.py` (pandoc, Playwright + Chromium).
+
 ## Run
 
 ```bash
