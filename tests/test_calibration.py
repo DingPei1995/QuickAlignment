@@ -46,19 +46,18 @@ def test_found_here_absorbs_a_small_configuration_error():
 
 def test_gating_capillary_configuration_reproduces_its_measurements():
     """configs/calibration_2026-10-24_235500_capillary.json (gating plate, capillary, SN kept, CPS refocused): each
-    device of Data for config/ measured at one rotation is found again at the other one (Rotate tab) within the
-    fit residuals: RG_GMC (position from the photos, session file) and Cav (position fitted)."""
+    measured device found again at the other rotation (Rotate tab) within the fit residuals: RG_GMC / R7G (position
+    from the photos, layout of the former Data for config/RG_GMC_gating_session.json) and Cav (position fitted)."""
     import pytest
 
-    from quickalignment.calibration import DEFAULT_FOLDER
-    from quickalignment.geometry import GATING_PLATE, Sample, SampleLayout
+    from quickalignment.geometry import GATING_PLATE, Device, Sample, SampleLayout
     from quickalignment.rotation import relocate
-    from quickalignment.session import Session
     from quickalignment.stage import MotorPositions, StageModel
 
     record = CalibrationStore().latest("capillary")
     assert record.path.name == "calibration_2026-10-24_235500_capillary.json"
-    rg = Session.load(DEFAULT_FOLDER.parent / "Data for config" / "RG_GMC_gating_session.json").layout
+    rg = SampleLayout(GATING_PLATE, [Sample("RG_GMC", u=1.65, v=2.75, length=7.7, width=7.7, height=0.525, devices=[
+        Device("R7G", x_edge="right", dx=3.99, y_edge="bottom", dy=3.92, length=0.05, width=0.05)])])
     cav = SampleLayout(GATING_PLATE, [Sample("Cav", *record.check["devices"]["Cav"]["uv"], length=0.2, width=0.2,
                                              height=0.525)])
     model = StageModel(record.config, GATING_PLATE)
