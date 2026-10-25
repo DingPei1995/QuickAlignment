@@ -89,12 +89,11 @@ ANALYZER_A1 = SolidBody("analyzer (MBS A1)", distance=30.0, tip_radius=10.0, hal
 # focus; not moved when the zone plate refocuses (so the same at 95 eV); the main limit. At 45° incidence, 3.5 mm
 # upstream the surface is 3.5 mm to one side of the beam and the analyzer acceptance edge 2 mm to the other: the
 # shield is narrow across (3 mm, estimate) and tall (20 mm, estimate).
-# Capillary (Sigray, 5 µm spot; Sigray publishes no single working distance, 2 mm to 10 cm): measured on the ANTARES
-# design top view (scale from the plate, 18 mm wide and 5 mm thick there: 11 px/mm, ±5 %). From the focus: a square
-# front plate 17.8 mm wide, 3 mm thick, from 17.4 mm; a conical nose, radius 8.2 mm at 17.4 mm opening by 16° to
-# 10.6 mm at 25.6 mm; the cylindrical body, radius 11 mm, from 25.6 to 74 mm. Its front edge is 27° from the beam
-# axis, just outside the ±15° analyzer acceptance (30°). The box on the body (40 to 65 mm, on the side away from the
-# analyzer) is not modelled.
+# Capillary (Sigray, 5 µm spot): working distance 10 mm (beamline). Shape from the design top and side views of the
+# capillary, sizes from the chamber top view (scale from the plate, 18 × 5 mm there: 4.4 px/mm, ±10 %). From the
+# focus: a round nose 3.7 mm wide, 0.7 mm long, front at 10 mm; the head, chamfered on both sides from 5.4 mm wide at
+# 10.7 mm to 10 mm wide at 14.2 mm; the body, 10 mm wide and 8 mm tall, to 21.1 mm; a ring 6.8 mm wide, 2.6 mm long.
+# The post and base plate below it (about 20 mm under the beam) are out of reach of the plate and not modelled.
 # At 45° incidence a front face of (half) width r at distance d from the focus clears the surface only if
 # r + margin < d - margin, and a cone only if its half angle is below the angle between beam and surface.
 DEFAULT_OPTIC_BODIES = {
@@ -103,9 +102,10 @@ DEFAULT_OPTIC_BODIES = {
         SolidBody("zone plate", distance=25.28, tip_radius=5.0, length=0.5, square=True),
     ),
     "capillary": (
-        SolidBody("capillary front plate", distance=17.4, tip_radius=8.9, length=3.0, square=True),
-        SolidBody("capillary nose", distance=17.4, tip_radius=8.2, half_angle=16.0, length=8.2),
-        SolidBody("capillary body", distance=25.6, tip_radius=11.0, length=48.4),
+        SolidBody("capillary nose", distance=10.0, tip_radius=1.85, length=0.7),
+        SolidBody("capillary head", distance=10.7, tip_radius=2.7, half_angle=33.0, length=3.5, square=True),
+        SolidBody("capillary body", distance=14.2, tip_radius=5.0, length=6.9, square=True, height=8.0),
+        SolidBody("capillary ring", distance=21.1, tip_radius=3.4, length=2.6),
     ),
 }
 ACCEPTANCE_HALF_ANGLE = 15.0  # deg: MBS A1 lens acceptance about the analyzer axis (electrons from the focus)
