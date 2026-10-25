@@ -77,14 +77,14 @@ def test_osa_stays_when_the_zone_plate_refocuses():
 
 
 def test_capillary_limit_and_analyzer():
-    """The capillary (design top view): square front plate, conical nose, body. On a flat surface the part with the
-    smallest (d - a) comes first: the front plate. Lowering SN also slides the beam crossing along the plate, so a
+    """The capillary (design views): nose, chamfered head, body, ring. On a flat surface the part with the
+    smallest (d - a) comes first: the front of the head. Lowering SN also slides the beam crossing along the plate, so a
     (made-up) 40 mm wide sample keeps the contact point on it."""
     layout = SampleLayout(STANDARD_PLATE, [Sample("big", 0, 0, 40, 15.5, 0.5)])
     model, m = setup(layout)
     rooms = {b.name: ((b.distance - grown(CAP)) - (b.tip_radius + grown(CAP))) / np.sqrt(2) for b in CAP.optics}
     first = min(rooms, key=rooms.get)
-    assert first == "capillary front plate"
+    assert first == "capillary head"
     lim = motor_limits(model, m, layout, CAP, [0.0], TRAVEL)["sn"]
     assert lim.lo_by == first and rooms[first] <= m.sn - lim.lo < rooms[first] + SAMPLING_ALLOWANCE
     # without the optic the analyzer nose, 30 mm from the focal plane, is the limit

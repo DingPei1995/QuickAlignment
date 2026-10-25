@@ -147,11 +147,10 @@ is checked against simple solids:
   the analyzer acceptance edge 2 mm to the other, hence a narrow, tall shield. The zone plate moves with its motor (ZP_ZS); the **OSA is not moved when the
   zone plate refocuses** (OSA_S stays at ≈ 80.00 in the WWS2 / S2 metadata while ZP_ZS changes): it is placed
   before the focus at the configuration's optics reference (≈ the analyzer focus);
-- **capillary** (Sigray), measured on the ANTARES design top view (scale from the plate, 18 × 5 mm there, ±5 %),
-  from the focus: a square front plate 17.8 mm wide and 3 mm thick from 17.4 mm, a conical nose (radius 8.2 mm at
-  17.4 mm, 16°, to 10.6 mm at 25.6 mm) and the cylindrical body (radius 11 mm, 25.6 … 74 mm). Its front edge is 27°
-  from the beam axis, just outside the analyzer acceptance (30° from the beam axis). Sigray publishes no single working
-  distance (made to order, 2 mm to 10 cm).
+- **capillary** (Sigray): working distance 10 mm. Shape from the design top and side views, sizes from the chamber
+  top view (scale from the plate, ±10 %), from the focus: a round nose 3.7 mm wide (front at 10 mm, 0.7 mm long),
+  the head chamfered on both sides from 5.4 mm wide at 10.7 mm to 10 mm at 14.2 mm, the body (10 mm wide, 8 mm tall)
+  to 21.1 mm and a ring 6.8 mm wide. The post and base plate about 20 mm below the beam are not modelled.
 
 The optic solids must also stay out of the **analyzer acceptance cone** (±15° about the analyzer axis, i.e. within 30°
 of the beam axis seen from the focus): it is drawn in the top view, and the Stage & Optics tab warns when a solid
