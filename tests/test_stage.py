@@ -143,3 +143,10 @@ def test_custom_plate_keeps_standard_sn_reference():
     # a surface put on the analyzer focal plane (camera "SN = 0" line) reads back its height
     assert np.isclose(model.focal_plane_height(target), 8.5)
     assert np.isclose(model.focal_plane_height(MotorPositions(sn=-0.1)), 5.0)
+
+
+def test_plate_from_stage_frame_inverts_stage_frame():
+    model = StageModel(StageConfig(srn_axis_u=1.5, srn_axis_v=-2.0))
+    m = MotorPositions(srn=157.0, pix=180.0, piy=95.0)
+    q = model.stage_frame(m, 3.2, -4.1)
+    assert close(model.plate_from_stage_frame(m, q), [3.2, -4.1])
