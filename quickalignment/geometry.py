@@ -216,6 +216,9 @@ class Sample:
         return a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]
 
 
+Box = tuple[float, float, float, float, float, float, str]  # (u0, v0, u1, v1, w0, w1, kind)
+
+
 @dataclass
 class SampleLayout:
     plate: PlateGeometry = field(default_factory=PlateGeometry)
@@ -244,6 +247,27 @@ class SampleLayout:
         u0, v0, u1, v1 = sample.bounds()
         if not (u0 <= u <= u1 and v0 <= v <= v1):
             out.append("outside substrate")
+        return out
+
+    def boxes(self) -> list[Box]:
+        """The solid parts as boxes (u0, v0, u1, v1, w0, w1, kind): plate, tab, riser, contact block,
+        screws (as squares) and samples; kind is one of base, riser, block, screw, sample."""
+        p = self.plate
+        w, h = p.width / 2, p.height / 2
+        r0, s0, r1, s1 = p.riser_bounds()
+        out = [
+            (-w, -h, w, h, 0.0, p.base_thickness, "base"),
+            (-p.tab_width / 2, h, p.tab_width / 2, h + p.neck_height + p.tab_height, 0.0, p.base_thickness, "base"),
+            (r0, s0, r1, s1, p.base_thickness, p.total_thickness, "riser"),
+        ]
+        if p.contact_block:
+            b0, c0, b1, c1 = p.contact_block
+            out.append((b0, c0, b1, c1, 0.0, p.contact_block_top, "block"))
+            r = p.screw_diameter / 2
+            out += [(u - r, v - r, u + r, v + r, p.contact_block_top, p.screw_top, "screw") for u, v in p.screws]
+        for s in self.samples:
+            u0, v0, u1, v1 = s.bounds()
+            out.append((u0, v0, u1, v1, p.total_thickness, p.total_thickness + s.height, "sample"))
         return out
 
     def targets(self) -> list[tuple[str, float, float, float]]:

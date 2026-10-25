@@ -54,7 +54,7 @@ At every start the program asks which **sample plate** is mounted and which **fo
 | x, y | position on the plate (mm), front view with the tab up, origin = centre of the back plate | – |
 | H | sample height above the plate surface (mm) | – |
 | ST | along the analyzer focal plane; ST < 0 moves the sample upper-left (top view) | −6 … 6 mm |
-| SN | perpendicular to the analyzer focal plane; SN = 65 is the transfer position | −0.5 … 65 mm |
+| SN | perpendicular to the analyzer focal plane; SN = 65 is the transfer position | −30 … 65 mm; below SN_f the limit is a collision (see *Anti-collision*) |
 | SZ | vertical | 35 … 45 mm |
 | SRn | azimuth about the sample normal; SRn = 120°: plate vertical, tab up | usable 60 … 180° |
 | SRz | rotation about the vertical; SRz = 0: plate parallel to the analyzer focal plane | usable −25 … +10° |
@@ -163,6 +163,19 @@ SRz = 0°, PIX = PIY = 150 µm) that put its centre on the beam in the analyzer 
 
 The schematic is redrawn only with *Update schematic & optics*. Moving the mouse over the sample plane view shows
 the ST, SZ that bring that point onto the beam and what lies there.
+
+### Anti-collision
+
+After *Update*, the line under the motors gives the **collision-free range** of ST, SN and SZ at the entered positions
+(one motor moved, the others and the optic kept) and what sets each limit, e.g. *SN −4.1 (OSA) … 65*. The top view
+draws the analyzer nose (MBS A1, 30 mm from the focus), the zone plate and OSA (thin plates; the OSA stays where it is
+when the zone plate refocuses) or the capillary at scale, in red when the plate touches them. *Bring target onto the
+beam*, *Correct SN* and the Rotate tab refuse a position where the plate would touch something. Lowering SN brings the
+surface towards the optic and the analyzer: SN is limited from below only. ST and SZ are free for a plate parallel to
+the focal plane, and limited when SRz tilts it or when something stands out (gating plate screws). The dimensions are
+estimates kept in the configuration: if you know better, type the **working distances** (OSA, zone plate or
+capillary front from the focus) in the fields under the optic position (for this session). Keep a safe distance and
+watch the camera.
 
 ## Rotate sample tab: turning without losing the sample
 

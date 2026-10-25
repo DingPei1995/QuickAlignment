@@ -126,10 +126,54 @@ care of it.
 The sign conventions between the stage and the ARPES viewer contour (`AnalyzerGeometry`) are to be checked on the
 first real use: after turning, the point should appear where the preview shows it.
 
-Motor travel ranges (`MOTOR_SPECS` in `quickalignment/ui/stage_panel.py`): ST −6 … 6, SN −0.5 … 65, SZ 35 … 45 mm.
+Motor travel ranges (`MOTOR_SPECS` in `quickalignment/ui/stage_panel.py`): ST −6 … 6, SN −30 … 65, SZ 35 … 45 mm.
 The motor fields do not accept values outside them; *Bring target onto the beam*, *Correct SN* and the Rotate tab warn when a
 position would be out of range (e.g. at SRn = 120 a point more than 5 mm above or below the plate centre needs
-SZ outside 35 … 45).
+SZ outside 35 … 45). SN = SN_f (≈ 0) puts the plate surface in the analyzer focal plane; below it the real limit is a
+collision, given by the anti-collision check (the −30 only keeps the field short of the analyzer, 30 mm away).
+
+### Anti-collision (`quickalignment/collision.py`)
+
+The plate (back plate, tab, riser, contact block, screws, samples, as boxes sampled on their faces every 0.25 mm)
+is checked against simple solids:
+
+- **analyzer (MBS A1)**: a truncated cone on the analyzer axis, front 30 mm from the focal plane, outer radius
+  10 mm at the front (the opening must pass the ±15° lens acceptance), 35° cone (estimate);
+- **zone plate + OSA**: two thin square plates across the beam, 10 × 10 mm, 0.5 mm thick (placeholders: OSA 14 mm,
+  zone plate 29 mm before the focus. The focal length is f = D Δr / λ, λ = 13.05 nm at 95 eV: D = 1.5 mm and
+  Δr = 250 nm give 29 mm; an OSA of diameter D/2 passes the whole first-order cone only within f/2 of the focus). The zone plate moves with its motor (ZP_ZS); the **OSA is not moved when the
+  zone plate refocuses** (OSA_S stays at ≈ 80.00 in the WWS2 / S2 metadata while ZP_ZS changes): it is placed
+  before the focus at the configuration's optics reference (≈ the analyzer focus);
+- **capillary** (Sigray): a truncated cone 26 mm long, front 7.8 mm before its focus, 4 mm wide, 10°. Sigray does not
+  publish one working distance (made to order, 2 mm to 10 cm): 7.8 mm is the beamline's estimate.
+
+The working distance of every optic solid can be typed in the Stage & Optics tab (*… working distance*, under the
+optic position; for the session), and kept by beamline staff in the configuration.
+
+Each solid is grown by a margin (0.1 mm) and the sampling allowance (0.18 mm). The Stage & Optics tab shows, after
+*Update*, the collision-free range of ST, SN and SZ (one motor moved, the others and the optic kept), with what sets
+each limit, and draws the solids in the top view at scale (red when touched; a zoom on the beam spot when an optic
+front is within 5 mm). *Bring target onto the beam*, *Correct SN* and *Send to Stage & Optics tab* refuse a position
+where the plate would touch something, with the optic where it is now or refocused.
+
+Geometry: at 45° incidence a front face of (half) width a at distance d before the focus clears a flat surface in
+focus only if a < d (less the margins); lowering SN by ΔSN brings the surface √2 ΔSN closer along the beam and slides
+the beam crossing along the plate, so SN is limited from below only, at about ΔSN = (d − a)/√2 if the plate reaches
+the contact point (a√2 + ΔSN from the spot). For a flat plate parallel to the focal plane ST and SZ slide the surface in
+its own plane: they are limited only when SRz tilts the plate (SRz > 0 brings it closer to the optic) or when
+something stands out (gating plate screws). This agrees with experience (ST, SZ nearly free).
+
+A configuration file can give its own solids (missing parts keep the defaults of its optic):
+
+```json
+"collision": {"margin": 0.1,
+              "analyzer": {"name": "analyzer (MBS A1)", "distance": 30, "tip_radius": 10, "half_angle": 35, "length": 150},
+              "optics": [{"name": "OSA", "distance": 14, "tip_radius": 5, "length": 0.5, "square": true, "moves": false},
+                         {"name": "zone plate", "distance": 29, "tip_radius": 5, "length": 0.5, "square": true}]}
+```
+
+Not modelled: the sample holder below the plate, the cryostat and shields, the OSA / zone plate mounts beside the
+beam, and the zone plate against the OSA when it refocuses.
 
 The SRn axis position on the plate comes from the configuration (`configs/calibration_2026-10-24_170000_zone_plate.json`:
 standard plate, zone plate data WWS2 2025-10-01/02, 2.38 mm from the axis). The SRz axis is not calibrated yet for

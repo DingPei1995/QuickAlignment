@@ -14,6 +14,7 @@ from dataclasses import replace
 
 from ._qt import QtCore, QtWidgets, Signal
 from ..calibration import CalibrationRecord
+from ..collision import collisions, motor_limits
 from ..schematic import draw_schematic
 from ..stage import (
     OPTIC_TYPES, MotorPositions, OpticsCalibration, StageConfig, StageModel, focus_correction, found_offset, sn_to_focus,
@@ -23,7 +24,9 @@ Qt = QtCore.Qt
 
 MOTOR_SPECS = {  # name: (label, min, max, decimals, step, suffix); ST / SN / SZ: travel ranges
     "st": ("ST", -6, 6, 4, 0.1, " mm"),
-    "sn": ("SN", -0.5, 65, 4, 0.1, " mm"),
+    # SN: below the focal plane (SN_f ≈ 0) the real limit is a collision (OSA / capillary, analyzer 30 mm away),
+    # computed for the current positions by the anti-collision check
+    "sn": ("SN", -30, 65, 4, 0.1, " mm"),
     "sz": ("SZ", 35, 45, 4, 0.1, " mm"),
     "srn": ("SRn", -720, 720, 3, 1.0, " °"),
     "srz": ("SRz", -720, 720, 3, 1.0, " °"),
@@ -44,6 +47,7 @@ CONFIG_SPECS = {
 TOLERANCE = 1e-3  # mm; below this a move is reported as not needed
 LARGE_FOUND_OFFSET = 0.3  # mm; a larger "Found here" correction hints at an outdated configuration
 FOCUS_WARNING = 0.05  # mm from the analyzer focus; farther, the spectra would be distorted
+TRAVEL = {name: MOTOR_SPECS[name][1:3] for name in ("st", "sn", "sz")}
 
 
 def spin(value: float, lo: float = -1000, hi: float = 1000, decimals: int = 3, step: float = 0.1, suffix: str = " mm"):
@@ -145,8 +149,17 @@ class StagePanel(QtWidgets.QWidget):
         self.goto_label.setWordWrap(True)
         self.goto_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.goto_label.hide()
-        for box in self.motors.boxes.values():  # the readout only holds for the positions it was computed for
+        self.limits_label = QtWidgets.QLabel()
+        self.limits_label.setWordWrap(True)
+        self.limits_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.limits_label.setToolTip(
+            "Anti-collision check: the plate with its samples against the analyzer nose (MBS A1, front 30 mm from\n"
+            "the focus) and the focusing optic (OSA / zone plate, or capillary) at the entered optic position.\n"
+            "Each range moves one motor with the others kept. Working distances: under the optic position.")
+        self.limits_label.hide()
+        for box in self.motors.boxes.values():  # the readouts only hold for the positions they were computed for
             box.valueChanged.connect(self.goto_label.hide)
+            box.valueChanged.connect(self.limits_label.hide)
         motor_box = QtWidgets.QGroupBox("Sample stage (current / planned positions)")
         mb = QtWidgets.QVBoxLayout(motor_box)
         mb.addWidget(self.motors)
@@ -156,6 +169,7 @@ class StagePanel(QtWidgets.QWidget):
         mb.addLayout(row)
         mb.addLayout(equal_row(goto_btn, self.correct_sn_btn))
         mb.addWidget(self.goto_label)
+        mb.addWidget(self.limits_label)
 
         # focusing optic: absolute position along the beam
         self.optic_type = QtWidgets.QComboBox()
@@ -182,6 +196,10 @@ class StagePanel(QtWidgets.QWidget):
         of.addRow("Optic position", self.optic_pos)
         of.addRow(equal_row(use_btn, ref_btn))
         of.addRow(self.optic_ref_label)
+        # working distances of the optic solids (anti-collision); filled from the configuration
+        self.distance_form = QtWidgets.QFormLayout()
+        self.distance_boxes = []
+        of.addRow(self.distance_form)
         align_labels(self.motors, of)
 
         update_btn = QtWidgets.QPushButton("Update schematic && optics")
@@ -266,6 +284,7 @@ class StagePanel(QtWidgets.QWidget):
         self.optic_type.setCurrentText(record.optics.optic_type)
         self.optic_type.blockSignals(False)
         self.optic_pos.setValue(record.optics.current_position)
+        self._fill_distances()
         self._show_record()
         if not self.start_box.isHidden():
             self.show_start_positions()
@@ -288,7 +307,31 @@ class StagePanel(QtWidgets.QWidget):
         return self.record.optics
 
     def _on_optic_type(self, text: str) -> None:
-        self.record = replace(self.record, optics=replace(self.record.optics, optic_type=text))
+        # the collision solids of the configuration belong to its optic: another optic takes its defaults
+        self.record = replace(self.record, optics=replace(self.record.optics, optic_type=text), collision=None)
+        self._fill_distances()
+
+    def _fill_distances(self) -> None:
+        """One field per optic solid: the distance of its front from the focus (working distance)."""
+        while self.distance_form.rowCount():
+            self.distance_form.removeRow(0)
+        self.distance_boxes = []
+        for i, body in enumerate(self.record.collision_geometry().optics):
+            box = spin(body.distance, 0, 500, 2, 0.5)
+            box.setToolTip(f"Distance of the {body.name} front from the focus along the beam, used by the anti-collision\n"
+                           "check (for this session; beamline staff keep it in the configuration). "
+                           + ("It moves with the optic motor." if body.moves else
+                              "It stays put when the optic refocuses (placed for the configuration's optics reference)."))
+            box.valueChanged.connect(lambda value, i=i: self._set_distance(i, value))
+            self.distance_form.addRow(f"{body.name} working distance", box)
+            self.distance_boxes.append(box)
+
+    def _set_distance(self, index: int, value: float) -> None:
+        geo = self.record.collision_geometry()
+        optics = list(geo.optics)
+        optics[index] = replace(optics[index], distance=value)
+        self.record = replace(self.record, collision=replace(geo, optics=tuple(optics)))
+        self.limits_label.hide()  # computed for the old distances
 
     def use_required_optic(self) -> None:
         if self.last_result is not None and self.last_result.required_optic_position is not None:
@@ -429,6 +472,11 @@ class StagePanel(QtWidgets.QWidget):
             QtWidgets.QMessageBox.warning(self, "Out of range", f"{what}:\n" + "\n".join(bad)
                                           + "\n\nThe positions are not changed." + hint)
             return False
+        hits = self.move_collisions(new)
+        if hits:
+            QtWidgets.QMessageBox.warning(self, "Collision", f"{what}: the plate would touch {hits}."
+                                          "\n\nThe positions are not changed." + hint)
+            return False
         self.motors.set_value(new)
         self.update_view()
         return True
@@ -457,12 +505,61 @@ class StagePanel(QtWidgets.QWidget):
         self.goto_label.setText(text)
         self.goto_label.show()
 
+    # -- anti-collision ------------------------------------------------------
+    def collision_hits(self, m: MotorPositions, optic_positions) -> list[str]:
+        """Solids (analyzer, OSA, ...) the plate touches at m with the optic at any of these absolute positions."""
+        model = self.model()
+        ys = [self.calibration().focus_for_position(model, p) for p in optic_positions]
+        return collisions(model, m, self._layout_getter(), self.record.collision_geometry(), ys,
+                          self.calibration().reference_y(model))
+
+    def move_collisions(self, new: MotorPositions, optic_new: float | None = None, optic_now: float | None = None) -> str:
+        """What the plate touches at `new`, with the optic where it is now (`optic_now`, default: the entered
+        position) or refocused (`optic_new`, default: the position focusing on the illuminated surface at
+        `new`); empty if nothing."""
+        optic_now = self.optic_pos.value() if optic_now is None else optic_now
+        if optic_new is None:
+            res = focus_correction(self.model(), new, self._layout_getter(), self.calibration(), self.optic_pos.value())
+            optic_new = res.required_optic_position
+        out = []
+        for name, positions in (("with the optic where it is now", [optic_now]),
+                                ("with the optic refocused", [] if optic_new is None else [optic_new])):
+            hits = self.collision_hits(new, positions)
+            if hits:
+                out.append(f"{', '.join(hits)} ({name})")
+        return "; ".join(out)
+
+    def describe_limits(self, m: MotorPositions) -> tuple[str, list[str]]:
+        """Collision-free ST / SN / SZ ranges at m (optic as entered) as text, and the solids touched now."""
+        model, layout, geo = self.model(), self._layout_getter(), self.record.collision_geometry()
+        y = self.calibration().focus_for_position(model, self.optic_pos.value())
+        fixed_y = self.calibration().reference_y(model)  # where the OSA stays
+        hits = collisions(model, m, layout, geo, [y], fixed_y)
+        head = (f"Anti-collision ({self.optic_type.currentText()} at {self.optic_pos.value():.4f}, "
+                f"margin {geo.margin:g} mm)")
+        if hits:
+            return f"<b>{head}: COLLISION now with {', '.join(hits)}.</b>", hits
+        limits = motor_limits(model, m, layout, geo, [y], TRAVEL, fixed_y)
+        parts = []
+        for name, lim in limits.items():
+            label, *_ = MOTOR_SPECS[name]
+            lo = f"{lim.lo:.3f}" + (f" ({lim.lo_by})" if lim.lo_by != "travel" else "")
+            hi = f"{lim.hi:.3f}" + (f" ({lim.hi_by})" if lim.hi_by != "travel" else "")
+            parts.append(f"{label} {lo} … {hi}")
+        return f"{head}, one motor moved at a time: " + " · ".join(parts), []
+
     def update_view(self) -> None:
         layout = self._layout_getter()
         model = self.model()
         m = self.motors.value()
         res = focus_correction(model, m, layout, self.calibration(), self.optic_pos.value())
-        _, ax_plane = draw_schematic(self.figure, model, m, layout, res, self.optic_type.currentText())
+        text, hits = self.describe_limits(m)
+        self.limits_label.setText(text)
+        self.limits_label.setStyleSheet("color: #b00;" if hits else "color: #555;")
+        self.limits_label.show()
+        _, ax_plane = draw_schematic(self.figure, model, m, layout, res, self.optic_type.currentText(),
+                                     self.record.collision_geometry(), tuple(hits),
+                                     self.calibration().reference_y(model))
         self._plane = (ax_plane, model, m, layout)
         self._show_cursor(None)
         self.canvas.draw_idle()

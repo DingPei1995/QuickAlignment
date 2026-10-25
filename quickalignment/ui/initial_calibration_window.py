@@ -674,6 +674,8 @@ class InitialCalibrationWindow(QtWidgets.QMainWindow):
             self.result, self.plate(), self.ref_uvw(), self.optic(), self.comment.text().strip(),
             tests=[t for t in self.tests if t.answered], previous=self.previous().label,
         )
+        if self.previous().optic_name == record.optic_name:  # the collision models stay with the optic
+            record = replace(record, collision=self.previous().collision)
         try:
             saved = self.store.save(record)
         except OSError as exc:

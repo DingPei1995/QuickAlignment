@@ -1,7 +1,11 @@
 """Matplotlib schematic of the current stage / beam / optics state.
 
 * Top view (lab x-y, from the full stage model): plate orientation (SRz),
-  analyzer and its focal plane, beam, optic with its absolute position.
+  analyzer and its focal plane, beam, optic with its absolute position. The
+  analyzer nose and the optic (OSA / zone plate, capillary) are the solids of
+  the anti-collision check (collision.py), at scale, red when the plate
+  touches them; an inset zooms on the beam spot when an optic front is within
+  a few mm of it.
 * Sample plane (front view along the surface normal, SRn rotation applied,
   SRz not shown): samples, devices and the beam spot. The axes are absolute
   ST / SZ: a point drawn at (ST, SZ) comes onto the beam with those motor
@@ -19,6 +23,7 @@ import numpy as np
 from matplotlib.lines import Line2D
 from matplotlib.patches import Circle, Polygon
 
+from .collision import CollisionGeometry, SolidBody, default_geometry
 from .geometry import PlateGeometry, SampleLayout
 from .stage import N_HAT, T_HAT, BeamResult, MotorPositions, StageModel
 
@@ -28,7 +33,10 @@ Y_HAT = np.array([0.0, 1.0, 0.0])
 C_BASE, C_RISER, C_BLOCK, C_PAD, C_SCREW = "#bdbdbd", "#e3e3e3", "#d0d0d0", "#e8c400", "#4a3c36"
 C_SAMPLE, C_DEVICE = "#ff9a2e", "#1f4fd6"
 C_BEAM, C_ANALYZER, C_OPTIC, C_SRN_AXIS = "#d62728", "#1f77b4", "#8c564b", "tab:purple"
-OPTIC_DRAW_DISTANCE = 22.0  # mm upstream of the focus, schematic only
+OPTIC_DRAW_DISTANCE = 22.0  # mm upstream of the optic focus shown at most
+ANALYZER_DRAW_LENGTH = 25.0  # mm of the analyzer cone drawn behind its front
+ZOOM_HALF_WIDTH = 2.5  # mm, half width of the zoom on the beam spot
+ZOOM_OPTIC_DISTANCE = 5.0  # mm; the zoom is drawn only for an optic front closer than this to its focus
 
 
 def convex_hull(points: np.ndarray) -> np.ndarray:
@@ -51,28 +59,27 @@ def convex_hull(points: np.ndarray) -> np.ndarray:
     return np.array(lower[:-1] + upper[:-1])
 
 
+COLOURS = {"base": C_BASE, "riser": C_RISER, "block": C_BLOCK, "screw": C_SCREW, "sample": C_SAMPLE}
+
+
 def _solids(layout: SampleLayout):
     """(u0, v0, u1, v1, w0, w1, colour) boxes: plate, tab, riser, contact block, screws, samples."""
-    p = layout.plate
-    w, h = p.width / 2, p.height / 2
-    r0, s0, r1, s1 = p.riser_bounds()
-    out = [
-        (-w, -h, w, h, 0.0, p.base_thickness, C_BASE),
-        (-p.tab_width / 2, h, p.tab_width / 2, h + p.neck_height + p.tab_height, 0.0, p.base_thickness, C_BASE),
-        (r0, s0, r1, s1, p.base_thickness, p.total_thickness, C_RISER),
-    ]
-    if p.contact_block:
-        b0, c0, b1, c1 = p.contact_block
-        out.append((b0, c0, b1, c1, 0.0, p.contact_block_top, C_BLOCK))
-        r = p.screw_diameter / 2
-        out += [(u - r, v - r, u + r, v + r, p.contact_block_top, p.screw_top, C_SCREW) for u, v in p.screws]
-    for s in layout.samples:
-        u0, v0, u1, v1 = s.bounds()
-        out.append((u0, v0, u1, v1, p.total_thickness, p.total_thickness + s.height, C_SAMPLE))
-    return out
+    return [(*box[:6], COLOURS[box[6]]) for box in layout.boxes()]
 
 
-def _draw_top_view(ax, model: StageModel, m: MotorPositions, layout: SampleLayout, result: BeamResult, optic_type: str) -> None:
+def _cone_outline(body: SolidBody, origin: np.ndarray, axis: np.ndarray, length: float | None = None) -> np.ndarray:
+    """Top-view outline (x, y) of a cone body whose axis lies in the horizontal plane."""
+    side = np.array([-axis[1], axis[0], 0.0])
+    s0, s1 = body.distance, body.distance + (body.length if length is None else min(length, body.length))
+    r0, r1 = body.tip_radius, body.radius_at(s1)
+    pts = [origin + s0 * axis + r0 * side, origin + s1 * axis + r1 * side,
+           origin + s1 * axis - r1 * side, origin + s0 * axis - r0 * side]
+    return np.array([p[:2] for p in pts])
+
+
+def _draw_top_content(ax, model: StageModel, m: MotorPositions, layout: SampleLayout, result: BeamResult,
+                      collision: CollisionGeometry, hits: tuple[str, ...], fixed_y: float) -> list[np.ndarray]:
+    """Plate, analyzer and optic solids, focal plane, beam and spot; returns the plate outlines."""
     pts = []
     for box in _solids(layout):
         u0, v0, u1, v1, w0, w1, colour = box
@@ -82,29 +89,58 @@ def _draw_top_view(ax, model: StageModel, m: MotorPositions, layout: SampleLayou
 
     L = 30
     ax.plot([-L / np.sqrt(2), L / np.sqrt(2)], [L / np.sqrt(2), -L / np.sqrt(2)], "--", color="tab:purple", lw=0.8)
-    ax.text(9, -11, "analyzer focal plane", color="tab:purple", fontsize=7, rotation=-45, clip_on=True)
-    tip, base = -N_HAT * 5, -N_HAT * 20
-    cone = [tip + T_HAT * 1.2, tip - T_HAT * 1.2, base - T_HAT * 4.5, base + T_HAT * 4.5]
-    ax.add_patch(Polygon([p[:2] for p in cone], closed=True, fc="#b8d4f0", ec=C_ANALYZER))
-    ax.text(*(base[:2] + [-7, -4]), "analyzer", color=C_ANALYZER, fontsize=8)
+    a = collision.analyzer
+    bad = a.name in hits
+    ax.add_patch(Polygon(_cone_outline(a, np.zeros(3), -N_HAT, ANALYZER_DRAW_LENGTH), closed=True,
+                         fc="#f4b6b6" if bad else "#b8d4f0", ec=C_BEAM if bad else C_ANALYZER, lw=1.5 if bad else 1))
     ax.plot(0, 0, "+", color=C_ANALYZER, ms=12, mew=2)
 
     hit, fy = result.hit, result.focus_y
-    oy = fy - OPTIC_DRAW_DISTANCE
+    far = max((b.distance + b.length for b in collision.optics), default=10.0)
     y_end = hit[1] if hit is not None else fy + 10
-    ax.annotate("", (0, y_end), (0, oy - 12), arrowprops=dict(arrowstyle="-|>", color=C_BEAM, lw=1.6))
-    ax.text(0.8, oy - 11, "beam", color=C_BEAM, fontsize=8)
-    ax.add_patch(Polygon([(-2.5, oy - 1), (2.5, oy - 1), (2.5, oy + 1), (-2.5, oy + 1)], closed=True, fc="#d9c3b0", ec=C_OPTIC))
-    ax.text(3, oy, f"{optic_type}\nat {result.optic_position:.4f}", color=C_OPTIC, fontsize=8, va="center")
+    ax.plot([0, 0], [fy - far - 8, y_end], color=C_BEAM, lw=1.6)  # a line is clipped to the axes (zoom)
+    ax.annotate("", (0, y_end), (0, y_end - 0.01), arrowprops=dict(arrowstyle="-|>", color=C_BEAM, lw=1.6))
+    for b in sorted(collision.optics, key=lambda b: -b.distance):  # the part closest to the focus on top
+        bad = b.name in hits
+        origin = (fy if b.moves else fixed_y) * Y_HAT
+        ax.add_patch(Polygon(_cone_outline(b, origin, -Y_HAT), closed=True, fc="#f4b6b6" if bad else "#d9c3b0",
+                             ec=C_BEAM if bad else C_OPTIC, lw=1.5 if bad else 0.8))
     ax.plot(0, fy, "o", mfc="none", mec=C_OPTIC, ms=7)
+    if hit is not None:
+        ax.plot(hit[0], hit[1], "x", color=C_BEAM, ms=9, mew=2)
+    return pts
+
+
+def _draw_top_view(ax, model: StageModel, m: MotorPositions, layout: SampleLayout, result: BeamResult, optic_type: str,
+                   collision: CollisionGeometry, hits: tuple[str, ...] = (), fixed_y: float = 0.0) -> None:
+    pts = _draw_top_content(ax, model, m, layout, result, collision, hits, fixed_y)
+    a = collision.analyzer
+    front = -N_HAT * a.distance
+    ax.text(*(front + T_HAT * (a.tip_radius + 1.5))[:2], f"{a.name}\nfront {a.distance:g} mm\nfrom focus",
+            color=C_ANALYZER, fontsize=7, ha="left", va="center", clip_on=True)
+    ax.text(9, -11, "analyzer focal plane", color="tab:purple", fontsize=7, rotation=-45, clip_on=True)
+    fy = result.focus_y
+    near = min((b.distance for b in collision.optics if b.moves), default=0.0)
+    fixed = [b for b in collision.optics if not b.moves]
+    far = max((b.distance + b.length for b in collision.optics), default=10.0)
+    oy = fy - min(far, OPTIC_DRAW_DISTANCE) / 2
+    ax.text(0.8, fy - min(far, OPTIC_DRAW_DISTANCE) - 6, "beam", color=C_BEAM, fontsize=8)
+    for b in collision.optics:  # name beside each optic part
+        y = (fy if b.moves else fixed_y) - b.distance - b.length / 2
+        if b.distance + b.length / 2 <= OPTIC_DRAW_DISTANCE:
+            ax.text(-b.tip_radius - 0.8, y, b.name, color=C_OPTIC, fontsize=7, ha="right", va="center", clip_on=True)
+    x_label = max([4.0] + [b.tip_radius + 1.5 for b in collision.optics])
+    ax.text(x_label, oy, f"{optic_type}\nat {result.optic_position:.4f}\nfront {near:g} mm from its focus"
+            + "".join(f"\n{b.name} (fixed) {b.distance:g} mm\nbefore the reference focus" for b in fixed),
+            color=C_OPTIC, fontsize=7, va="center")
     ax.text(-1.2, fy, "optic focus", color=C_OPTIC, fontsize=7, ha="right", va="center")
     required = result.required_optic_position
     if required is not None and abs(required - result.optic_position) >= 1e-3:
-        ax.text(-3.2, oy, f"needed:\n{required:.4f}", color=C_OPTIC, fontsize=8, ha="right", va="center", weight="bold")
-    if hit is not None:
-        ax.plot(hit[0], hit[1], "x", color=C_BEAM, ms=9, mew=2)
+        ax.text(-4, oy, f"needed:\n{required:.4f}", color=C_OPTIC, fontsize=8, ha="right", va="center", weight="bold")
 
-    allp = np.vstack(pts + [np.array([[0, oy - 12], [0, 0], [-20, -20], [10, 10]])])
+    front_pts = [(front + T_HAT * a.tip_radius)[:2], (front - T_HAT * a.tip_radius)[:2],
+                 [0, fy - min(far, OPTIC_DRAW_DISTANCE)], [0, 0], [10, 10]]
+    allp = np.vstack(pts + [np.array(front_pts)])
     lo, hi = allp.min(axis=0) - 3, allp.max(axis=0) + 3
     c, span = (lo + hi) / 2, max((hi - lo).max(), 45)
     ax.set_xlim(c[0] - span / 2, c[0] + span / 2)
@@ -112,7 +148,24 @@ def _draw_top_view(ax, model: StageModel, m: MotorPositions, layout: SampleLayou
     ax.set_aspect("equal")
     ax.set_xticks([])
     ax.set_yticks([])
-    ax.set_title(f"Top view (beam ↑)\nST = {m.st:.4f}   SN = {m.sn:.4f}   SRz = {m.srz:g}°", fontsize=9)
+    title = f"Top view (beam ↑)\nST = {m.st:.4f}   SN = {m.sn:.4f}   SRz = {m.srz:g}°"
+    if hits:
+        title += f"\nCOLLISION: {', '.join(hits)}"
+    ax.set_title(title, fontsize=9, color=C_BEAM if hits else "k")
+
+    # zoom on the beam spot, when an optic comes close to it: its front and the sample surface at true scale
+    if min((b.distance for b in collision.optics), default=99.0) > ZOOM_OPTIC_DISTANCE:
+        return
+    zoom = ax.inset_axes([0.02, 0.62, 0.36, 0.36])  # upper left: away from the analyzer and the optic
+    _draw_top_content(zoom, model, m, layout, result, collision, hits, fixed_y)
+    centre = result.hit[:2] if result.hit is not None else np.array([0.0, fy])
+    half = max([ZOOM_HALF_WIDTH] + [b.distance * 1.3 for b in collision.optics if b.distance < 5])
+    zoom.set_xlim(centre[0] - half, centre[0] + half)
+    zoom.set_ylim(centre[1] - half, centre[1] + half)
+    zoom.set_aspect("equal")
+    zoom.set_xticks([])
+    zoom.set_yticks([])
+    zoom.set_title(f"zoom ±{half:g} mm", fontsize=7, pad=2)
 
 
 def _draw_sample_plane(ax, model: StageModel, m: MotorPositions, layout: SampleLayout, result: BeamResult) -> None:
@@ -183,12 +236,18 @@ def _draw_sample_plane(ax, model: StageModel, m: MotorPositions, layout: SampleL
 
 
 def draw_schematic(
-    fig, model: StageModel, m: MotorPositions, layout: SampleLayout, result: BeamResult, optic_type: str = "optic"
+    fig, model: StageModel, m: MotorPositions, layout: SampleLayout, result: BeamResult, optic_type: str = "optic",
+    collision: CollisionGeometry | None = None, hits: tuple[str, ...] = (), fixed_y: float = 0.0,
 ):
-    """Draw both views; returns (top view axes, sample plane axes)."""
+    """Draw both views; returns (top view axes, sample plane axes).
+
+    `collision`: the analyzer / optic solids drawn in the top view (default: those for `optic_type`);
+    `hits`: names of the solids the plate collides with, drawn in red; `fixed_y`: focus at the optics
+    reference along the beam, where the fixed solids (OSA) sit."""
     fig.clear()
     ax_top, ax_plane = fig.subplots(1, 2)
-    _draw_top_view(ax_top, model, m, layout, result, optic_type)
+    _draw_top_view(ax_top, model, m, layout, result, optic_type, collision or default_geometry(optic_type), tuple(hits),
+                   fixed_y)
     _draw_sample_plane(ax_plane, model, m, layout, result)
     fig.tight_layout()
     return ax_top, ax_plane
