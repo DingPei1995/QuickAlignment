@@ -142,9 +142,13 @@ is checked against simple solids:
 - **zone plate + OSA**: thin plates across the beam. Zone plate (10 × 10 mm, 0.5 mm thick, placeholder size): working
   distance 26.613 mm at 100 eV; the focal length grows with the photon energy (f = D Δr / λ), so at 95 eV it is
   25.28 mm. OSA: the copper shield just in front of the plate, estimated on the design view at 100 eV (no scale; the
-  plate and the zone plate distance as references give 1.3 … 5.4 mm): 3.5 mm before the focus, 3 mm wide and 20 mm
-  tall (`height`), 0.2 mm thick. At 45° incidence, 3.5 mm upstream the surface is 3.5 mm to one side of the beam and
-  the analyzer acceptance edge 2 mm to the other, hence a narrow, tall shield. The zone plate moves with its motor (ZP_ZS); the **OSA is not moved when the
+  plate and the zone plate distance as references give 1.3 … 5.4 mm): 3.5 mm before the focus. Top view from a photo
+  of the shield in use: a thin blade along the beam (45° to the plate surface) on the analyzer side, 1.5 mm from the
+  beam and 15 mm long (*OSA arm*), its end bent across the beam close to the sample (*OSA*, the tab with the
+  aperture, 2 mm wide, reaching 0.5 mm past the beam on the plate side); 0.2 mm thick, 20 mm tall (`height`;
+  `offset` shifts a solid across the beam). At 45° incidence, 3.5 mm upstream the surface is 3.5 mm to one side of the
+  beam and the analyzer acceptance edge 2 mm to the other, hence a small tab and an arm close to the beam. Only the
+  OSA has a working-distance field; its arm follows it. The zone plate moves with its motor (ZP_ZS); the **OSA is not moved when the
   zone plate refocuses** (OSA_S stays at ≈ 80.00 in the WWS2 / S2 metadata while ZP_ZS changes): it is placed
   before the focus at the configuration's optics reference (≈ the analyzer focus);
 - **capillary** (Sigray): working distance 10 mm. Shape from the design top and side views, sizes from the chamber
@@ -177,7 +181,8 @@ A configuration file can give its own solids (missing parts keep the defaults of
 ```json
 "collision": {"margin": 0.1,
               "analyzer": {"name": "analyzer (MBS A1)", "distance": 30, "tip_radius": 10, "half_angle": 35, "length": 150},
-              "optics": [{"name": "OSA", "distance": 3.5, "tip_radius": 1.5, "height": 20, "length": 0.2, "square": true, "moves": false},
+              "optics": [{"name": "OSA", "distance": 3.5, "tip_radius": 1.05, "offset": 0.55, "height": 20, "length": 0.2, "square": true, "moves": false},
+                         {"name": "OSA arm", "distance": 3.5, "tip_radius": 0.1, "offset": 1.5, "height": 20, "length": 15, "square": true, "moves": false},
                          {"name": "zone plate", "distance": 25.28, "tip_radius": 5, "length": 0.5, "square": true}]}
 ```
 

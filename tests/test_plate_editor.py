@@ -656,7 +656,8 @@ def test_working_distances_can_be_entered(window):
              for i in range(st.distance_form.rowCount())]
     assert names == ["OSA working distance", "zone plate working distance"]
     st.distance_boxes[0].setValue(20.0)
-    assert st.record.collision_geometry().optics[0].distance == 20.0 and not st.record.collision.optics[0].moves
+    osa, arm = st.record.collision_geometry().optics[:2]
+    assert osa.distance == arm.distance == 20.0 and not osa.moves  # the arm moves with its OSA
     st.optic_type.setCurrentText("capillary")  # another optic: its own (default) solids
     assert [b.distance for b in st.record.collision_geometry().optics] == [10.0, 10.7, 14.2, 21.1]
     st.distance_boxes[0].setValue(15.0)

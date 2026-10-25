@@ -128,26 +128,31 @@ def test_collision_now_returns_none():
 
 
 def test_default_zone_plate_and_osa_are_thin_plates():
-    """Zone plate and OSA (placeholders) as thin square plates across the beam; the OSA, fixed, is closer than
-    the zone plate. A plate front of half width a at distance d along the beam
-    touches a flat surface at 45° when sqrt2 dSN = (d - g) - (a + g)."""
+    """Zone plate (placeholder) a thin square plate across the beam; the OSA, fixed and closer, a tab across the
+    beam on an arm along it, on the analyzer side. A plate front reaching a across the beam on the plate side at
+    distance d along the beam touches a flat surface at 45° when sqrt2 dSN = (d - g) - (a + g)."""
     zp = default_geometry("zone plate + OSA")
-    osa, plate = zp.optics
-    assert osa.square and plate.square and not osa.moves and plate.moves
-    assert osa.distance < plate.distance
+    osa, arm, plate = zp.optics
+    assert osa.square and plate.square and not osa.moves and not arm.moves and plate.moves
+    assert osa.distance == arm.distance < plate.distance and arm.length > 10 * arm.tip_radius
+    reach = osa.tip_radius - osa.offset  # towards the plate side
+    assert 0 < reach < osa.tip_radius + osa.offset <= arm.offset + arm.tip_radius
     # the contact point is a sqrt2 + dSN away from the spot along the plate: a (made-up) 40 mm wide sample
     layout = SampleLayout(STANDARD_PLATE, [Sample("big", 0, 0, 40, 15.5, 0.5)])
     model, m = setup(layout)
     lim = motor_limits(model, m, layout, zp, [0.0], TRAVEL)["sn"]
-    expect = ((osa.distance - grown(zp)) - (osa.tip_radius + grown(zp))) / np.sqrt(2)
+    expect = ((osa.distance - grown(zp)) - (reach + grown(zp))) / np.sqrt(2)
     # the plate edge can slip between sampled points by up to about the sampling allowance, never past the margin
     room = m.sn - lim.lo
     assert lim.lo_by == "OSA" and expect <= room < expect + SAMPLING_ALLOWANCE
-    assert room < ((osa.distance - zp.margin) - (osa.tip_radius + zp.margin)) / np.sqrt(2)
-    # the square reaches its corners, beyond a disc of the same half width
-    body = placed_bodies(zp, [0.0])[1]
-    a = osa.tip_radius + grown(zp) - 0.01
-    assert body.body.name == "OSA" and body.inside(np.array([[a, -osa.distance, a]])).all()
+    assert room < ((osa.distance - zp.margin) - (reach + zp.margin)) / np.sqrt(2)
+    # the tab is shifted to the analyzer side (-x): it reaches x = +reach on the plate side, the arm sits at -x
+    tab, arm_body = placed_bodies(zp, [0.0])[1:3]
+    s = osa.distance + osa.length / 2
+    g = grown(zp)
+    assert tab.body.name == "OSA" and tab.inside(np.array([[reach + g - 0.01, -s, 0.0]])).all()
+    assert not tab.inside(np.array([[reach + g + 0.05, -s, 0.0]])).any()
+    assert arm_body.body.name == "OSA arm" and arm_body.inside(np.array([[-arm.offset, -(arm.distance + 10), 5.0]])).all()
 
 
 def test_optics_stay_out_of_the_analyzer_acceptance():
@@ -185,8 +190,10 @@ def test_tall_narrow_shield():
     body = [b for b in placed_bodies(geo, [0.0]) if b.body.name == "OSA"][0]
     s = osa.distance + osa.length / 2
     g = SAMPLING_ALLOWANCE
-    inside = lambda x, z: bool(body.inside(np.array([[x, -s, z]]))[0])  # noqa: E731
+    c = -osa.offset  # centre across the beam (the offset is towards the analyzer side, -x)
+    inside = lambda x, z: bool(body.inside(np.array([[c + x, -s, z]]))[0])  # noqa: E731
     assert inside(0.0, osa.height / 2 - 0.1) and not inside(0.0, osa.height / 2 + g + 0.1)
     assert inside(osa.tip_radius - 0.1, 0.0) and not inside(osa.tip_radius + g + 0.1, 0.0)
+    assert inside(-osa.tip_radius + 0.1, 0.0) and not inside(-osa.tip_radius - g - 0.1, 0.0)
     data = CollisionGeometry(optics=(osa,)).to_dict()
     assert CollisionGeometry.from_dict(data).optics[0].height == osa.height
