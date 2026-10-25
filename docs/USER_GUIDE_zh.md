@@ -69,6 +69,23 @@ ANTARES 的光斑在微米量级或更小，而样品托有 18 × 15.5 mm。Quic
 - **Status**：`ok`，或问题说明（超出样品区、重叠、device 不在衬底上）。图上红色的项目有问题。
 - 滚轮 = 缩放，中键拖动 = 平移，右键 = 显示整个托，Del = 删除选中项。
 
+### 从照片识别样品
+
+除了手画，也可以从正上方（样品面）拍一张样品托照片（手机照片即可），让程序找出样品。按 **From photo…**：
+
+![从照片识别样品](images/guide/photo_dialog.png)
+
+1. *Open photo…*，然后按照片上方提示的顺序点击 **样品区的四个角**：左上、右上（tab 一侧）、右下、左下（gating plate：下面两个角是样品区与接触块相交处）。可以拖动标记微调；滚轮 = 缩放，中键拖动 = 平移。
+2. 照片被映射到托的模型上（右图，蓝色轮廓）。检查轮廓是否和照片中的托重合。
+3. 按颜色识别样品（绿色框；品红色 = 被识别的区域）：
+   - *colour different from the bare plate*：与裸托颜色不同的都算，银胶、胶水也会被算进去。如果样品盖住了大部分样品区，按 *Pick bare plate colour* 后在裸托上点一下。
+   - *colour of picked samples*：按 *Pick sample colour*，在右图中点一下样品（每种样品点一次）；只取与这些颜色接近的区域，银胶不会被算进去。
+   - *ΔE threshold*：区分两者的色差（CIELAB）；*min. size* 去掉灰尘；*border left out* 忽略样品区边缘。
+4. 被银胶或引线分成几块的样品会得到几个框：选中这些行（Ctrl + 点击），按 *Merge selected* 合并。不是样品的取消勾选。
+5. 输入 **高度 H**（从上方看不出来；默认为 *Default H*），可以在表格中逐个修改，或用 *Set H of all*，然后按 **Add to plate**。勾选 *Remove the samples already on the plate* 会替换托上已有的样品。
+
+框是识别区域在托坐标中的外接矩形；之后可以像手画的样品一样移动、改大小、添加 device。精度取决于四个角点得准不准（约 0.1–0.3 mm），剩下的误差由 Stage & Optics 页的 *Found here* 修正。全部在本机计算，不联网。
+
 样品画完后，按 **Samples placed → Stage**。
 
 ## Stage & Optics 页：移动到样品

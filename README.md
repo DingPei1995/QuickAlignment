@@ -49,6 +49,12 @@ y up, front view (sample side) with the tab up), not motor positions; the plate 
   *Default H*: height given to new samples, by default a Si wafer substrate (0.525 mm, standard 100 mm wafer).
 - *Status* column: `ok`, or what is wrong with the placement (outside the sample area / substrate, overlapping).
 - wheel = zoom, middle drag = pan, right click = whole plate again
+- **From photo…** (`docs/images/guide/photo_dialog.png`, `quickalignment/photo.py`): samples found on a photo of the
+  plate taken from above (sample side). Click the four corners of the sample area; a homography maps the photo onto
+  the plate model, and samples are the regions whose CIELAB colour differs from the bare plate by more than ΔE, or
+  is within ΔE of colours picked on samples (leaves out silver paint). Each region gives its bounding rectangle in
+  plate coordinates; pieces of one sample can be merged, H is entered by the user (not visible from above). Only
+  numpy + Qt, everything local. Test photo: `tests/data/gating_plate_photo.jpg` (RG_GMC on the gating plate).
 - **Samples placed → Stage**: asks whether all samples are marked on the plate; *Yes* opens the Stage & Optics tab
   with a list of the ST / SZ / SN that put each sample on the analyzer focus at the initial rotation
   (SRn = 120, SRz = 0, PIX = PIY = 150 µm). A substrate carrying devices is listed by its devices only (also in
