@@ -86,25 +86,48 @@ photo is fine). Press **From photo…**:
 
 ![Samples from a photo](images/guide/photo_dialog.png)
 
-1. *Open photo…* and click the **four corners of the sample area** in the order shown above the photo: top left, top
-   right (tab side), bottom right, bottom left (gating plate: the lower corners are where the sample area meets the
-   contact block). Drag the markers to refine; wheel = zoom, middle drag = pan.
+1. *Open photo…*. The right view shows the plate model with the four corners of the sample area numbered **1–4**; the
+   one to click next is **red**. Click that point on the photo, then the next red one (1 top left, 2 top right on the
+   tab side, 3 bottom right, 4 bottom left; gating plate: 3 and 4 are where the sample area meets the contact block).
+   Wheel = zoom (zoom in as far as needed to place the point), middle drag = pan, right click = whole photo; drag the
+   markers afterwards to refine. *Clear points* starts again.
 2. The photo is mapped onto the plate model (right view, blue outlines). Check that the outlines lie on the plate.
+   The cursor shows plate coordinates (x, y in mm) in the right view and on the photo.
 3. Samples are found by their colour (green boxes, magenta = what is taken):
+   - *colour of picked samples* (default): click on a sample, on the photo or in the right view, to pick its colour
+     (*Pick sample colour* for another kind of sample); only regions close to these colours are taken, silver paint
+     and glue are left out.
    - *colour different from the bare plate*: everything on the plate, also silver paint and glue. If samples cover most
      of the sample area, *Pick bare plate colour* and click on bare plate.
-   - *colour of picked samples*: *Pick sample colour* and click on a sample in the right view (once per kind of
-     sample); only regions close to these colours are taken, silver paint is left out.
    - *ΔE threshold*: the colour difference (CIELAB) that separates them; *min. size* drops dust; *border left out*
      ignores the edge of the sample area.
-4. A sample broken up by paint or wires gives several boxes: select their rows (Ctrl + click) and press
-   *Merge selected*. Untick what is not a sample.
+4. Correct by hand: **Draw box** and drag in the right view to add a sample that was not found; click a box (or its
+   row) and **Delete selected** (or Del) to remove a wrong one; select the pieces of a sample broken up by paint or
+   wires (Ctrl + click) and **Merge selected**. These edits are kept when the threshold is changed; *Undo hand edits*
+   forgets them. Untick what is not to be added.
 5. Enter the **height H** (it cannot be seen from above; default: *Default H*), per sample in the table or with *Set H
    of all*, and press **Add to plate**. *Remove the samples already on the plate* replaces the present ones.
 
 The boxes are the bounding rectangles of what was found, in plate coordinates; they can then be moved, resized and
 given devices like drawn samples. The accuracy is set by the corner clicks (about 0.1–0.3 mm); *Found here* in the
 Stage & Optics tab corrects the rest. Everything runs on the computer, nothing is sent anywhere.
+
+### Devices from a close-up photo
+
+A photo of the whole plate often shows only the outline of a substrate. To place its devices, select the substrate
+and press **Device from photo…**, then open a closer photo of it (microscope or camera, from above):
+
+![Devices from a close-up photo](images/guide/device_photo_dialog.png)
+
+1. Click on the photo the four **corners of the substrate** in the order of the red numbers in the right view (as
+   above). If the photo shows the whole sample area instead, choose *reference: corners of the sample area*.
+2. Check that the outline of the substrate (orange) lies on it, then click on each **device** (on the photo or in the
+   right view). The table gives its plate position and its distances dx, dy from the left and bottom edges of the
+   substrate; the cursor shows them too. Rename the devices in the table, delete wrong ones.
+3. **Add to …** adds them to the substrate (other reference edges can be chosen afterwards in the device table).
+
+The devices are placed relative to the substrate: draw or find the substrate first; the devices follow it when it is
+corrected later.
 
 When all samples are drawn, press **Samples placed → Stage**.
 
