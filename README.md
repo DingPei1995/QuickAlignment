@@ -53,12 +53,12 @@ y up, front view (sample side) with the tab up), not motor positions; the plate 
   plate taken from above (sample side). The four sample area corners are numbered in the plate model (next one in
   red) and clicked in that order on the photo; a homography maps the photo onto the plate model (cursor read-out in
   plate mm). Samples are the regions within ΔE (CIELAB) of colours picked on samples (default; leaves out silver
-  paint), or differing from the bare plate by more than ΔE. Boxes can be drawn, deleted and merged by hand (kept when
-  the detection runs again); H is entered by the user (not visible from above). Only numpy + Qt, everything local.
-  Test photo: `tests/data/gating_plate_photo.jpg` (RG_GMC on the gating plate).
-- **Device from photo…** (`docs/images/guide/device_photo_dialog.png`): devices of the selected substrate located on a
-  close-up photo: click the four substrate corners (or the sample area corners), then the devices; they are added
-  with dx, dy from the left / bottom substrate edges.
+  paint), or differing from the bare plate by more than ΔE. All listed boxes are added; boxes are selected by clicking
+  and deleted / merged, or drawn by hand (kept when the detection runs again); H is entered by the user (not visible
+  from above). Tab 2 (`docs/images/guide/photo_devices.png`, `ui/device_match.py`): devices located on a second photo
+  (microscope) matched to a crop of the plate photo around a substrate by point pairs the user marks on both (2 pairs:
+  similarity, 3: affine, ≥ 4: perspective, with the residual); devices have no height and are added to the sample they
+  lie on. Only numpy + Qt, everything local. Test photo: `tests/data/gating_plate_photo.jpg` (RG_GMC, gating plate).
 - **Samples placed → Stage**: asks whether all samples are marked on the plate; *Yes* opens the Stage & Optics tab
   with a list of the ST / SZ / SN that put each sample on the analyzer focus at the initial rotation
   (SRn = 120, SRz = 0, PIX = PIY = 150 µm). A substrate carrying devices is listed by its devices only (also in

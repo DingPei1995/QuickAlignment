@@ -101,33 +101,40 @@ photo is fine). Press **From photo…**:
      of the sample area, *Pick bare plate colour* and click on bare plate.
    - *ΔE threshold*: the colour difference (CIELAB) that separates them; *min. size* drops dust; *border left out*
      ignores the edge of the sample area.
-4. Correct by hand: **Draw box** and drag in the right view to add a sample that was not found; click a box (or its
-   row) and **Delete selected** (or Del) to remove a wrong one; select the pieces of a sample broken up by paint or
-   wires (Ctrl + click) and **Merge selected**. These edits are kept when the threshold is changed; *Undo hand edits*
-   forgets them. Untick what is not to be added.
+4. Correct by hand. Every box in the list is added; *select* boxes by clicking them in the right view (Ctrl + click:
+   several) or their rows, then: **Delete selected** (or Del) removes what is not a sample, **Merge selected** joins the
+   pieces of a sample broken up by paint or wires. **Draw box** and drag in the right view adds a sample that was not
+   found. These edits are kept when the threshold is changed; *Undo hand edits* forgets them.
 5. Enter the **height H** (it cannot be seen from above; default: *Default H*), per sample in the table or with *Set H
-   of all*, and press **Add to plate**. *Remove the samples already on the plate* replaces the present ones.
+   of all*.
+6. Optionally locate the devices on a second photo (tab 2, below), then press **Add to plate**. *Remove the samples
+   already on the plate* replaces the present ones.
 
 The boxes are the bounding rectangles of what was found, in plate coordinates; they can then be moved, resized and
 given devices like drawn samples. The accuracy is set by the corner clicks (about 0.1–0.3 mm); *Found here* in the
 Stage & Optics tab corrects the rest. Everything runs on the computer, nothing is sent anywhere.
 
-### Devices from a close-up photo
+#### Tab 2: devices from a second photo
 
-A photo of the whole plate often shows only the outline of a substrate. To place its devices, select the substrate
-and press **Device from photo…**, then open a closer photo of it (microscope or camera, from above):
+The plate photo shows where a substrate is, but usually not its devices; a closer photo (microscope, camera) shows the
+devices but often not the substrate edges. The two photos are matched by points you mark on both:
 
-![Devices from a close-up photo](images/guide/device_photo_dialog.png)
+![Devices from a second photo](images/guide/photo_devices.png)
 
-1. Click on the photo the four **corners of the substrate** in the order of the red numbers in the right view (as
-   above). If the photo shows the whole sample area instead, choose *reference: corners of the sample area*.
-2. Check that the outline of the substrate (orange) lies on it, then click on each **device** (on the photo or in the
-   right view). The table gives its plate position and its distances dx, dy from the left and bottom edges of the
-   substrate; the cursor shows them too. Rename the devices in the table, delete wrong ones.
-3. **Add to …** adds them to the substrate (other reference edges can be chosen afterwards in the device table).
+1. Choose the **substrate** (or select its box in tab 1). The left view shows the plate photo around it, already in
+   plate coordinates. **Open device photo…** (right view).
+2. *mark the same point on both*: click a feature on the left that you also see on the device photo (a paint dot, a
+   pattern corner, a scratch), then the same feature on the right; numbered markers, draggable. With 2 pairs the device
+   photo is placed by rotation + scale + shift, with 3 by an affine map, with 4 or more by a perspective map. The line
+   above the views gives the mismatch of the points (µm): with more pairs than needed it shows a wrong point. The
+   substrate outline (orange) is drawn on the device photo as a check.
+3. *mark devices*: click on each device in the device photo (or on the left). The table gives its plate position, its
+   substrate and dx, dy from the left / bottom substrate edges; rename the devices there, delete wrong ones. Devices have
+   no height: they are on the surface of their substrate.
+4. Another device photo (for another substrate, or another part) can be opened: the devices already marked keep their
+   positions. *Add to plate* adds each device to the sample it lies on (devices on no sample are left out).
 
-The devices are placed relative to the substrate: draw or find the substrate first; the devices follow it when it is
-corrected later.
+The accuracy is that of the plate photo (corner clicks, 0.1–0.3 mm) plus the point matching.
 
 When all samples are drawn, press **Samples placed → Stage**.
 

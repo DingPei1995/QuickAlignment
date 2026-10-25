@@ -101,30 +101,35 @@ def quickalignment_shots(app, store: CalibrationStore) -> None:
     photo.reg.plate_view.fit()
     photo.reg._show_cursor(1.51, 2.82)
     save(photo, "photo_dialog", app)
-    photo.close()
 
-    # devices on a substrate from a second photo: RG_GMC as found above, device R7G clicked
-    from quickalignment.photo import apply_homography, corner_points, homography
-    from quickalignment.ui.device_photo_dialog import DevicePhotoDialog
+    # tab 2, devices from a second photo. Stand-in for a closer photo: a crop of the same photo around the
+    # substrate, turned by 90°, so the matched points (paint dots, centre hole) are surely the same; device R7G
+    # clicked where the capillary configuration fit puts it
+    from quickalignment.photo import apply_homography
 
-    chip = Sample("RG_GMC", u=1.375, v=3.3, length=7.35, width=7.7, height=0.525)
-    h = homography([p for _, p in corner_points(GATING_PLATE)], REAL_CORNERS)
-    u0, v0, u1, v1 = chip.bounds()
-    dev = DevicePhotoDialog(SampleLayout(plate=GATING_PLATE, samples=[chip]), chip)
-    dev.resize(1400, 900)
-    dev.show()
-    dev.load_photo(str(REAL_PHOTO))
-    dev.file_label.setText(REAL_PHOTO.name)
-    dev.reg.set_corners(apply_homography(h, [(u0, v1), (u1, v1), (u1, v0), (u0, v0)]))
-    dev.add_device(1.51, 2.82)
-    dev.new[0] = ("R7G", 1.51, 2.82)
-    dev._fill_table()
+    panel = photo.devices_panel
+    photo.tabs.setCurrentIndex(1)
+    panel.select_substrate("S1")
+    corners = apply_homography(photo.reg.h, [(-2.3, -0.55), (5.05, -0.55), (5.05, 7.15), (-2.3, 7.15)])
+    x0, y0 = (int(c) for c in corners.min(axis=0))
+    x1, y1 = (int(c) + 1 for c in corners.max(axis=0))
+    crop = photo.reg.photo[y0:y1, x0:x1]
+    panel.set_photo(np.ascontiguousarray(np.rot90(crop, k=-1)))  # clockwise: (x, y) -> (height - y, x)
+    panel.file_label.setText("close-up (stand-in)")
+    plate_pts = [(0.95, 3.2), (0.5, 4.45), (2.0, 2.05), (0.1, 2.1)]
+    xy = apply_homography(photo.reg.h, plate_pts) - (x0, y0)
+    panel.set_pairs(plate_pts, [(crop.shape[0] - y, x) for x, y in xy])
+    panel.device_radio.setChecked(True)
+    (x, y), = apply_homography(photo.reg.h, [(1.51, 2.82)]) - (x0, y0)
+    panel._on_right_click(crop.shape[0] - y, x)
+    panel.devices[0].name = "R7G"
+    panel._fill_table()
+    photo._on_devices_changed()
     settle(app)
-    dev.reg.photo_view.fit()
-    dev.reg.zoom_to(dev._view_bounds())
-    dev.reg._show_cursor(1.51, 2.82)
-    save(dev, "device_photo_dialog", app)
-    dev.close()
+    panel.right_view.fit()
+    panel._show_cursor(1.51, 2.82)
+    save(photo, "photo_devices", app)
+    photo.close()
 
     # samples placed -> start positions in the Stage & Optics tab
     win.resize(1450, 1000)
