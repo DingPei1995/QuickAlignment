@@ -97,9 +97,21 @@ SRz axis 2.59 ± 0.39 mm behind the standard riser top and −0.23 ± 0.23 mm al
 ST0 −0.950, SZ0 40.630; capillary CPS 59.69 on the analyzer focus. ST0 and SN_f cannot be told apart by these data
 (no measurement on the analyzer focus): SN_f = −0.525 is taken so that the measured surfaces (SN ≈ 0) were in the
 analyzer focal plane. The first configuration from RG_GMC alone (`…_234000_capillary.json`, ST0 fixed at 0) is
-1.3 mm off in ST for Cav.
+1.3 mm off in ST for Cav. ST0 agrees with experience (plate centre at ST ≈ −1 without rotation). SZ0 and the
+CPS reference probably depend on the capillary alignment (pitch): all four measurements were made after the same
+alignment. After realigning the capillary, run InitialCalibration with *optics only* (one set at SRn 120 / SRz 0;
+SN_f and the axes are kept).
 
 ### Initial calibration (`InitialCalibration.py`, `docs/initial_calibration.png`)
+
+At start-up the program asks what was recalibrated (`docs/initial_calibration_mode.png`):
+
+- **Optics only** (default, the usual case: capillary / zone plate realigned): ST0, SZ0 and the optic reference are
+  fitted; SN_f, the SRn axis and the SRz axis offsets are kept from the newest configuration of the chosen optic. The
+  sets are measured as the stage is run: SN left as it is, feature onto the beam with ST / SZ, optic refocused. One set
+  (SRn 120, SRz 0) is enough; sets with SRn / SRz rotated check the kept axes (warning above 0.02 mm rms: the mechanics
+  have changed, use optics + motors). Not offered when there is no configuration yet.
+- **Optics + motors** (re-homing, maintenance, first use): all constants, as below.
 
 Separate program for the first start or after re-homing the motors: beamline staff measure one reference
 feature in 3 (minimum) or 5 (recommended) stage orientations, the constants are fitted and saved as a new

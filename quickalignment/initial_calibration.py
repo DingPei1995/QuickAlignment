@@ -24,6 +24,15 @@ where `optic_focus` is the optic position focusing on the analyzer focus. In a
 set the feature is at the analyzer focus, so a noted optic position measures
 `optic_focus` directly; it is fitted together with the stage constants.
 
+Optics only (mode "optics", the usual case): after the focusing optic was
+realigned, the beam moves on the stage, but the mechanics stay. Only ST0,
+SZ0 (where the beam meets the plate) and the optic reference are fitted; SN_f
+and the SRn / SRz axes are kept from the newest configuration. The sets are
+then measured as the stage is run: SN left as it is (not moved to the analyzer
+focus), the feature brought onto the beam with ST / SZ and the optic
+refocused; every set gives ST, SZ (and optic) like an answered test point.
+One set is enough; more sets at other rotations check the kept mechanics.
+
 Test points: after a fit, the feature is predicted at other rotations (ST, SZ,
 SN and optic). Beamline staff go there; if the feature is not on the beam in
 focus, they keep SRn, SRz and SN, bring it onto the beam with ST / SZ, focus
@@ -46,6 +55,8 @@ from .geometry import PlateGeometry
 from .stage import OPTIC_TYPES, MotorPositions, OpticsCalibration, StageConfig, StageModel
 
 FIT_PARAMS = ("st0", "sz0", "sn_f", "srn_axis_u", "srn_axis_v", "srz_offset_t", "srz_offset_n")
+# what was recalibrated: "optics" = only the focusing optic (the usual case), "full" = optics + motors (re-homing)
+MODE_PARAMS = {"optics": ("st0", "sz0"), "full": FIT_PARAMS}
 FOUND_TOLERANCE = 0.05  # mm: the feature is "found" within this of the prediction
 OPTIC_PARAM = "optic_focus"  # fitted as well when any optic position was noted
 PARAM_LABELS = {
@@ -88,8 +99,15 @@ class MeasurementSet:
         return MotorPositions(st=self.st, sn=self.sn, sz=self.sz, srn=self.srn, srz=self.srz, pix=self.pix, piy=self.piy)
 
 
-def protocol_sets(srn_ref: float = 120.0) -> list[MeasurementSet]:
-    """The recommended sets: 1-3 are the minimum, 4-5 add redundancy."""
+def protocol_sets(srn_ref: float = 120.0, mode: str = "full") -> list[MeasurementSet]:
+    """The recommended sets. Full: 1-3 are the minimum, 4-5 add redundancy.
+    Optics only: set 1 is enough, 2-3 check the kept SRn / SRz axes."""
+    if mode == "optics":
+        return [
+            MeasurementSet("1 reference", srn_ref, 0.0),
+            MeasurementSet("2 SRn rotated (check)", srn_ref + 20.0, 0.0),
+            MeasurementSet("3 SRz rotated (check)", srn_ref, -20.0),
+        ]
     return [
         MeasurementSet("1 reference", srn_ref, 0.0),
         MeasurementSet("2 SRn rotated", srn_ref + 20.0, 0.0),
@@ -199,24 +217,32 @@ class FitResult:
     optic_focus: float | None  # optic position focusing on the analyzer focus; None: no optic position noted
     params: tuple[str, ...]
     sigma: dict[str, float] | None  # 1-sigma uncertainties, only with redundant data
-    residuals: list[tuple[str, float, float, float]]  # per set: model - measured (ST, SZ, SN)
+    residuals: list[tuple[str, float, float, float | None]]  # per set: model - measured (ST, SZ, SN)
     rms: float
     dof: int
     sets: list[MeasurementSet] = field(default_factory=list)
     optic_residuals: list[tuple[str, float]] = field(default_factory=list)  # sets with an optic position
     tests: list[TestPoint] = field(default_factory=list)  # test points with real positions, fitted
     test_residuals: list[tuple[str, float, float, float | None]] = field(default_factory=list)  # ST, SZ, optic
+    mode: str = "full"  # optics only: SN residual None (SN kept as measured)
 
 
-def _residual_vector(config, optic_focus, plate, uvw, sets, tests) -> np.ndarray:
+def _residual_vector(config, optic_focus, plate, uvw, sets, tests, keep_sn=False) -> np.ndarray:
+    """keep_sn: the sets were measured with SN as it was (feature on the beam, optic refocused), not at the
+    analyzer focus: ST, SZ (and optic) per set, like an answered test point."""
     model = StageModel(config, plate)
     out = []
     for s in sets:
-        m = model.motors_for_target(*uvw, srn=s.srn, srz=s.srz, pix=s.pix, piy=s.piy)
-        out += [m.st - s.st, m.sz - s.sz, m.sn - s.sn]
+        if keep_sn:
+            st, sz, _ = on_beam(model, uvw, s.srn, s.srz, s.sn, s.pix, s.piy, None)
+            out += [st - s.st, sz - s.sz]
+        else:
+            m = model.motors_for_target(*uvw, srn=s.srn, srz=s.srz, pix=s.pix, piy=s.piy)
+            out += [m.st - s.st, m.sz - s.sz, m.sn - s.sn]
     for s in sets:
         if optic_focus is not None and s.optic is not None:
-            out.append(optic_focus - s.optic)
+            optic = on_beam(model, uvw, s.srn, s.srz, s.sn, s.pix, s.piy, optic_focus)[2] if keep_sn else optic_focus
+            out.append(optic - s.optic)
     for t in tests:
         st, sz, optic = on_beam(model, uvw, t.srn, t.srz, t.sn, t.pix, t.piy, optic_focus)
         real_st, real_sz, real_optic = t.real()
@@ -232,24 +258,28 @@ def fit_initial_calibration(
     ref_uvw: tuple[float, float, float],
     base: StageConfig | None = None,
     tests: list[TestPoint] | None = None,
+    mode: str = "full",
 ) -> FitResult:
-    """Least-squares fit of the 7 stage constants (and the optic focus position, if any optic
-    position was noted) to the sets and the answered test points (Gauss-Newton, numerical
-    Jacobian); `base` gives the start values and the constants that are not fitted."""
+    """Least-squares fit of the stage constants of `mode` (full: all 7; optics: ST0, SZ0, with the
+    sets measured at the SN they had) and the optic focus position, if any optic position was
+    noted, to the sets and the answered test points (Gauss-Newton, numerical Jacobian); `base`
+    gives the start values and the constants that are not fitted (optics: from the newest
+    configuration)."""
     base = base or StageConfig()
+    fit_params, keep_sn = MODE_PARAMS[mode], mode == "optics"
     sets = [s for s in sets if s.use]
     tests = [t for t in tests or [] if t.measured]  # found points only confirm
     optics = [s.optic for s in sets if s.optic is not None] + [t.real()[2] for t in tests if t.real()[2] is not None]
     with_optic = bool(optics)
-    params = FIT_PARAMS + ((OPTIC_PARAM,) if with_optic else ())
-    x = np.array([getattr(base, p) for p in FIT_PARAMS] + ([float(np.mean(optics))] if with_optic else []), float)
+    params = fit_params + ((OPTIC_PARAM,) if with_optic else ())
+    x = np.array([getattr(base, p) for p in fit_params] + ([float(np.mean(optics))] if with_optic else []), float)
 
     def unpack(xv):
-        config = replace(base, **{p: float(v) for p, v in zip(FIT_PARAMS, xv)})
-        return config, (float(xv[len(FIT_PARAMS)]) if with_optic else None)
+        config = replace(base, **{p: float(v) for p, v in zip(fit_params, xv)})
+        return config, (float(xv[len(fit_params)]) if with_optic else None)
 
     def res(xv):
-        return _residual_vector(*unpack(xv), plate, ref_uvw, sets, tests)
+        return _residual_vector(*unpack(xv), plate, ref_uvw, sets, tests, keep_sn)
 
     def jacobian(xv):
         r0 = res(xv)
@@ -261,7 +291,7 @@ def fit_initial_calibration(
         return jac
 
     if not sets:
-        raise NotEnoughData(list(FIT_PARAMS))
+        raise NotEnoughData(list(fit_params))
     for _ in range(30):
         r, jac = res(x), jacobian(x)
         _, sv, vt = np.linalg.svd(jac, full_matrices=True)
@@ -284,8 +314,9 @@ def fit_initial_calibration(
     config, optic_focus = unpack(x)
 
     # per-measurement residuals, in the order of _residual_vector
-    per_set = [(s.name, *map(float, r[3 * i: 3 * i + 3])) for i, s in enumerate(sets)]
-    k = 3 * len(sets)
+    n = 2 if keep_sn else 3
+    per_set = [(s.name, *map(float, r[n * i: n * i + n]), *([None] if keep_sn else [])) for i, s in enumerate(sets)]
+    k = n * len(sets)
     optic_res = []
     for s in sets:
         if optic_focus is not None and s.optic is not None:
@@ -301,12 +332,14 @@ def fit_initial_calibration(
             k += 1
         test_res.append((t.name, d_st, d_sz, d_optic))
     rms = float(np.sqrt(np.mean(r**2))) if len(r) else 0.0
-    return FitResult(config, optic_focus, params, sigma, per_set, rms, dof, sets, optic_res, tests, test_res)
+    return FitResult(config, optic_focus, params, sigma, per_set, rms, dof, sets, optic_res, tests, test_res, mode)
 
 
 def optics_calibration(result: FitResult, plate: PlateGeometry, ref_uvw, optic_type: str = OPTIC_TYPES[0]) -> OpticsCalibration:
     """The optics reference of the main program: the stage as in the first set, the beam on the
-    feature's surface, and the optic position focusing there (optic + = towards the sample)."""
+    feature's surface, and the optic position focusing there (optic + = towards the sample).
+    Valid for both modes: the beam meets the surface at y_ref, the optic focus is at
+    y = optic - optic_focus."""
     if result.optic_focus is None or not result.sets:
         return OpticsCalibration(optic_type=optic_type)
     cal = OpticsCalibration(enabled=True, motors=result.sets[0].motors(), surface_w=ref_uvw[2], optic_type=optic_type)
@@ -335,6 +368,9 @@ def initial_record(
     rounds = max((t.round for t in tests if t.answered), default=0)
     check = {
         "type": "initial calibration",
+        "mode": result.mode,
+        **({"kept": {p: getattr(result.config, p) for p in FIT_PARAMS if p not in result.params}}
+           if result.mode != "full" else {}),
         "plate": plate.key,
         "reference_uvw": list(ref_uvw),
         "sets": [asdict(s) for s in result.sets],
@@ -349,7 +385,8 @@ def initial_record(
         check["previous"] = previous
     extra = f", {rounds} test round(s)" if rounds else ""
     return CalibrationRecord(
-        comment=comment or f"initial calibration ({len(result.sets)} sets{extra}, rms {result.rms * 1000:.1f} um)",
+        comment=comment or (f"{'optics recalibration' if result.mode == 'optics' else 'initial calibration'} "
+                            f"({len(result.sets)} sets{extra}, rms {result.rms * 1000:.1f} um)"),
         config=result.config,
         optics=optics_calibration(result, plate, ref_uvw, optic_type),
         check=check,

@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 import numpy as np
 import pytest
 
@@ -175,3 +177,35 @@ def test_saved_configuration_is_used_by_quickalignment(tmp_path, optic):
         assert (m.st, m.sz, m.sn) == pytest.approx((s.st, s.sz, s.sn), abs=1e-6)
         beam = focus_correction(model, s.motors(), layout, loaded.optics)
         assert beam.target == "ref" and beam.required_optic_position == pytest.approx(20.0, abs=1e-6)
+
+
+def _optics_sets(truth, focus, sn=0.3, plate=GATING_PLATE):
+    """Sets measured as the stage is run: SN left at `sn`, feature on the beam, optic refocused."""
+    sets = protocol_sets(mode="optics")
+    model = StageModel(truth, plate)
+    for s in sets:
+        s.sn = sn
+        s.st, s.sz, s.optic = on_beam(model, REF, s.srn, s.srz, sn, s.pix, s.piy, focus)
+    return sets
+
+
+def test_optics_only_fits_st0_sz0_and_optic_keeping_the_mechanics():
+    old = replace(TRUE, st0=0.0, sz0=40.0)  # newest configuration: right mechanics, beam before the realignment
+    sets = _optics_sets(TRUE, FOCUS)
+    assert [s.srz for s in sets] == [0.0, 0.0, -20.0]
+    one = fit_initial_calibration(sets[:1], GATING_PLATE, REF, base=old, mode="optics")
+    assert one.params == ("st0", "sz0", "optic_focus") and one.dof == 0
+    assert np.allclose(params(one.config), params(TRUE), atol=1e-7) and one.optic_focus == pytest.approx(FOCUS)
+    assert one.residuals[0][3] is None  # SN kept as measured: no SN residual
+    res = fit_initial_calibration(sets, GATING_PLATE, REF, base=old, mode="optics")
+    assert res.dof == 6 and res.rms < 1e-8
+    rec = initial_record(res, GATING_PLATE, REF, optic_type="capillary")
+    assert rec.check["mode"] == "optics" and rec.check["kept"]["srz_offset_n"] == TRUE.srz_offset_n
+    assert rec.comment.startswith("optics recalibration")
+    assert optic_focus_of(rec, GATING_PLATE) == pytest.approx(FOCUS)
+
+
+def test_optics_only_check_sets_show_changed_mechanics():
+    sets = _optics_sets(replace(TRUE, srz_offset_n=TRUE.srz_offset_n + 1.0), FOCUS)  # SRz axis moved
+    res = fit_initial_calibration(sets, GATING_PLATE, REF, base=TRUE, mode="optics")
+    assert res.config.srz_offset_n == TRUE.srz_offset_n and res.rms > 0.05
