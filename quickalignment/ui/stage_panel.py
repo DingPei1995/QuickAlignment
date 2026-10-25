@@ -312,31 +312,30 @@ class StagePanel(QtWidgets.QWidget):
         self._fill_distances()
 
     def _fill_distances(self) -> None:
-        """One field per optic solid: the distance of its front from the focus (working distance). A part of
-        another solid ("OSA arm" of "OSA") has no field: it moves with it."""
+        """One field per optic assembly (the capillary is one, whatever its parts): the distance of its front
+        from the focus (working distance)."""
         while self.distance_form.rowCount():
             self.distance_form.removeRow(0)
         self.distance_boxes = []
         optics = self.record.collision_geometry().optics
-        for i, body in enumerate(optics):
-            if any(body.name.startswith(f"{other.name} ") for other in optics):
-                continue
-            box = spin(body.distance, 0, 500, 2, 0.5)
-            box.setToolTip(f"Distance of the {body.name} front from the focus along the beam, used by the anti-collision\n"
+        for name in dict.fromkeys(b.assembly for b in optics):  # in order, once each
+            parts = [b for b in optics if b.assembly == name]
+            box = spin(min(b.distance for b in parts), 0, 500, 2, 0.5)
+            box.setToolTip(f"Distance of the {name} front from the focus along the beam, used by the anti-collision\n"
                            "check (for this session; beamline staff keep it in the configuration). "
-                           + ("It moves with the optic motor." if body.moves else
+                           + ("It moves with the optic motor." if parts[0].moves else
                               "It stays put when the optic refocuses (placed for the configuration's optics reference)."))
-            box.valueChanged.connect(lambda value, i=i: self._set_distance(i, value))
-            self.distance_form.addRow(f"{body.name} working distance", box)
+            box.valueChanged.connect(lambda value, name=name: self._set_distance(name, value))
+            self.distance_form.addRow(f"{name} working distance", box)
             self.distance_boxes.append(box)
 
-    def _set_distance(self, index: int, value: float) -> None:
+    def _set_distance(self, name: str, value: float) -> None:
+        """Move the whole assembly `name` so that its front is `value` from the focus."""
         geo = self.record.collision_geometry()
         optics = list(geo.optics)
-        main = optics[index]
-        shift = value - main.distance
-        for i, body in enumerate(optics):  # the solid and its parts
-            if i == index or body.name.startswith(f"{main.name} "):
+        shift = value - min(b.distance for b in optics if b.assembly == name)
+        for i, body in enumerate(optics):
+            if body.assembly == name:
                 optics[i] = replace(body, distance=body.distance + shift)
         self.record = replace(self.record, collision=replace(geo, optics=tuple(optics)))
         self.limits_label.hide()  # computed for the old distances

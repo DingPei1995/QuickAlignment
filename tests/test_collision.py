@@ -86,7 +86,7 @@ def test_capillary_limit_and_analyzer():
     first = min(rooms, key=rooms.get)
     assert first == "capillary head"
     lim = motor_limits(model, m, layout, CAP, [0.0], TRAVEL)["sn"]
-    assert lim.lo_by == first and rooms[first] <= m.sn - lim.lo < rooms[first] + SAMPLING_ALLOWANCE
+    assert lim.lo_by == "capillary" and rooms[first] <= m.sn - lim.lo < rooms[first] + SAMPLING_ALLOWANCE
     # without the optic the analyzer nose, 30 mm from the focal plane, is the limit
     bare = replace(CAP, optics=())
     lim = motor_limits(model, m, layout, bare, [0.0], TRAVEL)["sn"]
