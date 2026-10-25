@@ -12,12 +12,13 @@
 from __future__ import annotations
 
 from ._qt import QtCore, QtWidgets
-from .stage_panel import FOCUS_WARNING, MOTOR_SPECS, MotorForm, align_labels, equal_row, out_of_range, spin
+from .stage_panel import (
+    FOCUS_WARNING, MOTOR_SPECS, TRAVEL, MotorForm, align_labels, equal_row, out_of_range, set_range, spin,
+)
 from ..rotation import relocate
 
 Qt = QtCore.Qt
 
-LIMITS = {name: MOTOR_SPECS[name][1:3] for name in ("st", "sn", "sz")}
 COLLISION_STYLE = "<br><span style='color:#b00'><b>Collision: the plate would touch {}.</b></span>"
 
 
@@ -48,9 +49,8 @@ class RotationPanel(QtWidgets.QWidget):
         nb.addLayout(equal_row(copy_btn))
 
         # -- 2. wanted angles ------------------------------------------------------------
-        label, lo, hi, dec, step, suffix = MOTOR_SPECS["srn"]
-        self.new_srn = spin(120.0, lo, hi, dec, step, suffix)
-        self.new_srz = spin(0.0, lo, hi, dec, step, suffix)
+        self.new_srn = spin(120.0, *MOTOR_SPECS["srn"][1:])
+        self.new_srz = spin(0.0, *MOTOR_SPECS["srz"][1:])
         compute_btn = QtWidgets.QPushButton("Compute new position")
         compute_btn.setMinimumHeight(34)
         compute_btn.setStyleSheet("font-weight: bold;")
@@ -124,6 +124,15 @@ class RotationPanel(QtWidgets.QWidget):
         name = self.optic_name()
         self.optic_label.setText(f"{name[0].upper()}{name[1:]} position")
 
+    def apply_limits(self) -> None:
+        """Input ranges from the motor limits in use (Configuration window)."""
+        self.measured.apply_limits()
+        set_range(self.new_srn, "srn")
+        set_range(self.new_srz, "srz")
+        if self._bz_dialog is not None:
+            set_range(self._bz_dialog.map_srn, "srn")
+            set_range(self._bz_dialog.map_srz, "srz")
+
     def open_bz_target(self) -> None:
         from .bz_target_dialog import BZTargetDialog
 
@@ -147,7 +156,7 @@ class RotationPanel(QtWidgets.QWidget):
         common = dict(recentre_piezo=True, default_height=self._height_getter())
         try:
             self.result = relocate(*args, keep_sn=True, **common)
-            self.corrected = relocate(*args, to_analyzer_focus=True, limits=LIMITS, **common)
+            self.corrected = relocate(*args, to_analyzer_focus=True, limits=TRAVEL, **common)
         except ValueError as exc:
             self.result = self.corrected = None
             self.result_label.setText(f"<b>{exc}</b>")

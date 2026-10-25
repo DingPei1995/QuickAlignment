@@ -292,8 +292,10 @@ def test_configuration_dialog_is_read_only(window):
     new = window.store.save(CalibrationRecord(comment="new", config=StageConfig(st0=0.2)), now=datetime(2026, 2, 1))
     window.open_calibration()
     assert dlg.isVisible() and "InitialCalibration" in dlg.findChildren(QtWidgets.QLabel)[-2].text()
-    # nothing to edit, check or save in QuickAlignment
-    assert not dlg.findChildren(QtWidgets.QDoubleSpinBox) and not dlg.findChildren(QtWidgets.QLineEdit)
+    # the constants cannot be edited in QuickAlignment: the only input fields are the motor limits
+    limit_boxes = {b for pair in dlg.limit_boxes.values() for b in pair}
+    assert set(dlg.findChildren(QtWidgets.QDoubleSpinBox)) == limit_boxes
+    assert all(e.parent() in limit_boxes for e in dlg.findChildren(QtWidgets.QLineEdit))
     assert [r.comment for r in dlg._records] == ["new", "old"]
     dlg.history.setCurrentIndex(1)
     dlg.use_selected()  # an older configuration for this session
@@ -760,3 +762,43 @@ def test_stage_schematic_cursor_readout(window):
     assert "x = 2.00, y = 3.00" in text and "on S1" in text
     canvas.callbacks.process("motion_notify_event", MouseEvent("motion_notify_event", canvas, 1, 1))
     assert stage.cursor_label.text() == "cursor: ST = –, SZ = –"
+
+
+def test_motor_limits_set_in_the_configuration_window(window, tmp_path):
+    from quickalignment.calibration import CalibrationStore
+    from quickalignment.ui import stage_panel as sp
+
+    dlg = window.cal_dialog
+    try:
+        dlg.refresh()
+        assert dlg.limit_boxes["st"][0].value() == sp.DEFAULT_LIMITS["st"][0]
+        lo, hi = dlg.limit_boxes["sn"]
+        lo.setValue(-5.0)
+        hi.setValue(20.0)
+        dlg.limit_boxes["srz"][1].setValue(15.0)
+        assert dlg.apply_limits()
+        assert sp.current_limits()["sn"] == (-5.0, 20.0)
+        assert sp.TRAVEL["sn"] == (-5.0, 20.0)
+        box = window.stage.motors.boxes["sn"]
+        assert (box.minimum(), box.maximum()) == (-5.0, 20.0)
+        assert window.rotation.new_srz.maximum() == 15.0
+        assert [t[:2] for t in sp.out_of_range(replace(window.stage.motors.value(), sn=30.0))] == ["SN"]
+        # saved and used again at the next start
+        assert CalibrationStore(tmp_path / "configs").motor_limits()["sn"] == (-5.0, 20.0)
+        win2 = MainWindow(store=CalibrationStore(tmp_path / "configs"))
+        assert win2.stage.motors.boxes["sn"].maximum() == 20.0
+        win2.close()
+        # min must be below max: refused, nothing changed
+        hi.setValue(-10.0)
+        qt_box = QtWidgets.QMessageBox
+        orig, qt_box.warning = qt_box.warning, staticmethod(lambda *a, **k: None)
+        try:
+            assert not dlg.apply_limits()
+        finally:
+            qt_box.warning = orig
+        assert sp.current_limits()["sn"] == (-5.0, 20.0)
+        dlg.reset_limits()
+        assert dlg.apply_limits()
+        assert sp.current_limits() == sp.DEFAULT_LIMITS
+    finally:
+        sp.set_motor_limits(sp.DEFAULT_LIMITS)

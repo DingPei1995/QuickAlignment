@@ -262,7 +262,10 @@ first use of a new kind of measurement, check that the point appears where the p
   saving fails (disk full, no permission), the previous file stays intact and a message tells you why.
 - **Change plate…**: another plate; the samples are kept and misplaced ones are flagged.
 - **Configuration…**: read-only view of the configuration in use (stage constants and optics reference), made by
-  the beamline staff. An older configuration can be chosen for this session.
+  the beamline staff. An older configuration can be chosen for this session. Under *Motor limits* the min / max of
+  ST, SZ, SN, SRn and SRz can be changed by hand (*Defaults* restores the built-in ones); *Apply limits* uses them for
+  the input fields, the out-of-range and the anti-collision checks, and saves them in `configs/motor_limits.json`
+  for the next starts.
 
 ![Configuration window](images/guide/configuration_dialog.png)
 

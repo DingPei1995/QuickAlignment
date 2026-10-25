@@ -131,6 +131,7 @@ SRn = 120°（托竖直、tab 朝上）为机械参考；标定时 PIX = PIY = 1
 - 如果该元件没有文件，则使用最新文件的样品台常数，并显示元件位置未标定。
 - `configs/` 中损坏或无关的文件会被跳过。要撤回一个错误的配置，请把文件移出 `configs/`（不要修改文件）。
 - 用户可以在 *Configuration…*（只读）中为自己的 session 选择较早的配置。
+- ST、SZ、SN、SRn、SRz 的运动极限可在 *Configuration…* → *Motor limits* 中修改，保存在 `configs/motor_limits.json`（删除该文件即恢复内置极限）。
 
 ### 防碰撞实体模型
 

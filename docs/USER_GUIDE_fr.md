@@ -275,6 +275,9 @@ lors d'un nouveau type de mesure, vérifier que le point apparaît là où l'ape
 - **Change plate…** : une autre plaquette ; les échantillons sont gardés et ceux mal placés sont signalés.
 - **Configuration…** : vue en lecture seule de la configuration utilisée (constantes de la platine et référence
   optique), faite par le personnel de la ligne. Une configuration plus ancienne peut être choisie pour la session.
+  Sous *Motor limits*, les limites min / max de ST, SZ, SN, SRn et SRz peuvent être modifiées à la main (*Defaults*
+  remet celles par défaut) ; *Apply limits* les utilise pour les champs de saisie, les contrôles de course et
+  anticollision, et les enregistre dans `configs/motor_limits.json` pour les démarrages suivants.
 
 ![Fenêtre de configuration](images/guide/configuration_dialog.png)
 

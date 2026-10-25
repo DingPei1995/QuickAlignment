@@ -177,7 +177,7 @@ ANTARES 的光斑在微米量级或更小，而样品托有 18 × 15.5 mm。Quic
 
 - **New / Open… / Save**（工具栏）：一个 session 保存样品托、样品和 device（包括修正）以及电机位置，存为一个 JSON 文件。第一次 *Save* 时会询问文件名。文件以安全方式写入：如果保存失败（磁盘满、无权限），原文件保持不变，并提示原因。
 - **Change plate…**：更换样品托；样品保留，位置不合适的会被标出。
-- **Configuration…**：只读查看当前使用的配置（样品台常数和光学参考），由线站人员制作。可以为本次 session 选择较早的配置。
+- **Configuration…**：只读查看当前使用的配置（样品台常数和光学参考），由线站人员制作。可以为本次 session 选择较早的配置。在 *Motor limits* 中可以手动修改 ST、SZ、SN、SRn、SRz 的运动极限（最小 / 最大值，*Defaults* 恢复默认值）；*Apply limits* 将其用于输入框、超出行程和防碰撞检查，并保存到 `configs/motor_limits.json`，以后启动时继续使用。
 
 ![配置窗口](images/guide/configuration_dialog.png)
 

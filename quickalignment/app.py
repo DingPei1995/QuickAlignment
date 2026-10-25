@@ -13,7 +13,7 @@ from .stage import OPTIC_TYPES
 from .ui.plate_choice import ask_plate, ask_setup
 from .ui.plate_editor import PlateEditor
 from .ui.rotation_panel import RotationPanel
-from .ui.stage_panel import StagePanel
+from .ui.stage_panel import StagePanel, set_motor_limits
 
 
 class MainWindow(QtWidgets.QMainWindow):
@@ -23,15 +23,17 @@ class MainWindow(QtWidgets.QMainWindow):
         self.resize(1450, 860)
         self._path: str | None = None
 
+        self.store = store or CalibrationStore()
+        set_motor_limits(self.store.motor_limits())  # before the input fields are made
         self.editor = PlateEditor()
         self.stage = StagePanel(lambda: self.editor.layout_model)
         self.editor.layoutChanged.connect(self.stage.refresh_targets)
         self.editor.samplesPlaced.connect(self.go_to_stage)
         self.stage.layoutCorrected.connect(self._on_layout_corrected)
         self.rotation = RotationPanel(self.stage, lambda: self.editor.layout_model, self.editor.default_height)
-        self.store = store or CalibrationStore()
         self.cal_dialog = CalibrationDialog(self.store, self.stage, self)
         self.cal_dialog.recordChanged.connect(self._on_record)
+        self.cal_dialog.limitsChanged.connect(self._on_limits)
         self.tabs = QtWidgets.QTabWidget()
         self.tabs.addTab(self.editor, "Samples")
         self.tabs.addTab(self.stage, "Stage && Optics")
@@ -76,6 +78,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.rotation.update_optic()
         self.cal_label.setText(f"Configuration: {record.label}")
         self.stage.update_view()
+
+    def _on_limits(self) -> None:
+        self.stage.motors.apply_limits()
+        self.rotation.apply_limits()
+        self.stage.update_view()  # out-of-range and anti-collision readouts with the new limits
+        self.statusBar().showMessage("New motor limits in use.")
 
     def session(self) -> Session:
         return Session(self.editor.layout_model, self.stage.motors.value())

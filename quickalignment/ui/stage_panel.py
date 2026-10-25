@@ -22,7 +22,7 @@ from ..stage import (
 
 Qt = QtCore.Qt
 
-MOTOR_SPECS = {  # name: (label, min, max, decimals, step, suffix); ST / SN / SZ: travel ranges
+MOTOR_SPECS = {  # name: (label, min, max, decimals, step, suffix); min / max: default limits (Configuration window)
     "st": ("ST", -6, 6, 4, 0.1, " mm"),
     # SN: below the focal plane (SN_f ≈ 0) the real limit is a collision (OSA / capillary, analyzer 30 mm away),
     # computed for the current positions by the anti-collision check
@@ -47,7 +47,32 @@ CONFIG_SPECS = {
 TOLERANCE = 1e-3  # mm; below this a move is reported as not needed
 LARGE_FOUND_OFFSET = 0.3  # mm; a larger "Found here" correction hints at an outdated configuration
 FOCUS_WARNING = 0.05  # mm from the analyzer focus; farther, the spectra would be distorted
-TRAVEL = {name: MOTOR_SPECS[name][1:3] for name in ("st", "sn", "sz")}
+TRAVEL = {name: MOTOR_SPECS[name][1:3] for name in ("st", "sn", "sz")}  # kept up to date by set_motor_limits
+LIMIT_MOTORS = ("st", "sz", "sn", "srn", "srz")  # limits that can be changed by hand in the Configuration window
+DEFAULT_LIMITS = {name: MOTOR_SPECS[name][1:3] for name in LIMIT_MOTORS}
+
+
+def current_limits() -> dict[str, tuple[float, float]]:
+    """Limits in use, {name: (min, max)} for LIMIT_MOTORS."""
+    return {name: tuple(MOTOR_SPECS[name][1:3]) for name in LIMIT_MOTORS}
+
+
+def set_motor_limits(limits: dict[str, tuple[float, float]]) -> None:
+    """Use these limits (missing motors: the defaults) everywhere: input ranges, out-of-range and anti-collision
+    checks. Input fields already made take them with MotorForm.apply_limits."""
+    new = {name: limits.get(name, DEFAULT_LIMITS[name]) for name in LIMIT_MOTORS}
+    for name, (lo, hi) in new.items():  # all checked before any is changed
+        if not lo < hi:
+            raise ValueError(f"{MOTOR_SPECS[name][0]}: min {lo:g} must be below max {hi:g}")
+    for name, (lo, hi) in new.items():
+        label, _, _, *rest = MOTOR_SPECS[name]
+        MOTOR_SPECS[name] = (label, float(lo), float(hi), *rest)
+    for name in TRAVEL:
+        TRAVEL[name] = MOTOR_SPECS[name][1:3]
+
+
+def set_range(box: QtWidgets.QDoubleSpinBox, name: str) -> None:
+    box.setRange(*MOTOR_SPECS[name][1:3])
 
 
 def spin(value: float, lo: float = -1000, hi: float = 1000, decimals: int = 3, step: float = 0.1, suffix: str = " mm"):
@@ -117,6 +142,11 @@ class MotorForm(QtWidgets.QWidget):
         # both columns of fields equally wide, labels only as wide as needed
         grid.setColumnStretch(1, 1)
         grid.setColumnStretch(3, 1)
+
+    def apply_limits(self) -> None:
+        """Input ranges from MOTOR_SPECS (after set_motor_limits)."""
+        for name, box in self.boxes.items():
+            set_range(box, name)
 
     def value(self) -> MotorPositions:
         return MotorPositions(**{k: b.value() for k, b in self.boxes.items()})
