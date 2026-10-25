@@ -84,7 +84,7 @@ def test_capillary_limit_and_analyzer():
     cap = CAP.optics[0]
     lim = motor_limits(model, m, layout, CAP, [0.0], TRAVEL)["sn"]
     expect = ((cap.distance - grown(CAP)) - (cap.tip_radius + grown(CAP))) / np.sqrt(2)
-    assert lim.lo_by == "capillary tip" and expect <= m.sn - lim.lo < expect + 0.03
+    assert lim.lo_by == "capillary" and expect <= m.sn - lim.lo < expect + SAMPLING_ALLOWANCE
     # without the optic the analyzer nose, 30 mm from the focal plane, is the limit
     bare = replace(CAP, optics=())
     lim = motor_limits(model, m, layout, bare, [0.0], TRAVEL)["sn"]

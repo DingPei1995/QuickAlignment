@@ -80,7 +80,7 @@ ANALYZER_A1 = SolidBody("analyzer (MBS A1)", distance=30.0, tip_radius=10.0, hal
 # zone plate for a ~1 µm spot) give f ≈ 29 mm. The OSA (diameter D/2) must pass the whole first-order cone, so it is
 # at most f/2 ≈ 14 mm from the focus; it is closer to the sample than the zone plate, the main limit, and is not moved
 # when the zone plate refocuses. Capillary (Sigray, 5 µm spot): working distance not published (customised, 2 mm to
-# 10 cm): 10 mm assumed; tip 4 mm wide, 10° cone (shape confirmed).
+# 10 cm): 7.8 mm and a 26 mm long capillary assumed (beamline estimate); tip 4 mm wide, 10° cone (shape confirmed).
 # At 45° incidence a front face of (half) width r at distance d from the focus clears the surface only if
 # r + margin < d - margin, and a cone only if its half angle is below the angle between beam and surface.
 DEFAULT_OPTIC_BODIES = {
@@ -88,7 +88,7 @@ DEFAULT_OPTIC_BODIES = {
         SolidBody("OSA", distance=14.0, tip_radius=5.0, length=0.5, moves=False, square=True),
         SolidBody("zone plate", distance=29.0, tip_radius=5.0, length=0.5, square=True),
     ),
-    "capillary": (SolidBody("capillary tip", distance=10.0, tip_radius=2.0, half_angle=10.0, length=60.0),),
+    "capillary": (SolidBody("capillary", distance=7.8, tip_radius=2.0, half_angle=10.0, length=26.0),),
 }
 DEFAULT_MARGIN = 0.1  # mm added around every body
 SAMPLE_SPACING = 0.25  # mm between the points on the plate faces
