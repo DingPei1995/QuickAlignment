@@ -75,16 +75,28 @@ ANTARES 的光斑在微米量级或更小，而样品托有 18 × 15.5 mm。Quic
 
 ![从照片识别样品](images/guide/photo_dialog.png)
 
-1. *Open photo…*，然后按照片上方提示的顺序点击 **样品区的四个角**：左上、右上（tab 一侧）、右下、左下（gating plate：下面两个角是样品区与接触块相交处）。可以拖动标记微调；滚轮 = 缩放，中键拖动 = 平移。
-2. 照片被映射到托的模型上（右图，蓝色轮廓）。检查轮廓是否和照片中的托重合。
+1. *Open photo…*。右图的托模型上标出了样品区的四个角 **1–4**，下一个要点的点显示为 **红色**。在照片上点击这个点，然后点下一个红色的点（1 左上、2 右上（tab 一侧）、3 右下、4 左下；gating plate：3 和 4 是样品区与接触块相交处）。滚轮 = 缩放（可以放大到足够精确地选点），中键拖动 = 平移，右键 = 显示整张照片；之后可以拖动标记微调。*Clear points* 重新开始。
+2. 照片被映射到托模型上（右图，蓝色轮廓）。检查轮廓是否和照片中的托重合。光标在右图和照片上都会显示托坐标（x、y，mm）。
 3. 按颜色识别样品（绿色框；品红色 = 被识别的区域）：
+   - *colour of picked samples*（默认）：在照片或右图中点一下样品来取色（其他种类的样品再按 *Pick sample colour* 取色）；只取与这些颜色接近的区域，银胶、胶水不会被算进去。
    - *colour different from the bare plate*：与裸托颜色不同的都算，银胶、胶水也会被算进去。如果样品盖住了大部分样品区，按 *Pick bare plate colour* 后在裸托上点一下。
-   - *colour of picked samples*：按 *Pick sample colour*，在右图中点一下样品（每种样品点一次）；只取与这些颜色接近的区域，银胶不会被算进去。
    - *ΔE threshold*：区分两者的色差（CIELAB）；*min. size* 去掉灰尘；*border left out* 忽略样品区边缘。
-4. 被银胶或引线分成几块的样品会得到几个框：选中这些行（Ctrl + 点击），按 *Merge selected* 合并。不是样品的取消勾选。
+4. 手动修正：按 **Draw box** 后在右图中拖动，添加没被找到的样品；点击一个框（或它的行）再按 **Delete selected**（或 Del）删除错误的框；被银胶或引线分成几块的样品，选中这些块（Ctrl + 点击）后按 **Merge selected** 合并。改变阈值后这些修改仍然保留；*Undo hand edits* 撤销全部手动修改。不需要添加的取消勾选。
 5. 输入 **高度 H**（从上方看不出来；默认为 *Default H*），可以在表格中逐个修改，或用 *Set H of all*，然后按 **Add to plate**。勾选 *Remove the samples already on the plate* 会替换托上已有的样品。
 
 框是识别区域在托坐标中的外接矩形；之后可以像手画的样品一样移动、改大小、添加 device。精度取决于四个角点得准不准（约 0.1–0.3 mm），剩下的误差由 Stage & Optics 页的 *Found here* 修正。全部在本机计算，不联网。
+
+### 从近距离照片定位 device
+
+整个托的照片往往只能看到衬底的轮廓。要定位上面的 device，先选中衬底，按 **Device from photo…**，再打开一张衬底的近距离照片（显微镜或相机，从上方拍）：
+
+![从近距离照片定位 device](images/guide/device_photo_dialog.png)
+
+1. 按右图中红色数字的顺序，在照片上点击 **衬底的四个角**（同上）。如果照片拍的是整个样品区，选择 *reference: corners of the sample area*。
+2. 检查衬底轮廓（橙色）是否与照片重合，然后点击每个 **device**（照片或右图中均可）。表格给出它在托上的位置，以及到衬底左边和下边的距离 dx、dy；光标也会显示这些值。可以在表格中改名、删除错误的点。
+3. 按 **Add to …** 把它们加到衬底上（参考边之后可以在 Samples 页的 device 表格中更改）。
+
+device 的位置是相对于衬底的：先画出或识别出衬底；以后修正衬底位置时 device 会跟着移动。
 
 样品画完后，按 **Samples placed → Stage**。
 

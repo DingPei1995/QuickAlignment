@@ -77,12 +77,15 @@ def test_dust_and_threshold():
     assert detect_samples(rect, STANDARD_PLATE.riser_bounds(), threshold=200).detections == []
 
 
+REF = [p for _, p in corner_points(STANDARD_PLATE)]
+
+
 def test_corner_order_checked():
-    check_corners(STANDARD_PLATE, PHOTO_CORNERS)
+    check_corners(REF, PHOTO_CORNERS)
     with pytest.raises(ValueError):
-        check_corners(STANDARD_PLATE, [PHOTO_CORNERS[i] for i in (1, 0, 2, 3)])  # crossed
+        check_corners(REF, [PHOTO_CORNERS[i] for i in (1, 0, 2, 3)])  # crossed
     with pytest.raises(ValueError):
-        check_corners(STANDARD_PLATE, PHOTO_CORNERS[::-1])  # mirrored / wrong sense
+        check_corners(REF, PHOTO_CORNERS[::-1])  # mirrored / wrong sense
 
 
 def test_label_regions():

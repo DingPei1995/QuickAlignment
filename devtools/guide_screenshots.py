@@ -97,10 +97,34 @@ def quickalignment_shots(app, store: CalibrationStore) -> None:
     photo.set_corners(REAL_CORNERS)
     photo.pick_sample_color(3.65, 6.15)
     settle(app)
-    photo.photo_view.fit()
-    photo.plate_view.fit()
+    photo.reg.photo_view.fit()
+    photo.reg.plate_view.fit()
+    photo.reg._show_cursor(1.51, 2.82)
     save(photo, "photo_dialog", app)
     photo.close()
+
+    # devices on a substrate from a second photo: RG_GMC as found above, device R7G clicked
+    from quickalignment.photo import apply_homography, corner_points, homography
+    from quickalignment.ui.device_photo_dialog import DevicePhotoDialog
+
+    chip = Sample("RG_GMC", u=1.375, v=3.3, length=7.35, width=7.7, height=0.525)
+    h = homography([p for _, p in corner_points(GATING_PLATE)], REAL_CORNERS)
+    u0, v0, u1, v1 = chip.bounds()
+    dev = DevicePhotoDialog(SampleLayout(plate=GATING_PLATE, samples=[chip]), chip)
+    dev.resize(1400, 900)
+    dev.show()
+    dev.load_photo(str(REAL_PHOTO))
+    dev.file_label.setText(REAL_PHOTO.name)
+    dev.reg.set_corners(apply_homography(h, [(u0, v1), (u1, v1), (u1, v0), (u0, v0)]))
+    dev.add_device(1.51, 2.82)
+    dev.new[0] = ("R7G", 1.51, 2.82)
+    dev._fill_table()
+    settle(app)
+    dev.reg.photo_view.fit()
+    dev.reg.zoom_to(dev._view_bounds())
+    dev.reg._show_cursor(1.51, 2.82)
+    save(dev, "device_photo_dialog", app)
+    dev.close()
 
     # samples placed -> start positions in the Stage & Optics tab
     win.resize(1450, 1000)

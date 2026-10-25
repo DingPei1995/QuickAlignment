@@ -24,15 +24,20 @@ from .geometry import PlateGeometry, Rect
 PX_PER_MM = 20  # rectified grid: 0.05 mm per pixel
 
 
-def corner_points(plate: PlateGeometry) -> list[tuple[str, tuple[float, float]]]:
-    """The four reference points clicked on the photo: the sample area corners, in click order."""
-    u0, v0, u1, v1 = plate.riser_bounds()
+def rect_corners(rect: Rect) -> list[tuple[str, tuple[float, float]]]:
+    """The corners of a plate rectangle in click order (clockwise from top left, front view, tab up)."""
+    u0, v0, u1, v1 = rect
     return [
         ("top left (tab side)", (u0, v1)),
         ("top right (tab side)", (u1, v1)),
         ("bottom right", (u1, v0)),
         ("bottom left", (u0, v0)),
     ]
+
+
+def corner_points(plate: PlateGeometry) -> list[tuple[str, tuple[float, float]]]:
+    """The four reference points clicked on a plate photo: the sample area corners, in click order."""
+    return rect_corners(plate.riser_bounds())
 
 
 def homography(src, dst) -> np.ndarray:
@@ -69,14 +74,15 @@ def apply_homography(h: np.ndarray, pts) -> np.ndarray:
     return q[:, :2] / q[:, 2:3]
 
 
-def check_corners(plate: PlateGeometry, photo_pts) -> None:
-    """Raise ValueError if the clicked corners cannot be the sample area seen from the sample side."""
+def check_corners(ref_pts, photo_pts) -> None:
+    """Raise ValueError if the points clicked on the photo cannot be the reference points (plate
+    coordinates, e.g. the corners of the sample area) seen from the sample side."""
     p = np.asarray(photo_pts, float)
     if len(p) != 4:
-        raise ValueError("Click the four corners of the sample area.")
+        raise ValueError("Click the four reference points.")
     # convex, in the same turning sense as the plate corners (image y points down: a front view keeps
     # the sense; a mirrored photo, or corners clicked in the wrong order, reverse it or cross over)
-    q = np.array([pt for _, pt in corner_points(plate)])
+    q = np.array(ref_pts, float)
     q[:, 1] *= -1
     cross = []
     for i in range(4):
@@ -84,8 +90,9 @@ def check_corners(plate: PlateGeometry, photo_pts) -> None:
         cross.append((b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0]))
     ref = (q[1, 0] - q[0, 0]) * (q[2, 1] - q[1, 1]) - (q[1, 1] - q[0, 1]) * (q[2, 0] - q[1, 0])
     if not all(np.sign(c) == np.sign(ref) and abs(c) > 1e-9 for c in cross):
-        raise ValueError("The corners must be clicked in the order shown (top left, top right, bottom right, "
-                         "bottom left, with the tab at the top) and must not cross over.")
+        raise ValueError("The points must be clicked in the order of the numbers in the right view "
+                         "(1 top left, 2 top right, 3 bottom right, 4 bottom left, tab at the top); "
+                         "drag the markers or clear them.")
 
 
 @dataclass
@@ -216,13 +223,18 @@ class Detection:
     v1: float
     area: float  # mm^2 of the region (not of the box)
     delta_e: float
+    manual: bool = False  # drawn or merged by the user (kept when the detection is run again)
 
     @classmethod
     def merged(cls, parts: list[Detection]) -> Detection:
         """One box around several pieces (a sample broken up by paint or wires)."""
         area = sum(d.area for d in parts)
         return cls(min(d.u0 for d in parts), min(d.v0 for d in parts), max(d.u1 for d in parts),
-                   max(d.v1 for d in parts), area, sum(d.delta_e * d.area for d in parts) / area)
+                   max(d.v1 for d in parts), area, sum(d.delta_e * d.area for d in parts) / area, manual=True)
+
+    @property
+    def rect(self) -> Rect:
+        return self.u0, self.v0, self.u1, self.v1
 
     @property
     def center(self) -> tuple[float, float]:
@@ -231,6 +243,16 @@ class Detection:
     @property
     def size(self) -> tuple[float, float]:
         return self.u1 - self.u0, self.v1 - self.v0
+
+
+def overlap(a: Rect, b: Rect) -> float:
+    """Intersection over union of two plate rectangles (0 … 1)."""
+    w = min(a[2], b[2]) - max(a[0], b[0])
+    h = min(a[3], b[3]) - max(a[1], b[1])
+    if w <= 0 or h <= 0:
+        return 0.0
+    inter = w * h
+    return inter / ((a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter)
 
 
 @dataclass

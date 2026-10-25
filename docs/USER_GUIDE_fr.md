@@ -89,21 +89,25 @@ Au lieu de les dessiner, les échantillons peuvent être trouvés sur une photo 
 
 ![Échantillons depuis une photo](images/guide/photo_dialog.png)
 
-1. *Open photo…*, puis cliquer les **quatre coins de la zone d'échantillons** dans l'ordre indiqué au-dessus de la
-   photo : haut gauche, haut droit (côté languette), bas droit, bas gauche (plaquette gating : les coins du bas sont où
-   la zone rencontre le bloc de contacts). Faire glisser les repères pour affiner ; molette = zoom, bouton du milieu =
-   déplacer.
+1. *Open photo…*. La vue de droite montre le modèle de la plaquette avec les quatre coins de la zone d'échantillons
+   numérotés **1–4** ; celui à cliquer ensuite est en **rouge**. Cliquer ce point sur la photo, puis le rouge suivant
+   (1 haut gauche, 2 haut droit côté languette, 3 bas droit, 4 bas gauche ; plaquette gating : 3 et 4 sont où la zone
+   rencontre le bloc de contacts). Molette = zoom (zoomer autant que nécessaire pour placer le point), bouton du milieu
+   = déplacer, clic droit = photo entière ; faire glisser les repères ensuite pour affiner. *Clear points* recommence.
 2. La photo est projetée sur le modèle de la plaquette (vue de droite, contours bleus). Vérifier que les contours sont
-   sur la plaquette.
+   sur la plaquette. Le curseur donne les coordonnées plaquette (x, y en mm) dans la vue de droite et sur la photo.
 3. Les échantillons sont trouvés par leur couleur (cadres verts, magenta = ce qui est retenu) :
+   - *colour of picked samples* (par défaut) : cliquer sur un échantillon, sur la photo ou dans la vue de droite, pour
+     prendre sa couleur (*Pick sample colour* pour une autre sorte d'échantillon) ; seules les régions proches de ces
+     couleurs sont retenues, sans la laque d'argent ni la colle.
    - *colour different from the bare plate* : tout ce qui est sur la plaquette, laque d'argent et colle comprises. Si
      les échantillons couvrent presque toute la zone, *Pick bare plate colour* puis cliquer sur la plaquette nue.
-   - *colour of picked samples* : *Pick sample colour* puis cliquer sur un échantillon dans la vue de droite (une fois
-     par sorte d'échantillon) ; seules les régions proches de ces couleurs sont retenues, sans la laque d'argent.
    - *ΔE threshold* : l'écart de couleur (CIELAB) qui les sépare ; *min. size* écarte les poussières ; *border left
      out* ignore le bord de la zone.
-4. Un échantillon coupé par de la laque ou des fils donne plusieurs cadres : sélectionner leurs lignes (Ctrl + clic)
-   et *Merge selected*. Décocher ce qui n'est pas un échantillon.
+4. Corriger à la main : **Draw box** puis glisser dans la vue de droite pour ajouter un échantillon non trouvé ;
+   cliquer un cadre (ou sa ligne) et **Delete selected** (ou Suppr) pour en retirer un faux ; sélectionner les morceaux
+   d'un échantillon coupé par de la laque ou des fils (Ctrl + clic) et **Merge selected**. Ces corrections restent
+   quand le seuil change ; *Undo hand edits* les oublie. Décocher ce qui ne doit pas être ajouté.
 5. Entrer la **hauteur H** (invisible d'en haut ; par défaut *Default H*), par échantillon dans le tableau ou avec
    *Set H of all*, puis **Add to plate**. *Remove the samples already on the plate* remplace les échantillons présents.
 
@@ -111,6 +115,25 @@ Les cadres sont les rectangles englobants de ce qui a été trouvé, en coordonn
 redimensionnent et reçoivent des dispositifs comme les échantillons dessinés. La précision dépend des clics sur les
 coins (environ 0,1–0,3 mm) ; *Found here* dans l'onglet Stage & Optics corrige le reste. Tout est calculé sur
 l'ordinateur, rien n'est envoyé.
+
+### Dispositifs depuis une photo rapprochée
+
+Une photo de toute la plaquette ne montre souvent que le contour d'un substrat. Pour placer ses dispositifs,
+sélectionner le substrat, appuyer sur **Device from photo…** et ouvrir une photo plus proche (microscope ou appareil,
+d'en haut) :
+
+![Dispositifs depuis une photo rapprochée](images/guide/device_photo_dialog.png)
+
+1. Cliquer sur la photo les quatre **coins du substrat** dans l'ordre des numéros rouges de la vue de droite (comme
+   ci-dessus). Si la photo montre toute la zone d'échantillons, choisir *reference: corners of the sample area*.
+2. Vérifier que le contour du substrat (orange) est dessus, puis cliquer chaque **dispositif** (sur la photo ou dans
+   la vue de droite). Le tableau donne sa position sur la plaquette et ses distances dx, dy aux bords gauche et bas du
+   substrat ; le curseur les montre aussi. Renommer les dispositifs dans le tableau, effacer les faux.
+3. **Add to …** les ajoute au substrat (d'autres bords de référence se choisissent ensuite dans le tableau des
+   dispositifs).
+
+Les dispositifs sont placés par rapport au substrat : le dessiner ou le trouver d'abord ; les dispositifs le suivent
+quand il est corrigé plus tard.
 
 Une fois les échantillons dessinés, appuyer sur **Samples placed → Stage**.
 

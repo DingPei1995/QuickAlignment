@@ -1,196 +1,83 @@
 """Samples from a photo: the plate photographed from above (sample side).
 
 1. open the photo
-2. click the four corners of the sample area (top left, top right, bottom
-   right, bottom left; tab at the top), drag them to refine
-3. the photo is mapped onto the plate model (right view) and the samples are
-   found by their colour: either what differs from the bare plate, or what is
-   close to sample colours picked by clicking on samples (leaves out silver
-   paint, glue, wires); adjust the ΔE threshold, merge the pieces of a sample
-   broken up by paint
-4. enter the sample height H (not visible on a photo from above), choose the
+2. click on it the four corners of the sample area in the order of the
+   numbers shown in the right view (the next one in red); drag them to refine
+3. the photo is mapped onto the plate model (right view); samples are found
+   by their colour: by default close to sample colours picked by clicking on
+   samples (leaves out silver paint, glue, wires), or anything differing from
+   the bare plate; adjust the ΔE threshold
+4. correct by hand: draw missing boxes, delete wrong ones, merge the pieces of
+   a sample broken up by paint (kept when the detection is run again)
+5. enter the sample height H (not visible on a photo from above), choose the
    samples to keep and add them to the plate
 
-The detected rectangles are a starting point: they can be moved / resized in
-the Samples tab like drawn ones, and "Found here" corrects them later.
+The boxes are a starting point: they can be moved / resized in the Samples
+tab like drawn ones; devices are located on a close-up photo with "Device
+from photo…", and "Found here" corrects the positions later.
 """
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 
-from ._qt import QtCore, QtGui, QtWidgets, Signal
-from .plate_editor import COLOR_SAMPLE, cosmetic_pen, draw_plate_items
+from ._qt import QtCore, QtGui, QtWidgets
+from .photo_widgets import PhotoRegistration, array_to_qimage, lab_to_rgb
+from .plate_editor import COLOR_SAMPLE, cosmetic_pen
 from ..geometry import PlateGeometry, Sample
-from ..photo import (
-    PX_PER_MM, Detection, Rectified, apply_homography, check_corners, corner_points, detect_samples, homography,
-    plate_view_bounds, rectify, rgb_to_lab,
-)
+from ..photo import PX_PER_MM, Detection, detect_samples, overlap, plate_view_bounds, rgb_to_lab
 
 Qt = QtCore.Qt
 
-COLOR_CORNER = QtGui.QColor("#00b4ff")
-COLOR_MODEL = QtGui.QColor("#00b4ff")
 COLOR_FOUND = QtGui.QColor("#18c418")
 RESULT_COLUMNS = ["Use", "Name", "x (mm)", "y (mm)", "L (mm)", "W (mm)", "H (mm)", "ΔE"]
 MODES = ["colour different from the bare plate", "colour of picked samples"]
+BY_PLATE, BY_SAMPLE = range(2)
 DEFAULT_THRESHOLD = (12.0, 20.0)  # per mode
-PATCH_MM = 0.3  # side of the patch averaged when picking the bare plate colour
-
-
-def qimage_to_array(image: QtGui.QImage) -> np.ndarray:
-    image = image.convertToFormat(QtGui.QImage.Format_RGB888)
-    w, h, bpl = image.width(), image.height(), image.bytesPerLine()
-    ptr = image.constBits()
-    if hasattr(ptr, "setsize"):  # PyQt5
-        ptr.setsize(bpl * h)
-    data = np.frombuffer(ptr, np.uint8, count=bpl * h).reshape(h, bpl)
-    return data[:, : 3 * w].reshape(h, w, 3).copy()
-
-
-def array_to_qimage(arr: np.ndarray, fmt=QtGui.QImage.Format_RGB888) -> QtGui.QImage:
-    arr = np.ascontiguousarray(arr)
-    h, w = arr.shape[:2]
-    return QtGui.QImage(arr.data, w, h, arr.strides[0], fmt).copy()
-
-
-class ZoomView(QtWidgets.QGraphicsView):
-    """Wheel = zoom, middle drag = pan, right click = fit."""
-
-    clicked = Signal(float, float)  # left click on the scene (not on a corner marker)
-
-    def __init__(self, scene):
-        super().__init__(scene)
-        self.setRenderHint(QtGui.QPainter.Antialiasing)
-        self.setRenderHint(QtGui.QPainter.SmoothPixmapTransform)
-        self.setTransformationAnchor(QtWidgets.QGraphicsView.AnchorUnderMouse)
-        self.setMinimumSize(380, 380)
-        self._pan: QtCore.QPoint | None = None
-
-    def fit(self) -> None:
-        if not self.sceneRect().isEmpty():
-            self.fitInView(self.sceneRect(), Qt.KeepAspectRatio)
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self.fit()
-
-    def wheelEvent(self, event):
-        f = 1.15 if event.angleDelta().y() > 0 else 1 / 1.15
-        self.scale(f, f)
-
-    def mousePressEvent(self, event):
-        if event.button() == Qt.MiddleButton:
-            self._pan = event.pos()
-            self.setCursor(Qt.ClosedHandCursor)
-            return
-        if event.button() == Qt.RightButton:
-            self.fit()
-            return
-        if event.button() == Qt.LeftButton and not any(isinstance(it, CornerItem) for it in self.items(event.pos())):
-            p = self.mapToScene(event.pos())
-            self.clicked.emit(p.x(), p.y())
-            return
-        super().mousePressEvent(event)
-
-    def mouseMoveEvent(self, event):
-        if self._pan is not None:
-            d = event.pos() - self._pan
-            self._pan = event.pos()
-            self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() - d.x())
-            self.verticalScrollBar().setValue(self.verticalScrollBar().value() - d.y())
-            return
-        super().mouseMoveEvent(event)
-
-    def mouseReleaseEvent(self, event):
-        if self._pan is not None and event.button() == Qt.MiddleButton:
-            self._pan = None
-            self.unsetCursor()
-            return
-        super().mouseReleaseEvent(event)
-
-
-class CornerItem(QtWidgets.QGraphicsEllipseItem):
-    """Draggable marker of a clicked corner (constant size on screen)."""
-
-    R = 7
-
-    def __init__(self, index: int, dialog: PhotoImportDialog):
-        super().__init__(-self.R, -self.R, 2 * self.R, 2 * self.R)
-        self.dialog = dialog
-        self.setFlags(QtWidgets.QGraphicsItem.ItemIsMovable | QtWidgets.QGraphicsItem.ItemSendsGeometryChanges
-                      | QtWidgets.QGraphicsItem.ItemIgnoresTransformations)
-        self.setPen(cosmetic_pen(COLOR_CORNER, 2))
-        self.setBrush(QtGui.QBrush(QtGui.QColor(0, 180, 255, 60)))
-        self.setCursor(Qt.SizeAllCursor)
-        self.setZValue(20)
-        for x0, y0, x1, y1 in ((-self.R - 4, 0, self.R + 4, 0), (0, -self.R - 4, 0, self.R + 4)):
-            QtWidgets.QGraphicsLineItem(x0, y0, x1, y1, self).setPen(cosmetic_pen(COLOR_CORNER, 1))
-        label = QtWidgets.QGraphicsSimpleTextItem(str(index + 1), self)
-        label.setBrush(QtGui.QBrush(COLOR_CORNER))
-        font = label.font()
-        font.setBold(True)
-        label.setFont(font)
-        label.setPos(self.R + 2, -self.R - 14)
-
-    def itemChange(self, change, value):
-        if change == QtWidgets.QGraphicsItem.ItemPositionHasChanged:
-            self.dialog.corners_moved()
-        return super().itemChange(change, value)
+PATCH_MM = 0.3  # side of the patch averaged when picking a colour
+SAME_BOX = 0.5  # boxes overlapping more than this (intersection over union) are the same sample
+DRAW_STEP = 0.05  # mm, drawn boxes are rounded to this
 
 
 class PhotoImportDialog(QtWidgets.QDialog):
     def __init__(self, plate: PlateGeometry, default_height: float, existing: list[str] | None = None, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Samples from a photo")
-        self.resize(1400, 900)
+        self.resize(1400, 920)
         self.plate = plate
         self.existing = list(existing or [])
-        self.photo: np.ndarray | None = None
-        self.corners: list[CornerItem] = []
-        self.rectified: Rectified | None = None
         self.background: np.ndarray | None = None  # picked bare plate colour (Lab), None: automatic
         self.sample_colors: list[np.ndarray] = []  # picked sample colours (Lab)
-        self.detections: list[Detection] = []
-        self._photo_overlay: list[QtWidgets.QGraphicsItem] = []
+        self.auto: list[Detection] = []  # found by colour
+        self.manual: list[Detection] = []  # drawn or merged by the user
+        self.rejected: list = []  # rects of found boxes the user deleted or merged
+        self.detections: list[Detection] = []  # shown: auto (not rejected) + manual
+        self._shown_background = None
         self._plate_overlay: list[QtWidgets.QGraphicsItem] = []
         self._filling = False
 
-        # left: the photo
-        self.photo_scene = QtWidgets.QGraphicsScene(self)
-        self.photo_view = ZoomView(self.photo_scene)
-        self.photo_view.clicked.connect(self._on_photo_click)
-        self.photo_item = QtWidgets.QGraphicsPixmapItem()
-        self.photo_item.setTransformationMode(Qt.SmoothTransformation)
-        self.photo_scene.addItem(self.photo_item)
-
-        # right: the plate model with the rectified photo on it
-        self.plate_scene = QtWidgets.QGraphicsScene(self)
-        draw_plate_items(self.plate_scene, plate)
-        for it in self.plate_scene.items():
-            it.setAcceptedMouseButtons(Qt.NoButton)
-        self.rect_item = QtWidgets.QGraphicsPixmapItem()
-        self.rect_item.setTransformationMode(Qt.SmoothTransformation)
-        self.rect_item.setZValue(5)
-        self.plate_scene.addItem(self.rect_item)
+        self.reg = PhotoRegistration(plate, plate.riser_bounds(), "the sample area", plate_view_bounds(plate),
+                                     PX_PER_MM)
+        self.reg.photo_title.setText("<b>Photo</b> from above (sample side)")
+        self.reg.changed.connect(self._on_registration)
+        self.reg.plateClicked.connect(self._on_plate_click)
+        self.reg.plateDragged.connect(self._on_plate_drag)
+        self.reg.cursor_text = self._cursor_text
         self.mask_item = QtWidgets.QGraphicsPixmapItem()
         self.mask_item.setZValue(6)
-        self.plate_scene.addItem(self.mask_item)
-        self._draw_model_lines()
-        u0, v0, u1, v1 = plate_view_bounds(plate, 1.0)
-        self.plate_scene.setSceneRect(QtCore.QRectF(u0, -v1, u1 - u0, v1 - v0))
-        self.plate_view = ZoomView(self.plate_scene)
-        self.plate_view.clicked.connect(self._on_plate_click)
+        self.reg.plate_scene.addItem(self.mask_item)
 
         open_btn = QtWidgets.QPushButton("Open photo…")
         open_btn.clicked.connect(self.open_photo)
-        reset_btn = QtWidgets.QPushButton("Clear corners")
-        reset_btn.clicked.connect(self.clear_corners)
+        reset_btn = QtWidgets.QPushButton("Clear points")
+        reset_btn.setToolTip("Remove the points clicked on the photo and start again")
+        reset_btn.clicked.connect(self.reg.clear_corners)
         self.file_label = QtWidgets.QLabel("no photo")
         self.file_label.setStyleSheet("color: #555;")
         self.instruction = QtWidgets.QLabel()
         self.instruction.setWordWrap(True)
-        self.instruction.setStyleSheet("font-weight: bold; color: #00609a;")
 
         def spin(lo, hi, value, step, decimals, suffix, tip):
             box = QtWidgets.QDoubleSpinBox()
@@ -205,46 +92,44 @@ class PhotoImportDialog(QtWidgets.QDialog):
 
         self.mode = QtWidgets.QComboBox()
         self.mode.addItems(MODES)
-        self.mode.setToolTip("Different from the bare plate: everything on the plate is found (also silver paint, "
-                             "glue).\nPicked samples: click on each kind of sample in the right view; only what has "
-                             "a colour close to them is found.")
+        self.mode.setCurrentIndex(BY_SAMPLE)
+        self.mode.setToolTip("Picked samples (default): click on each kind of sample; only what has a colour close "
+                             "to them is found, silver paint and glue are left out.\nDifferent from the bare plate: "
+                             "everything on the plate is found (also silver paint, glue).")
         self.mode.currentIndexChanged.connect(self._on_mode)
-        self.threshold = spin(1, 150, DEFAULT_THRESHOLD[0], 1, 1, "", "Colour difference ΔE (CIELAB).\n"
-                              "Bare plate mode: a point differing more than this from the bare plate belongs to a "
-                              "sample (lower: finds samples close to the plate colour; higher: ignores shadows and "
-                              "reflections).\nPicked samples mode: a point closer than this to a picked colour "
-                              "belongs to a sample.")
+        self.threshold = spin(1, 150, DEFAULT_THRESHOLD[BY_SAMPLE], 1, 1, "", "Colour difference ΔE (CIELAB).\n"
+                              "Picked samples: a point closer than this to a picked colour belongs to a sample.\n"
+                              "Bare plate: a point differing more than this from the bare plate belongs to a sample "
+                              "(lower: finds samples close to the plate colour; higher: ignores shadows and "
+                              "reflections).")
         self.min_area = spin(0.01, 50, 0.2, 0.05, 2, " mm²", "Smaller spots are ignored (dust, scratches).")
         self.border = spin(0, 1.5, 0.15, 0.05, 2, " mm", "Strip along the sample area edge that is left out "
                            "(the edge itself shows on the photo).\nA sample reaching into it is extended to the edge.")
         self.smooth = spin(0, 0.5, 0.1, 0.05, 2, " mm", "Noise filter: fills small gaps (glare) and removes specks "
                            "of about this size.")
+
+        # what a left click / drag in the views does (one at a time)
         self.pick_btn = QtWidgets.QPushButton("Pick bare plate colour")
-        self.pick_btn.setCheckable(True)
-        self.pick_btn.setToolTip("Then click on bare plate in the right view. Use it when samples cover most of "
-                                 "the sample area or the automatic colour is wrong.")
+        self.pick_btn.setToolTip("Then click on bare plate. Use it when samples cover most of the sample area or "
+                                 "the automatic colour is wrong.")
         self.auto_btn = QtWidgets.QPushButton("Automatic")
         self.auto_btn.setToolTip("Bare plate colour estimated from the photo")
         self.auto_btn.clicked.connect(self.auto_background)
         self.swatch = QtWidgets.QLabel()
         self.swatch.setFixedSize(40, 18)
         self.pick_sample_btn = QtWidgets.QPushButton("Pick sample colour")
-        self.pick_sample_btn.setCheckable(True)
-        self.pick_sample_btn.setToolTip("Then click on a sample in the right view (once per kind of sample).")
+        self.pick_sample_btn.setToolTip("Then click on a sample, on the photo or in the right view (once per kind "
+                                        "of sample).")
         self.clear_colors_btn = QtWidgets.QPushButton("Clear")
         self.clear_colors_btn.setToolTip("Forget the picked sample colours")
         self.clear_colors_btn.clicked.connect(self.clear_sample_colors)
         self.sample_swatches = QtWidgets.QLabel()
-        for b in (self.pick_btn, self.pick_sample_btn):
-            b.toggled.connect(self._on_pick_toggled)
-        self.opacity = QtWidgets.QSlider(Qt.Horizontal)
-        self.opacity.setRange(0, 100)
-        self.opacity.setValue(80)
-        self.opacity.setMaximumWidth(120)
-        self.opacity.setToolTip("Opacity of the photo over the plate model")
-        self.opacity.valueChanged.connect(lambda v: self.rect_item.setOpacity(v / 100))
-        self.rect_item.setOpacity(0.8)
-        self.show_mask = QtWidgets.QCheckBox("show what differs")
+        self.draw_btn = QtWidgets.QPushButton("Draw box")
+        self.draw_btn.setToolTip("Drag in the right view to add a sample by hand (one the colour does not find).")
+        for b in (self.pick_btn, self.pick_sample_btn, self.draw_btn):
+            b.setCheckable(True)
+            b.toggled.connect(self._on_tool_toggled)
+        self.show_mask = QtWidgets.QCheckBox("show what is taken")
         self.show_mask.setChecked(True)
         self.show_mask.toggled.connect(self.mask_item.setVisible)
 
@@ -263,13 +148,22 @@ class PhotoImportDialog(QtWidgets.QDialog):
         self.table.setHorizontalHeaderLabels(RESULT_COLUMNS)
         self.table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(1, QtWidgets.QHeaderView.Stretch)
+        self.table.horizontalHeaderItem(7).setToolTip("Mean colour difference; “drawn”: box drawn or merged by hand")
         self.table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
+        self.table.setMinimumHeight(130)
         self.table.itemChanged.connect(self._on_table_changed)
         self.table.itemSelectionChanged.connect(self._draw_detections)
         merge_btn = QtWidgets.QPushButton("Merge selected")
-        merge_btn.setToolTip("One sample from the selected rows (pieces of a sample broken up by paint or wires).\n"
-                             "Changing the detection settings afterwards finds the pieces again.")
+        merge_btn.setToolTip("One sample from the selected rows (pieces of a sample broken up by paint or wires).")
         merge_btn.clicked.connect(self.merge_selected)
+        delete_btn = QtWidgets.QPushButton("Delete selected")
+        delete_btn.setToolTip("Remove wrong boxes (also with the Delete key). They stay removed when the detection "
+                              "is run again.")
+        delete_btn.clicked.connect(self.delete_selected)
+        undo_btn = QtWidgets.QPushButton("Undo hand edits")
+        undo_btn.setToolTip("Forget the drawn, merged and deleted boxes: only what the colour finds")
+        undo_btn.clicked.connect(self.undo_edits)
+        QtWidgets.QShortcut(QtGui.QKeySequence(Qt.Key_Delete), self.table, self.delete_selected)
 
         self.replace = QtWidgets.QCheckBox("Remove the samples already on the plate")
         self.replace.setVisible(bool(self.existing))
@@ -278,8 +172,10 @@ class PhotoImportDialog(QtWidgets.QDialog):
         self.add_btn = QtWidgets.QPushButton("Add to plate")
         self.add_btn.setStyleSheet("font-weight: bold;")
         self.add_btn.setEnabled(False)
+        self.add_btn.setAutoDefault(False)
         self.add_btn.clicked.connect(self.accept)
         cancel = QtWidgets.QPushButton("Cancel")
+        cancel.setAutoDefault(False)
         cancel.clicked.connect(self.reject)
 
         top = QtWidgets.QHBoxLayout()
@@ -303,34 +199,20 @@ class PhotoImportDialog(QtWidgets.QDialog):
         for w in self.plate_color_widgets + self.sample_color_widgets:
             params2.addWidget(w)
         params2.addSpacing(16)
-        params2.addWidget(QtWidgets.QLabel("photo opacity"))
-        params2.addWidget(self.opacity)
+        params2.addWidget(self.draw_btn)
         params2.addWidget(self.show_mask)
         params2.addStretch(1)
 
-        left = QtWidgets.QVBoxLayout()
-        left.addWidget(QtWidgets.QLabel("<b>Photo</b> (from above, sample side): click the corners of the sample area"))
-        left.addWidget(self.photo_view, 1)
-        left_w = QtWidgets.QWidget()
-        left_w.setLayout(left)
-        right = QtWidgets.QVBoxLayout()
-        right.addWidget(QtWidgets.QLabel("<b>On the plate model</b> (front view, tab up; green: samples found)"))
-        right.addWidget(self.plate_view, 1)
-        right_w = QtWidgets.QWidget()
-        right_w.setLayout(right)
-        views = QtWidgets.QSplitter()
-        views.addWidget(left_w)
-        views.addWidget(right_w)
-
         height_row = QtWidgets.QHBoxLayout()
-        height_row.addWidget(QtWidgets.QLabel("<b>Samples found</b>   sample height H"))
+        height_row.addWidget(QtWidgets.QLabel("<b>Samples</b>   height H"))
         height_row.addWidget(self.height_box)
         height_row.addWidget(height_all)
         note = QtWidgets.QLabel("(not visible from above; Si wafer substrate 0.525 mm)")
         note.setStyleSheet("color: #555;")
         height_row.addWidget(note)
         height_row.addStretch(1)
-        height_row.addWidget(merge_btn)
+        for b in (merge_btn, delete_btn, undo_btn):
+            height_row.addWidget(b)
         bottom = QtWidgets.QHBoxLayout()
         bottom.addWidget(self.replace)
         bottom.addStretch(1)
@@ -345,11 +227,10 @@ class PhotoImportDialog(QtWidgets.QDialog):
         lower_w = QtWidgets.QWidget()
         lower_w.setLayout(lower)
         split = QtWidgets.QSplitter(Qt.Vertical)
-        split.addWidget(views)
+        split.addWidget(self.reg)
         split.addWidget(lower_w)
         split.setStretchFactor(0, 3)
         split.setStretchFactor(1, 2)
-        self.table.setMinimumHeight(130)
 
         box = QtWidgets.QVBoxLayout(self)
         box.addLayout(top)
@@ -358,9 +239,13 @@ class PhotoImportDialog(QtWidgets.QDialog):
         box.addLayout(params2)
         box.addWidget(split, 1)
         box.addLayout(bottom)
-        self._on_mode(0)
+        self._on_mode(BY_SAMPLE)
 
-    # -- photo and corners ---------------------------------------------------------
+    # -- photo ---------------------------------------------------------------------
+    @property
+    def rectified(self):
+        return self.reg.rectified
+
     def open_photo(self) -> None:
         path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Open plate photo", "",
                                                         "Images (*.jpg *.jpeg *.png *.bmp *.tif *.tiff)")
@@ -368,160 +253,87 @@ class PhotoImportDialog(QtWidgets.QDialog):
             self.load_photo(path)
 
     def load_photo(self, path: str) -> bool:
-        reader = QtGui.QImageReader(path)
-        reader.setAutoTransform(True)  # phone photos: EXIF orientation
-        image = reader.read()
-        if image.isNull():
-            QtWidgets.QMessageBox.warning(self, "Open photo", f"The photo could not be read:\n{path}\n\n"
-                                          f"{reader.errorString()}")
+        if not self.reg.load_photo(path):
             return False
-        self.set_photo(qimage_to_array(image))
         self.file_label.setText(path)
         return True
 
     def set_photo(self, rgb: np.ndarray) -> None:
-        self.photo = rgb
-        self.photo_item.setPixmap(QtGui.QPixmap.fromImage(array_to_qimage(rgb)))
-        h, w = rgb.shape[:2]
-        self.photo_scene.setSceneRect(QtCore.QRectF(0, 0, w, h))
-        self.clear_corners()
-        self.photo_view.fit()
-
-    def clear_corners(self) -> None:
-        for c in self.corners:
-            self.photo_scene.removeItem(c)
-        self.corners = []
-        self._geometry_changed()
+        self.reg.set_photo(rgb)
 
     def set_corners(self, points) -> None:
-        """Place all four corners (photo pixel coordinates)."""
-        self.clear_corners()
-        for x, y in points:
-            self._add_corner(x, y)
-        self._geometry_changed()
+        self.reg.set_corners(points)
 
-    def _add_corner(self, x: float, y: float) -> None:
-        item = CornerItem(len(self.corners), self)
-        self.corners.append(item)
-        self.photo_scene.addItem(item)
-        item.setPos(x, y)
-
-    def _on_photo_click(self, x: float, y: float) -> None:
-        if self.photo is None or len(self.corners) >= 4:
-            return
-        self._add_corner(x, y)
-        self._geometry_changed()
-
-    def corners_moved(self) -> None:
-        if len(self.corners) == 4:
-            self._geometry_changed()
-
-    def corner_positions(self) -> list[tuple[float, float]]:
-        return [(c.pos().x(), c.pos().y()) for c in self.corners]
-
-    def _update_instruction(self, error: str = "") -> None:
-        if self.photo is None:
-            text = "Open a photo of the plate taken from straight above (sample side, whole sample area visible)."
-        elif len(self.corners) < 4:
-            name, (u, v) = corner_points(self.plate)[len(self.corners)]
-            text = (f"Click corner {len(self.corners) + 1} of 4 of the sample area: {name} "
-                    f"(x = {u:g}, y = {v:g} mm). Wheel = zoom, middle drag = pan, right click = whole photo.")
-        elif error:
-            text = error
-        elif self.mode.currentIndex() == 1 and not self.sample_colors:
-            text = "Click on a sample in the right view to pick its colour (once per kind of sample)."
-        else:
-            text = ("Check that the plate model (blue) lies on the plate in the photo; drag the corners to refine. "
-                    "Adjust the ΔE threshold until the green boxes match the samples.")
-        self.instruction.setStyleSheet(f"font-weight: bold; color: {'#c00000' if error else '#00609a'};")
-        self.instruction.setText(text)
-
-    # -- mapping -------------------------------------------------------------------
-    def _geometry_changed(self) -> None:
-        self.rectified = None
-        error = ""
-        if self.photo is not None and len(self.corners) == 4:
-            pts = self.corner_positions()
-            try:
-                check_corners(self.plate, pts)
-                h = homography([p for _, p in corner_points(self.plate)], pts)
-                self.rectified = rectify(self.photo, h, plate_view_bounds(self.plate), PX_PER_MM)
-                self._h = h
-            except ValueError as exc:
-                error = str(exc)
-        self._update_instruction(error)
-        self._draw_photo_overlay()
-        if self.rectified is None:
-            self.rect_item.setPixmap(QtGui.QPixmap())
-        else:
-            r = self.rectified
-            self.rect_item.setPixmap(QtGui.QPixmap.fromImage(array_to_qimage(r.pixels)))
-            self.rect_item.setScale(1 / r.px_per_mm)
-            self.rect_item.setPos(r.u0, -r.v1)
-            self.mask_item.setScale(1 / r.px_per_mm)
-            self.mask_item.setPos(r.u0, -r.v1)
+    def _on_registration(self) -> None:
+        if self.rectified is not None:
+            self.reg.place_on_rectified(self.mask_item)
         self.detect()
 
-    def _draw_model_lines(self) -> None:
-        """Plate model outlines over the photo in the right view (to check the registration)."""
-        pen = cosmetic_pen(COLOR_MODEL, 1.2)
-        outline = QtGui.QPolygonF([QtCore.QPointF(u, -v) for u, v in self.plate.outline()])
-        items = [self.plate_scene.addPolygon(outline, pen)]
-        for r in [self.plate.riser_bounds()] + ([self.plate.contact_block] if self.plate.contact_block else []):
-            items.append(self.plate_scene.addRect(QtCore.QRectF(r[0], -r[3], r[2] - r[0], r[3] - r[1]), pen))
-        for it in items:
-            it.setZValue(8)
-            it.setAcceptedMouseButtons(Qt.NoButton)
+    def _update_instruction(self, error: str = "") -> None:
+        error = error or self.reg.error
+        text = self.reg.corner_instruction()
+        if self.reg.photo is None:
+            text = "Open a photo of the plate taken from straight above (sample side, whole sample area visible)."
+        elif text is None and error:
+            text = error
+        elif text is None and self.draw_btn.isChecked():
+            text = "Drag in the right view to draw a sample box."
+        elif text is None and self.pick_btn.isChecked():
+            text = "Click on bare plate (on the photo or in the right view)."
+        elif text is None and (self.pick_sample_btn.isChecked()
+                               or (self.mode.currentIndex() == BY_SAMPLE and not self.sample_colors)):
+            text = "Click on a sample (on the photo or in the right view) to pick its colour, once per kind of sample."
+        elif text is None:
+            text = ("Check that the plate model (blue) lies on the plate; drag the points to refine. Adjust the ΔE "
+                    "threshold; draw missing boxes, delete wrong ones (click a box to select it).")
+        color = "#c00000" if error and text == error else "#00609a"
+        self.instruction.setStyleSheet(f"font-weight: bold; color: {color};")
+        self.instruction.setText(text)
 
-    def _model_shapes(self) -> list[list[tuple[float, float]]]:
-        shapes = [self.plate.outline()]
-        for u0, v0, u1, v1 in [self.plate.riser_bounds()] + ([self.plate.contact_block] if self.plate.contact_block else []):
-            shapes.append([(u0, v0), (u1, v0), (u1, v1), (u0, v1)])
-        return shapes
-
-    def _draw_photo_overlay(self) -> None:
-        for it in self._photo_overlay:
-            self.photo_scene.removeItem(it)
-        self._photo_overlay = []
-        if self.rectified is None:
-            return
-
-        def poly(points, pen, brush=Qt.NoBrush):
-            q = apply_homography(self._h, points)
-            item = self.photo_scene.addPolygon(QtGui.QPolygonF([QtCore.QPointF(x, y) for x, y in q]), pen,
-                                               QtGui.QBrush(brush))
-            item.setZValue(10)
-            item.setAcceptedMouseButtons(Qt.NoButton)
-            self._photo_overlay.append(item)
-
-        for shape in self._model_shapes():
-            poly(shape, cosmetic_pen(COLOR_MODEL, 1.5))
-        for row, d in enumerate(self.detections):
-            if self._used(row):
-                poly([(d.u0, d.v0), (d.u1, d.v0), (d.u1, d.v1), (d.u0, d.v1)], cosmetic_pen(COLOR_FOUND, 2))
-
-    # -- detection -----------------------------------------------------------------
+    # -- tools (what a click does) --------------------------------------------------
     def _on_mode(self, index: int) -> None:
         for w in self.plate_color_widgets:
-            w.setVisible(index == 0)
+            w.setVisible(index == BY_PLATE)
         for w in self.sample_color_widgets:
-            w.setVisible(index == 1)
+            w.setVisible(index == BY_SAMPLE)
         self.pick_btn.setChecked(False)
-        self.pick_sample_btn.setChecked(index == 1 and not self.sample_colors)
+        self.pick_sample_btn.setChecked(index == BY_SAMPLE and not self.sample_colors)
         self.threshold.blockSignals(True)
         self.threshold.setValue(DEFAULT_THRESHOLD[index])
         self.threshold.blockSignals(False)
-        self._update_instruction()
         self.detect()
 
-    def _on_pick_toggled(self, on: bool) -> None:
-        # one pick mode at a time
+    def _on_tool_toggled(self, on: bool) -> None:
         if on:
-            other = self.pick_sample_btn if self.sender() is self.pick_btn else self.pick_btn
-            other.setChecked(False)
-        picking = self.pick_btn.isChecked() or self.pick_sample_btn.isChecked()
-        self.plate_view.viewport().setCursor(Qt.CrossCursor if picking else Qt.ArrowCursor)
+            for b in (self.pick_btn, self.pick_sample_btn, self.draw_btn):
+                if b is not self.sender():
+                    b.setChecked(False)
+        self.reg.plate_view.drag_enabled = self.draw_btn.isChecked()
+        tool = any(b.isChecked() for b in (self.pick_btn, self.pick_sample_btn, self.draw_btn))
+        self.reg.plate_view.viewport().setCursor(Qt.CrossCursor if tool else Qt.ArrowCursor)
+        self._update_instruction()
 
+    def _on_plate_click(self, u: float, v: float) -> None:
+        if self.rectified is None:
+            return
+        if self.pick_btn.isChecked():
+            self.pick_background(u, v)
+        elif self.pick_sample_btn.isChecked():
+            self.pick_sample_color(u, v)
+        else:
+            self.select_at(u, v)
+
+    def _on_plate_drag(self, u0: float, v0: float, u1: float, v1: float) -> None:
+        if self.draw_btn.isChecked():
+            self.add_box(u0, v0, u1, v1)
+
+    def _cursor_text(self, u: float, v: float) -> str:
+        for row, d in enumerate(self.detections):
+            if d.u0 <= u <= d.u1 and d.v0 <= v <= d.v1:
+                return f"in {self._name(row)}"
+        return ""
+
+    # -- colours -------------------------------------------------------------------
     def auto_background(self) -> None:
         self.background = None
         self.pick_btn.setChecked(False)
@@ -530,18 +342,7 @@ class PhotoImportDialog(QtWidgets.QDialog):
     def clear_sample_colors(self) -> None:
         self.sample_colors = []
         self.pick_sample_btn.setChecked(True)
-        self._update_instruction()
         self.detect()
-
-    def _on_plate_click(self, x: float, y: float) -> None:
-        if self.rectified is None:
-            return
-        if self.pick_btn.isChecked():
-            self.pick_background(x, -y)
-            self.pick_btn.setChecked(False)
-        elif self.pick_sample_btn.isChecked():
-            self.pick_sample_color(x, -y)
-            self.pick_sample_btn.setChecked(False)
 
     def _patch_color(self, u: float, v: float) -> np.ndarray | None:
         """Median Lab colour of a small patch around the plate point (u, v)."""
@@ -557,6 +358,7 @@ class PhotoImportDialog(QtWidgets.QDialog):
         if lab is None:
             return False
         self.background = lab
+        self.pick_btn.setChecked(False)
         self.detect()
         return True
 
@@ -565,46 +367,61 @@ class PhotoImportDialog(QtWidgets.QDialog):
         if lab is None:
             return False
         self.sample_colors.append(lab)
-        if self.mode.currentIndex() != 1:
-            self.mode.setCurrentIndex(1)  # detects
+        self.pick_sample_btn.setChecked(False)
+        if self.mode.currentIndex() != BY_SAMPLE:
+            self.mode.setCurrentIndex(BY_SAMPLE)  # detects
         else:
-            self._update_instruction()
             self.detect()
         return True
 
+    # -- detection -----------------------------------------------------------------
     def detect(self) -> None:
-        states = self._row_states()
-        by_colour = self.mode.currentIndex() == 1
-        if self.rectified is None or (by_colour and not self.sample_colors):
-            self.detections = []
-            self.mask_item.setPixmap(QtGui.QPixmap())
-        else:
+        old = (self.detections, self._row_states())
+        by_sample = self.mode.currentIndex() == BY_SAMPLE
+        self.auto = []
+        self.mask_item.setPixmap(QtGui.QPixmap())
+        error = ""
+        if self.rectified is not None and not (by_sample and not self.sample_colors):
             try:
                 result = detect_samples(self.rectified, self.plate.riser_bounds(), self.threshold.value(),
                                         self.min_area.value(), self.border.value(), self.smooth.value(),
-                                        self.background, self.sample_colors if by_colour else None)
+                                        self.background, self.sample_colors if by_sample else None)
             except ValueError as exc:
-                self._update_instruction(str(exc))
-                self.detections = []
-                self.mask_item.setPixmap(QtGui.QPixmap())
+                error = str(exc)
             else:
-                self.detections = result.detections
-                if not by_colour:
+                self.auto = result.detections
+                if not by_sample:
                     self._shown_background = result.background
                 rgba = np.zeros(result.mask.shape + (4,), np.uint8)
                 rgba[result.mask] = (255, 0, 200, 110)
-                self.mask_item.setPixmap(QtGui.QPixmap.fromImage(
-                    array_to_qimage(rgba, QtGui.QImage.Format_RGBA8888)))
+                self.mask_item.setPixmap(QtGui.QPixmap.fromImage(array_to_qimage(rgba, QtGui.QImage.Format_RGBA8888)))
+        self._update_instruction(error)
+        self._rebuild(*old)
+
+    def _rebuild(self, old_detections: list[Detection], old_states: list) -> None:
+        """Shown boxes = found (not rejected) + hand-made; rows keep their tick / name / H by box overlap."""
+        if self.rectified is None:
+            self.detections = []
+        else:
+            kept = [d for d in self.auto if not any(overlap(d.rect, r) > SAME_BOX for r in self.rejected)]
+            self.detections = kept + self.manual
+        states, taken = [], set()
+        for d in self.detections:
+            free = [i for i in range(len(old_detections)) if i not in taken]
+            best = max(free, key=lambda i: overlap(d.rect, old_detections[i].rect), default=None)
+            ok = best is not None and overlap(d.rect, old_detections[best].rect) > SAME_BOX
+            states.append(old_states[best] if ok else None)
+            if ok:
+                taken.add(best)
         self._fill_table(states)
         self._update_swatch()
-        self._draw_photo_overlay()
         self._draw_detections()
 
     def _update_swatch(self) -> None:
         self.sample_swatches.setText(" ".join(
             '<span style="background: rgb({},{},{});">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span>'.format(*lab_to_rgb(c))
             for c in self.sample_colors) or "none")
-        lab = self.background if self.background is not None else getattr(self, "_shown_background", None)
+        lab = self.background if self.background is not None else self._shown_background
         if lab is None or self.rectified is None:
             self.swatch.setStyleSheet("border: 1px solid #888; background: none;")
             self.swatch.setToolTip("")
@@ -616,34 +433,110 @@ class PhotoImportDialog(QtWidgets.QDialog):
 
     def _draw_detections(self) -> None:
         for it in self._plate_overlay:
-            self.plate_scene.removeItem(it)
+            self.reg.plate_scene.removeItem(it)
         self._plate_overlay = []
-        selected = {i.row() for i in self.table.selectedIndexes()}
+        selected = self._selected_rows()
+        shapes = []
         for row, d in enumerate(self.detections):
             used = self._used(row)
             pen = cosmetic_pen(COLOR_FOUND if used else "#888888", 3 if row in selected else 1.8,
                                Qt.SolidLine if used else Qt.DashLine)
-            item = self.plate_scene.addRect(QtCore.QRectF(d.u0, -d.v1, d.u1 - d.u0, d.v1 - d.v0), pen,
-                                            QtGui.QBrush(COLOR_SAMPLE if row in selected else Qt.NoBrush))
+            item = self.reg.plate_scene.addRect(QtCore.QRectF(d.u0, -d.v1, d.u1 - d.u0, d.v1 - d.v0), pen,
+                                                QtGui.QBrush(COLOR_SAMPLE if row in selected else Qt.NoBrush))
             item.setZValue(9)
             item.setAcceptedMouseButtons(Qt.NoButton)
-            label = self.plate_scene.addSimpleText(self._name(row))
+            label = self.reg.plate_scene.addSimpleText(self._name(row))
             label.setFlag(QtWidgets.QGraphicsItem.ItemIgnoresTransformations)
             label.setBrush(QtGui.QBrush(QtGui.QColor("#0a6a0a")))
             label.setPos(d.u0, -d.v1)
             label.setZValue(9)
+            label.setAcceptedMouseButtons(Qt.NoButton)
             self._plate_overlay += [item, label]
+            if used:
+                shapes.append(([(d.u0, d.v0), (d.u1, d.v0), (d.u1, d.v1), (d.u0, d.v1)], COLOR_FOUND,
+                               3 if row in selected else 2))
+        self.reg.set_photo_overlay(shapes)
         n = sum(self._used(r) for r in range(len(self.detections)))
         self.add_btn.setEnabled(n > 0)
         if self.rectified is None:
             self.status.setText("")
         else:
-            self.status.setText(f"{len(self.detections)} sample(s) found, {n} to add. Touching samples come out as "
-                                "one box; positions can be refined afterwards in the Samples tab.")
+            self.status.setText(f"{len(self.detections)} sample(s), {n} to add. Touching samples come out as one "
+                                "box; positions can be refined afterwards in the Samples tab, devices located with "
+                                "“Device from photo…”.")
+
+    # -- hand edits ----------------------------------------------------------------
+    def add_box(self, u0: float, v0: float, u1: float, v1: float) -> Detection | None:
+        """A sample drawn by hand (plate rectangle)."""
+        u0, v0, u1, v1 = (round(x / DRAW_STEP) * DRAW_STEP for x in (u0, v0, u1, v1))
+        if u1 - u0 < DRAW_STEP or v1 - v0 < DRAW_STEP:
+            return None
+        d = Detection(u0, v0, u1, v1, (u1 - u0) * (v1 - v0), math.nan, manual=True)
+        old = (self.detections, self._row_states())
+        self.manual.append(d)
+        self._rebuild(*old)
+        self._select_row(self.detections.index(d))
+        return d
+
+    def _remove(self, parts: list[Detection]) -> None:
+        for d in parts:
+            if d.manual:
+                self.manual.remove(d)
+            else:
+                self.rejected.append(d.rect)
+
+    def merge_selected(self) -> None:
+        rows = self._selected_rows()
+        if len(rows) < 2:
+            QtWidgets.QMessageBox.information(self, "Merge", "Select the rows (or boxes) of the pieces to merge "
+                                              "(Ctrl + click).")
+            return
+        old = (self.detections, self._row_states())
+        parts = [self.detections[r] for r in rows]
+        merged = Detection.merged(parts)
+        self._remove(parts)
+        self.manual.append(merged)
+        # the merged box keeps the name of its first piece
+        states = list(old[1])
+        self._rebuild(old[0] + [merged], states + [states[rows[0]]])
+        self._select_row(self.detections.index(merged))
+
+    def delete_selected(self) -> None:
+        rows = self._selected_rows()
+        if not rows:
+            return
+        old = (self.detections, self._row_states())
+        self._remove([self.detections[r] for r in rows])
+        self._rebuild(*old)
+
+    def undo_edits(self) -> None:
+        old = (self.detections, self._row_states())
+        self.manual, self.rejected = [], []
+        self._rebuild(*old)
+
+    def select_at(self, u: float, v: float) -> None:
+        """Select the (smallest) box under a click."""
+        hits = [r for r, d in enumerate(self.detections) if d.u0 <= u <= d.u1 and d.v0 <= v <= d.v1]
+        if not hits:
+            self.table.clearSelection()
+            return
+        row = min(hits, key=lambda r: self.detections[r].size[0] * self.detections[r].size[1])
+        if QtWidgets.QApplication.keyboardModifiers() & Qt.ControlModifier:
+            self.table.selectionModel().select(self.table.model().index(row, 0),
+                                               QtCore.QItemSelectionModel.Toggle | QtCore.QItemSelectionModel.Rows)
+        else:
+            self._select_row(row)
+
+    def _select_row(self, row: int) -> None:
+        self.table.clearSelection()
+        self.table.selectRow(row)
+
+    def _selected_rows(self) -> list[int]:
+        return sorted({i.row() for i in self.table.selectedIndexes()})
 
     # -- results table ------------------------------------------------------------
-    def _default_names(self, n: int) -> list[str]:
-        taken = set(self.existing)
+    def _default_names(self, n: int, taken: set) -> list[str]:
+        taken = taken | set(self.existing)
         names, i = [], 1
         while len(names) < n:
             if f"S{i}" not in taken:
@@ -660,12 +553,12 @@ class PhotoImportDialog(QtWidgets.QDialog):
         """Rows for the detections; states[row] (tick, name, H) are kept where given (not None)."""
         self._filling = True
         self.table.setRowCount(len(self.detections))
-        names = self._default_names(len(self.detections))
+        names = iter(self._default_names(sum(s is None for s in states), {s[1] for s in states if s}))
         for row, d in enumerate(self.detections):
             (u, v), (length, width) = d.center, d.size
-            state = states[row] if row < len(states) else None
-            check, name, height = state or (Qt.Checked, names[row], f"{self.height_box.value():.3f}")
-            values = ["", name, f"{u:.2f}", f"{v:.2f}", f"{length:.2f}", f"{width:.2f}", height, f"{d.delta_e:.0f}"]
+            check, name, height = states[row] or (Qt.Checked, next(names), f"{self.height_box.value():.3f}")
+            de = "drawn" if d.manual and math.isnan(d.delta_e) else f"{d.delta_e:.0f}" + (" (merged)" if d.manual else "")
+            values = ["", name, f"{u:.2f}", f"{v:.2f}", f"{length:.2f}", f"{width:.2f}", height, de]
             for col, text in enumerate(values):
                 item = QtWidgets.QTableWidgetItem(text)
                 if col == 0:
@@ -689,7 +582,6 @@ class PhotoImportDialog(QtWidgets.QDialog):
             item.setText(f"{value:.3f}" if ok else f"{self.height_box.value():.3f}")
             self._filling = False
         self._draw_detections()
-        self._draw_photo_overlay()
 
     def _used(self, row: int) -> bool:
         item = self.table.item(row, 0)
@@ -698,21 +590,6 @@ class PhotoImportDialog(QtWidgets.QDialog):
     def _name(self, row: int) -> str:
         item = self.table.item(row, 1)
         return item.text().strip() if item is not None else ""
-
-    def merge_selected(self) -> None:
-        rows = sorted({i.row() for i in self.table.selectedIndexes()})
-        if len(rows) < 2:
-            QtWidgets.QMessageBox.information(self, "Merge", "Select the rows of the pieces to merge (Ctrl + click).")
-            return
-        states = self._row_states()
-        merged = Detection.merged([self.detections[r] for r in rows])
-        keep = [r for r in range(len(self.detections)) if r not in rows]
-        self.detections = [merged] + [self.detections[r] for r in keep]
-        self._fill_table([states[rows[0]]] + [states[r] for r in keep])
-        self.table.clearSelection()
-        self.table.selectRow(0)
-        self._draw_photo_overlay()
-        self._draw_detections()
 
     def set_height_of_all(self) -> None:
         self._filling = True
@@ -734,17 +611,3 @@ class PhotoImportDialog(QtWidgets.QDialog):
 
     def replace_existing(self) -> bool:
         return self.replace.isVisible() and self.replace.isChecked()
-
-
-def lab_to_rgb(lab) -> tuple[int, int, int]:
-    """CIELAB (D65) -> sRGB, for the colour swatch."""
-    lum, a, b = (float(x) for x in lab)
-    fy = (lum + 16) / 116
-    f = np.array([fy + a / 500, fy, fy - b / 200])
-    xyz = np.where(f ** 3 > 216 / 24389, f ** 3, (116 * f - 16) / (24389 / 27)) * np.array([0.95047, 1.0, 1.08883])
-    m = np.array([[3.2404542, -1.5371385, -0.4985314], [-0.9692660, 1.8760108, 0.0415560],
-                  [0.0556434, -0.2040259, 1.0572252]])
-    c = np.clip(m @ xyz, 0, 1)
-    c = np.where(c > 0.0031308, 1.055 * c ** (1 / 2.4) - 0.055, 12.92 * c)
-    r, g, bl = (int(round(x * 255)) for x in c)
-    return r, g, bl
