@@ -113,6 +113,17 @@ class StageModel:
         a = self._srz_axis_local()
         return self._translation(m) + B @ a + rot_z(self._srz_angle(m)) @ (B @ (local - a))
 
+    def plate_to_lab_many(self, m: MotorPositions, points) -> np.ndarray:
+        """plate_to_lab for an (N, 3) array of plate points (u, v, w); returns (N, 3) lab points."""
+        c = self.config
+        pts = np.asarray(points, float)
+        axis = np.array([c.srn_axis_u, c.srn_axis_v])
+        q = (pts[:, :2] + self._piezo(m) - axis) @ rot_2d(self._srn_angle(m)).T + axis
+        local = np.column_stack([q, pts[:, 2]])
+        a = self._srz_axis_local()
+        rot = rot_z(self._srz_angle(m)) @ B
+        return self._translation(m) + B @ a + (local - a) @ rot.T
+
     def lab_to_plate(self, m: MotorPositions, p) -> np.ndarray:
         c = self.config
         a = self._srz_axis_local()

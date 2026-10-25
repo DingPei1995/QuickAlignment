@@ -18,6 +18,7 @@ from ..rotation import relocate
 Qt = QtCore.Qt
 
 LIMITS = {name: MOTOR_SPECS[name][1:3] for name in ("st", "sn", "sz")}
+COLLISION_STYLE = "<br><span style='color:#b00'><b>Collision: the plate would touch {}.</b></span>"
 
 
 class RotationPanel(QtWidgets.QWidget):
@@ -188,6 +189,7 @@ class RotationPanel(QtWidgets.QWidget):
             + self._table(r, ("st", "sz", "sn")) + f"Point: <b>{r.target}</b> (plate x = {u:.3f}, y = {v:.3f} mm)."
             + (f"<br><span style='color:#b00'><b>Out of range: {', '.join(bad)}</b> — not reachable with SN kept, "
                "use the corrected solution.</span>" if bad else "")
+            + self._collision_text(r)
         )
         y = r.beam_offset
         side = "" if abs(y) < 1e-6 else f" {'downstream' if y > 0 else 'upstream'}"
@@ -208,7 +210,15 @@ class RotationPanel(QtWidgets.QWidget):
             where = (f"<span style='color:#b00'><b>closest reachable position: {c.focus_distance * 1000:.0f} µm "
                      "from the analyzer focus</b> (motor range)</span>")
         self.corrected_label.setText(f"With SN corrected, the point is {where}:"
-                                     + self._table(c, ("st", "sz", "sn")))
+                                     + self._table(c, ("st", "sz", "sn")) + self._collision_text(c))
+
+    def collisions(self, r) -> str:
+        """What the plate touches at the new position (optic where it is now, or refocused); empty if nothing."""
+        return self.stage.move_collisions(r.new, r.optic_new, self.measured_optic.value())
+
+    def _collision_text(self, r) -> str:
+        hits = self.collisions(r)
+        return COLLISION_STYLE.format(hits) if hits else ""
 
     def chosen(self):
         return self.corrected if self.correct_sn.isChecked() else self.result
@@ -220,6 +230,10 @@ class RotationPanel(QtWidgets.QWidget):
         bad = out_of_range(r.new)
         if bad:
             QtWidgets.QMessageBox.warning(self, "Out of range", "Not reachable:\n" + "\n".join(bad))
+            return
+        hits = self.collisions(r)
+        if hits:
+            QtWidgets.QMessageBox.warning(self, "Collision", f"Not reachable: the plate would touch {hits}.")
             return
         self.stage.motors.set_value(r.new)
         if r.optic_new is not None:

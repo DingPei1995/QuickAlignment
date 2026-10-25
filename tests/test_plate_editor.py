@@ -574,8 +574,8 @@ def test_motor_ranges(window, monkeypatch):
     from quickalignment.ui.stage_panel import out_of_range
 
     assert out_of_range(MotorPositions()) == []
-    assert out_of_range(MotorPositions(st=7, sn=-1, sz=34)) == [
-        "ST = 7.0000 (range -6 … 6)", "SN = -1.0000 (range -0.5 … 65)", "SZ = 34.0000 (range 35 … 45)"]
+    assert out_of_range(MotorPositions(st=7, sn=-31, sz=34)) == [
+        "ST = 7.0000 (range -6 … 6)", "SN = -31.0000 (range -30 … 65)", "SZ = 34.0000 (range 35 … 45)"]
 
     # y = 6 needs SZ = SZ0 - 6 = 34 at SRn = 120: refused, positions unchanged
     ed, st = window.editor, window.stage
@@ -602,6 +602,65 @@ def test_motor_ranges(window, monkeypatch):
     panel.correct_sn.setChecked(False)
     panel.send_to_stage()  # SN kept is not reachable
     assert warned and "SZ = 33.2000" in warned[0]
+
+
+def test_anti_collision_in_stage_and_rotate_tabs(window, monkeypatch):
+    from quickalignment.collision import CollisionGeometry, SolidBody
+    from quickalignment.stage import MotorPositions
+
+    ed, st = window.editor, window.stage
+    # a small OSA 1.5 mm before the focus (fixed) and a zone plate holder, from the configuration
+    st.record = replace(st.record, collision=CollisionGeometry(optics=(
+        SolidBody("OSA", 1.5, 0.5, 30.0, 4.0, moves=False), SolidBody("zone plate holder", 6.0, 1.5, 15.0, 20.0))))
+    ed.add_sample(Sample("A", u=0.0, v=0.0, length=4, width=4, height=0.5))
+    st.refresh_targets()
+    st.target_combo.setCurrentText("A")
+    st.motors.set_value(MotorPositions(sn=0.5))  # A on the analyzer focus, optic at its reference (zone plate)
+    st.optic_pos.setValue(st.calibration().optic_position)
+    st.update_view()
+    text = st.limits_label.text()
+    assert "Anti-collision" in text and "SN " in text and "(OSA)" in text and "COLLISION" not in text
+    assert any("OSA (fixed)" in t.get_text() for t in st.figure.axes[0].texts)  # drawn in the top view
+
+    # SN far below the surface in focus: the plate is in the OSA
+    st.motors.set_value(MotorPositions(sn=-0.5))
+    st.update_view()
+    assert "COLLISION now with OSA" in st.limits_label.text()
+    assert "COLLISION" in st.figure.axes[0].get_title()
+
+    # a move into the OSA is refused, positions unchanged
+    warned = []
+    monkeypatch.setattr(QtWidgets.QMessageBox, "warning", lambda *a, **k: warned.append(a[2]))
+    st.motors.set_value(MotorPositions(sn=0.5))
+    assert st.move_collisions(MotorPositions(sn=-0.5)).startswith("OSA")
+    st.motors.set_value(MotorPositions(sn=-0.5, st=0.0))
+    assert st.bring_target_on_beam() is None and warned and "would touch OSA" in warned[0]
+    assert st.motors.value().sn == -0.5
+
+    # the Rotate tab warns and does not send a colliding position
+    panel = window.rotation
+    panel.measured.set_value(MotorPositions(sn=-0.5))
+    panel.measured_optic.setValue(st.calibration().optic_position)
+    panel.new_srn.setValue(130.0)
+    panel.compute()
+    assert "Collision: the plate would touch OSA" in panel.result_label.text()
+    warned.clear()
+    panel.send_to_stage()
+    assert warned and "would touch OSA" in warned[0]
+
+
+def test_working_distances_can_be_entered(window):
+    st = window.stage
+    st.optic_type.setCurrentText("zone plate + OSA")
+    names = [st.distance_form.itemAt(i, QtWidgets.QFormLayout.LabelRole).widget().text()
+             for i in range(st.distance_form.rowCount())]
+    assert names == ["OSA working distance", "zone plate working distance"]
+    st.distance_boxes[0].setValue(20.0)
+    assert st.record.collision_geometry().optics[0].distance == 20.0 and not st.record.collision.optics[0].moves
+    st.optic_type.setCurrentText("capillary")  # another optic: its own (default) solids
+    assert [b.distance for b in st.record.collision_geometry().optics] == [10.0]
+    st.distance_boxes[0].setValue(15.0)
+    assert st.record.collision_geometry().optics[0].distance == 15.0
 
 
 def test_found_device_corrects_its_sample(window, monkeypatch):

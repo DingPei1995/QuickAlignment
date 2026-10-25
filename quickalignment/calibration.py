@@ -17,6 +17,7 @@ from dataclasses import asdict, dataclass, field, fields, replace
 from datetime import datetime
 from pathlib import Path
 
+from .collision import CollisionGeometry, default_geometry
 from .fileio import read_json, write_json
 from .stage import MotorPositions, OpticsCalibration, StageConfig
 
@@ -53,6 +54,11 @@ class CalibrationRecord:
     optics: OpticsCalibration = field(default_factory=OpticsCalibration)
     check: dict | None = None  # what the calibration measured, for the record
     path: Path | None = None
+    collision: CollisionGeometry | None = None  # analyzer / optic solids; None: defaults for the optic
+
+    def collision_geometry(self) -> CollisionGeometry:
+        """Solid models for the anti-collision check: from the file, else the defaults for the optic in use."""
+        return self.collision or default_geometry(self.optics.optic_type)
 
     @property
     def label(self) -> str:
@@ -72,6 +78,7 @@ class CalibrationRecord:
             "stage_config": asdict(self.config),
             "optics": asdict(self.optics),
             "check": self.check,
+            **({"collision": self.collision.to_dict()} if self.collision is not None else {}),
         }
 
     @classmethod
@@ -90,6 +97,8 @@ class CalibrationRecord:
             optics=optics,
             check=data.get("check"),
             path=path,
+            collision=(CollisionGeometry.from_dict(data["collision"], optics.optic_type)
+                       if data.get("collision") is not None else None),
         )
 
 
@@ -124,7 +133,7 @@ class CalibrationStore:
         if not records:
             return record
         base = records[0]
-        return replace(base, optics=record.optics,
+        return replace(base, optics=record.optics, collision=None,
                        comment=f"no {record.optic_name} configuration: stage constants from {base.label}, "
                                f"{record.optic_name} position not calibrated")
 

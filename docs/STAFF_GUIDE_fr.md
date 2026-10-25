@@ -167,6 +167,14 @@ référence optique, les séries, les points de test et leurs résidus, pour mé
 - Les utilisateurs peuvent choisir une configuration plus ancienne pour leur session dans *Configuration…* (lecture
   seule).
 
+### Solides de l'anticollision
+
+Le nez de l'analyseur, la zone plate et l'OSA et le capillaire sont modélisés par des solides simples (README,
+*Anti-collision*). Les dimensions zone plate / OSA sont **provisoires** et la distance de travail du capillaire une
+estimation : les mesurer (distance de chaque face avant au foyer, largeur, épaisseur ; pour l'OSA, la position OSA_S
+correspondante) et les mettre dans la configuration sous `"collision"` (modifier une copie, puis l'enregistrer comme
+nouveau fichier). InitialCalibration reprend les solides de la configuration précédente de la même optique.
+
 ## Entretien du programme
 
 **Installation** (Python ≥ 3.9) : `pip install -r requirements.txt` (PyQt5 ou PySide6, numpy, matplotlib ; pytest pour
@@ -203,5 +211,5 @@ atomique ; une session illisible donne un message au lieu d'un plantage ; les en
 | résidus des séries 2–3 en *optique seule* au-delà de 0,05 mm | la mécanique a changé : *optique + moteurs* |
 | une série avec un grand résidu | mauvais point, hors foyer ou faute de frappe : remesurer ou décocher |
 | *Not enough data: …* | les constantes citées demandent une série avec SRn et/ou SRz tourné |
-| une série demande SN sous −0,5 mm | l'élément est trop bas ; prendre un élément sur un échantillon plus haut |
+| une série demande SN sous la limite de collision | l'élément est trop bas ; prendre un élément sur un échantillon plus haut |
 | QuickAlignment affiche la configuration *default* | aucun fichier lisible dans `configs/` |

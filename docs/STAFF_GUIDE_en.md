@@ -162,6 +162,14 @@ the test points and their residuals, for the record.
   `configs/` (do not edit it).
 - Users can choose an older configuration for their session in *Configuration…* (read-only).
 
+### Anti-collision solids
+
+The analyzer nose, the zone plate and OSA and the capillary are modelled as simple solids (README, *Anti-collision*).
+The zone plate / OSA dimensions are **placeholders** and the capillary working distance an estimate: measure them
+(distance of each front from the focus, width, thickness; for the OSA, the OSA_S position they belong to) and put
+them in the configuration under `"collision"` (edit a copy, then save it as a new file). InitialCalibration keeps the
+solids of the previous configuration of the same optic.
+
 ## Looking after the program
 
 **Installation** (Python ≥ 3.9): `pip install -r requirements.txt` (PyQt5 or PySide6, numpy, matplotlib; pytest for the
@@ -197,5 +205,5 @@ are refused.
 | *Optics only* residuals of sets 2–3 above 0.05 mm | mechanics changed: *optics + motors* |
 | one set with a large residual | wrong point, out of focus or typing error: re-measure or untick |
 | *Not enough data: …* | the listed constants need a set with SRn and/or SRz rotated |
-| a set needs SN below −0.5 mm | the feature is too low; use a feature on a higher sample |
+| a set needs SN below the collision limit | the feature is too low; use a feature on a higher sample |
 | QuickAlignment shows *default* configuration | no readable file in `configs/` for any optic |
