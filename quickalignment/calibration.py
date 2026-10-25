@@ -12,11 +12,12 @@ is loaded.
 
 from __future__ import annotations
 
-import json
+import math
 from dataclasses import asdict, dataclass, field, fields, replace
 from datetime import datetime
 from pathlib import Path
 
+from .fileio import read_json, write_json
 from .stage import MotorPositions, OpticsCalibration, StageConfig
 
 DEFAULT_FOLDER = Path(__file__).resolve().parent.parent / "configs"
@@ -24,8 +25,24 @@ TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 
 def _from_dict(cls, data: dict):
-    names = {f.name for f in fields(cls)}
-    return cls(**{k: v for k, v in data.items() if k in names})
+    """cls from the known keys of data, numbers converted (ValueError / TypeError for wrong values)."""
+    if not isinstance(data, dict):
+        raise ValueError(f"{cls.__name__}: expected a JSON object.")
+    out = {}
+    for f in fields(cls):
+        if f.name not in data:
+            continue
+        value, default = data[f.name], f.default
+        if isinstance(default, bool):
+            value = bool(value)
+        elif isinstance(default, (int, float)) or (default is None and value is not None and f.name != "check"):
+            value = float(value)
+            if not math.isfinite(value):
+                raise ValueError(f"{cls.__name__}.{f.name} is not finite.")
+            if isinstance(default, int):
+                value = int(value)
+        out[f.name] = value
+    return cls(**out)
 
 
 @dataclass
@@ -60,12 +77,17 @@ class CalibrationRecord:
     @classmethod
     def from_dict(cls, data: dict, path: Path | None = None) -> CalibrationRecord:
         optics = dict(data.get("optics", {}))
-        optics["motors"] = _from_dict(MotorPositions, optics.get("motors", {}))
+        motors = _from_dict(MotorPositions, optics.pop("motors", {}))
+        optics = _from_dict(OpticsCalibration, {k: v for k, v in optics.items() if k != "optic_type"})
+        optics.motors = motors
+        optic_type = data.get("optics", {}).get("optic_type")
+        if optic_type is not None:
+            optics.optic_type = str(optic_type)
         return cls(
-            created=data.get("created", ""),
-            comment=data.get("comment", ""),
+            created=str(data.get("created", "")),
+            comment=str(data.get("comment", "")),
             config=_from_dict(StageConfig, data.get("stage_config", {})),
-            optics=_from_dict(OpticsCalibration, optics),
+            optics=optics,
             check=data.get("check"),
             path=path,
         )
@@ -79,9 +101,9 @@ class CalibrationStore:
         """All readable configurations, newest first."""
         out = []
         for path in self.folder.glob("calibration_*.json"):
-            try:
-                out.append(CalibrationRecord.from_dict(json.loads(path.read_text()), path))
-            except (OSError, ValueError, TypeError):
+            try:  # a damaged or foreign file is skipped, not fatal
+                out.append(CalibrationRecord.from_dict(read_json(path), path))
+            except (OSError, ValueError, TypeError, KeyError, AttributeError):
                 continue
         return sorted(out, key=lambda r: (r.created, r.path.name), reverse=True)
 
@@ -116,5 +138,5 @@ class CalibrationStore:
         while path.exists():
             path = self.folder / f"{stem}_{i}.json"
             i += 1
-        path.write_text(json.dumps(record.to_dict(), indent=2))
+        write_json(path, record.to_dict())
         return replace(record, path=path)

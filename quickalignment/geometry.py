@@ -14,9 +14,11 @@ the sample surface.
 
 from __future__ import annotations
 
-import json
+import math
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+
+from .fileio import read_json, write_json
 
 Point = tuple[float, float]
 
@@ -286,20 +288,65 @@ class SampleLayout:
 
     @classmethod
     def from_dict(cls, data: dict) -> SampleLayout:
+        """Layout from a file's dictionary; unknown keys are ignored, wrong values raise ValueError."""
+        if not isinstance(data, dict):
+            raise ValueError("Not a layout: expected a JSON object.")
         if data.get("plate_type") == "custom" and "custom_plate" in data:
-            plate = custom_plate(**data["custom_plate"])
+            params = data["custom_plate"]
+            if not isinstance(params, dict):
+                raise ValueError("custom_plate: expected a JSON object.")
+            plate = custom_plate(**_typed(params, {"length": float, "width": float, "height": float,
+                                                    "center_y": float}, "custom_plate"))
         else:
             plate = PLATES.get(data.get("plate_type", "standard"), STANDARD_PLATE)
         samples = []
         for raw in data.get("samples", []):
-            raw = dict(raw)
-            devices = [Device(**d) for d in raw.pop("devices", [])]
-            samples.append(Sample(**raw, devices=devices))
+            if not isinstance(raw, dict):
+                raise ValueError("samples: every sample must be a JSON object.")
+            devices = []
+            for d in raw.get("devices", []) or []:
+                if not isinstance(d, dict):
+                    raise ValueError(f"{raw.get('name', '?')}: every device must be a JSON object.")
+                dev = Device(**_typed(d, _FIELD_TYPES[Device], "device"))
+                if dev.x_edge not in X_EDGES or dev.y_edge not in Y_EDGES:
+                    raise ValueError(f"device {dev.name}: edges must be {X_EDGES} and {Y_EDGES}.")
+                devices.append(dev)
+            samples.append(Sample(**_typed(raw, _FIELD_TYPES[Sample], "sample"), devices=devices))
         return cls(plate=plate, samples=samples)
 
     def save(self, path: str | Path) -> None:
-        Path(path).write_text(json.dumps(self.to_dict(), indent=2))
+        write_json(path, self.to_dict())
 
     @classmethod
     def load(cls, path: str | Path) -> SampleLayout:
-        return cls.from_dict(json.loads(Path(path).read_text()))
+        return cls.from_dict(read_json(path))
+
+
+_FIELD_TYPES = {
+    Device: {"name": str, "x_edge": str, "dx": float, "y_edge": str, "dy": float, "length": float, "width": float},
+    Sample: {"name": str, "u": float, "v": float, "length": float, "width": float, "height": float},
+}
+
+
+def _typed(raw: dict, types: dict, what: str) -> dict:
+    """The known keys of raw, converted to their types (numbers must be finite)."""
+    out = {}
+    for key, kind in types.items():
+        if key not in raw:
+            continue
+        value = raw[key]
+        try:
+            if kind is float:
+                if isinstance(value, bool):
+                    raise TypeError
+                value = float(value)
+                if not math.isfinite(value):
+                    raise ValueError
+            else:
+                value = str(value)
+        except (TypeError, ValueError):
+            raise ValueError(f"{what} {raw.get('name', '')}: {key} = {value!r} is not a valid value.") from None
+        out[key] = value
+    if "name" in types and "name" not in out:
+        raise ValueError(f"A {what} has no name.")
+    return out
