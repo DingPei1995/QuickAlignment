@@ -3,6 +3,19 @@
 Run **`InitialCalibration.py`** (double-click; Windows: `InitialCalibration.pyw`) to create the calibration
 configuration that QuickAlignment loads at start-up.
 
+## Optics only or optics + motors
+
+At start-up the program asks what was recalibrated:
+
+- **Optics only** (default): the focusing optic was realigned, the motors were not re-homed. The beam meets the plate
+  elsewhere and the optic focus moves, but the mechanics stay: only ST0, SZ0 and the optic reference are fitted;
+  SN_f, the SRn axis and the SRz axis offsets are kept from the newest configuration of the chosen optic.
+  For every set: set SRn / SRz (PIX = PIY = 150 µm), **leave SN as it is**, bring the feature onto the beam with
+  ST / SZ, refocus the optic, write down ST, SZ, SN and the optic position. Set 1 (SRn 120, SRz 0) is enough;
+  set 2 (SRn 140) and set 3 (SRz −20) check the kept axes. If their residuals stay above ~0.05 mm the mechanics
+  have changed: start again with *optics + motors*. The test points work as below.
+- **Optics + motors**: the rest of this protocol (all constants, the feature at the analyzer focus in every set).
+
 ## When
 
 - first use of QuickAlignment

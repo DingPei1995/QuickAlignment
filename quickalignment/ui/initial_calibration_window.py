@@ -1,9 +1,12 @@
-"""Initial calibration program (first start, after re-homing motors, maintenance).
+"""Initial calibration program (after an optics realignment, first start, re-homing motors, maintenance).
 
-Beamline staff measure one reference feature in a few stage orientations;
-the stage constants are fitted, tried out at test points and corrected with
-what was really found there, until staff are satisfied. The result is saved
-as a new dated configuration that QuickAlignment then loads.
+At start-up staff choose what was recalibrated: the optics only (the usual
+case: ST0, SZ0 and the optic reference are fitted, the mechanics are kept
+from the newest configuration) or optics + motors (all constants). Beamline
+staff measure one reference feature in a few stage orientations; the
+constants are fitted, tried out at test points and corrected with what was
+really found there, until staff are satisfied. The result is saved as a new
+dated configuration that QuickAlignment then loads.
 """
 
 from __future__ import annotations
@@ -19,7 +22,8 @@ from .stage_panel import align_labels, equal_row, out_of_range, spin
 from ..calibration import CalibrationStore
 from ..geometry import PLATES
 from ..initial_calibration import (
-    FOUND_TOLERANCE, OPTIC_PARAM, PARAM_LABELS, MeasurementSet, NotEnoughData, TestPoint, fit_initial_calibration,
+    FIT_PARAMS, FOUND_TOLERANCE, MODE_PARAMS, OPTIC_PARAM, PARAM_LABELS, MeasurementSet, NotEnoughData,
+    TestPoint, fit_initial_calibration,
     initial_record, optic_focus_of, predict_test_point, protocol_sets, verification_angles,
 )
 from ..schematic import draw_reference_feature, feature_warnings
@@ -75,6 +79,30 @@ points is predicted with the corrected configuration. The angles of a new test p
 <i>Save</i>; QuickAlignment loads the newest configuration of the chosen optic at start-up.</p>
 """
 
+PROTOCOL_OPTICS_HTML = """
+<h3>Optics recalibration – measurement protocol</h3>
+<p><b>When:</b> the focusing optic (capillary or zone plate + OSA) was realigned, the motors were not re-homed.
+The beam then meets the plate elsewhere and the optic focus moves, but the mechanics stay.</p>
+<p><b>What is fitted:</b> ST0, SZ0 (where the beam meets the plate) and the optic position at the analyzer focus.
+<b>Kept</b> from the newest configuration of the chosen optic: SN_f, the SRn axis and the SRz axis offsets.</p>
+<p><b>Reference feature:</b> one small, sharp feature that you can find with the beam, with known plate
+coordinates x, y (mm, from the centre of the back plate, front view, tab up) and height H above the plate
+surface. Check it with <i>Show front / side view</i>. Use <b>the same feature in every set</b>.</p>
+<p><b>For every set</b> (as the stage is normally run):</p>
+<ol>
+<li>Set SRn and SRz to the values of the set; PIX = PIY = 150 µm.</li>
+<li>Leave SN as it is (it does not have to be at the analyzer focus).</li>
+<li>Bring the feature onto the beam with ST / SZ.</li>
+<li>Refocus the optic on the feature.</li>
+<li>Write down ST, SZ, SN and the optic position.</li>
+</ol>
+<p><b>Sets:</b> set 1 (SRn 120, SRz 0) is enough. Sets 2–3 (SRn and SRz rotated) are recommended: they check
+the kept axes. If their residuals stay above ~0.05 mm the mechanics have changed (motors re-homed?):
+then start the program again and choose <i>optics + motors</i>.</p>
+<p><b>Then</b> press <i>Compute</i>, work through the test points (keep SRn, SRz and SN; enter the real ST, SZ
+and optic if the feature is not found within 0.05 mm), add a comment and press <i>Save</i>.</p>
+"""
+
 COLS = ["Use", "Set", "SRn (°)", "SRz (°)", "ST (mm)", "SZ (mm)", "SN (mm)", "Optic at focus"]
 NUMERIC = {2: "srn", 3: "srz", 4: "st", 5: "sz", 6: "sn"}
 OPTIC_COL = 7  # optional
@@ -88,6 +116,10 @@ DONE_COLOR = QtGui.QColor("#ececec")
 
 def _fmt(value, digits: int = 4) -> str:
     return "–" if value is None else f"{value:.{digits}f}"
+
+
+def _signed(value) -> str:
+    return "–" if value is None else f"{value:+.4f}"
 
 
 class FeatureViewDialog(QtWidgets.QDialog):
@@ -134,10 +166,48 @@ class FeatureViewDialog(QtWidgets.QDialog):
         self.info.setText("<br>".join(lines))
 
 
+class ModeDialog(QtWidgets.QDialog):
+    """Asked at start-up: what was recalibrated (optics only, the default, or optics + motors)."""
+
+    def __init__(self, store: CalibrationStore, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("What was recalibrated?")
+        has_config = bool(store.records())
+        self.optics = QtWidgets.QRadioButton("Optics only: the capillary / zone plate was realigned (usual case)")
+        self.full = QtWidgets.QRadioButton("Optics + motors: motors re-homed, maintenance or first use")
+        optics_note = QtWidgets.QLabel(
+            "Fits ST0, SZ0 and the optic reference. SN_f, the SRn axis and the SRz axis offsets\n"
+            "are kept from the newest configuration of the chosen optic. One set is enough.")
+        full_note = QtWidgets.QLabel("Fits all constants (ST0, SZ0, SN_f, SRn axis, SRz axis, optic). At least 3 sets.")
+        for note in (optics_note, full_note):
+            note.setStyleSheet("color: #555; margin-left: 22px;")
+        self.optics.setChecked(has_config)
+        self.full.setChecked(not has_config)
+        self.optics.setEnabled(has_config)
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.addWidget(self.optics)
+        layout.addWidget(optics_note)
+        if not has_config:
+            missing = QtWidgets.QLabel("No configuration yet: the mechanics have to be calibrated first.")
+            missing.setStyleSheet("color: #b36b00; margin-left: 22px;")
+            layout.addWidget(missing)
+        layout.addWidget(self.full)
+        layout.addWidget(full_note)
+        buttons = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def mode(self) -> str:
+        return "optics" if self.optics.isChecked() else "full"
+
+
 class InitialCalibrationWindow(QtWidgets.QMainWindow):
-    def __init__(self, store: CalibrationStore | None = None):
+    def __init__(self, store: CalibrationStore | None = None, mode: str = "full"):
         super().__init__()
-        self.setWindowTitle("ANTARES QuickAlignment — initial calibration")
+        self.mode = mode
+        self.setWindowTitle("ANTARES QuickAlignment — "
+                            + ("optics recalibration" if mode == "optics" else "initial calibration (optics + motors)"))
         self.resize(1500, 1000)
         self.store = store or CalibrationStore()
         self.result = None
@@ -145,7 +215,7 @@ class InitialCalibrationWindow(QtWidgets.QMainWindow):
         self._filling = False
 
         protocol = QtWidgets.QTextBrowser()
-        protocol.setHtml(PROTOCOL_HTML)
+        protocol.setHtml(PROTOCOL_OPTICS_HTML if mode == "optics" else PROTOCOL_HTML)
         protocol.setMinimumWidth(430)
 
         # reference feature
@@ -184,6 +254,7 @@ class InitialCalibrationWindow(QtWidgets.QMainWindow):
         of.addRow(QtWidgets.QLabel("Optic motor: + moves the optic towards the sample."))
         of.addRow(self.previous_label)
         self._show_previous()
+        self.optic_type.currentIndexChanged.connect(self._show_previous)
 
         # measurement sets
         self.table = QtWidgets.QTableWidget(0, len(COLS))
@@ -205,7 +276,9 @@ class InitialCalibrationWindow(QtWidgets.QMainWindow):
         compute_btn.setMinimumHeight(34)
         compute_btn.setStyleSheet("font-weight: bold;")
         compute_btn.clicked.connect(self.compute)
-        sets_box = QtWidgets.QGroupBox("Measurement sets: reference feature on the beam, at the analyzer focus")
+        sets_box = QtWidgets.QGroupBox(
+            "Measurement sets: reference feature on the beam, optic refocused, SN as it was" if mode == "optics"
+            else "Measurement sets: reference feature on the beam, at the analyzer focus")
         sb = QtWidgets.QVBoxLayout(sets_box)
         sb.addWidget(self.table)
         row = QtWidgets.QHBoxLayout()
@@ -214,7 +287,7 @@ class InitialCalibrationWindow(QtWidgets.QMainWindow):
         row.addStretch(1)
         sb.addLayout(row)
         sb.addWidget(compute_btn)
-        for s in protocol_sets():
+        for s in protocol_sets(mode=mode):
             self._add_row(s)
 
         self.result_label = QtWidgets.QLabel("Fill in the measured ST, SZ, SN and press Compute.")
@@ -360,11 +433,17 @@ class InitialCalibrationWindow(QtWidgets.QMainWindow):
         return self.ref_x.value(), self.ref_y.value(), self.plate().total_thickness + self.ref_h.value()
 
     def previous(self):
-        """The newest configuration: start values and comparison."""
-        return self.store.latest()
+        """The newest configuration of the chosen optic: start values, kept constants (optics only) and comparison."""
+        return self.store.latest(self.optic())
 
-    def _show_previous(self) -> None:
-        self.previous_label.setText(f"Results are compared with the newest configuration: <b>{self.previous().label}</b>")
+    def _show_previous(self, *_) -> None:
+        prev = self.previous()
+        if self.mode == "optics":
+            kept = ", ".join(f"{PARAM_LABELS[p]} {getattr(prev.config, p):.4f}"
+                             for p in FIT_PARAMS if p not in MODE_PARAMS["optics"])
+            self.previous_label.setText(f"Mechanics kept from the newest configuration <b>{prev.label}</b>: {kept}")
+        else:
+            self.previous_label.setText(f"Results are compared with the newest configuration: <b>{prev.label}</b>")
 
     def current_config(self):
         """The fitted constants once computed, else the newest configuration's (with a label)."""
@@ -516,10 +595,12 @@ class InitialCalibrationWindow(QtWidgets.QMainWindow):
         self.correct_btn.setEnabled(False)
         prev = self.previous()
         try:
-            res = fit_initial_calibration(sets, self.plate(), self.ref_uvw(), base=prev.config, tests=self.tests)
+            res = fit_initial_calibration(sets, self.plate(), self.ref_uvw(), base=prev.config, tests=self.tests,
+                                          mode=self.mode)
         except NotEnoughData as exc:
-            self.result_label.setText(f"<b>{exc}</b><br>The minimum is 3 sets: SRn = 120 / SRz = 0, "
-                                      "one SRn rotation, one SRz rotation.")
+            hint = ("One set is enough (e.g. SRn = 120 / SRz = 0)." if self.mode == "optics" else
+                    "The minimum is 3 sets: SRn = 120 / SRz = 0, one SRn rotation, one SRz rotation.")
+            self.result_label.setText(f"<b>{exc}</b><br>{hint}")
             return
         self.result = res
         html = "<b>Fitted constants</b><table cellspacing=6><tr><th></th><th>value</th><th>± 1σ</th>"
@@ -532,12 +613,17 @@ class InitialCalibrationWindow(QtWidgets.QMainWindow):
             change = "" if old is None else f"{value - old:+.4f}"
             html += (f"<tr><td>{PARAM_LABELS[p]}</td><td><b>{value:.4f}</b></td><td>{sig}</td><td>{_fmt(old)}</td>"
                      f"<td>{change}</td></tr>")
+        if self.mode == "optics":
+            html += "</table><b>Kept</b> (mechanics, optics only)<table cellspacing=6>"
+            for p in FIT_PARAMS:
+                if p not in res.params:
+                    html += f"<tr><td>{PARAM_LABELS[p]}</td><td>{getattr(res.config, p):.4f}</td></tr>"
         html += "</table><b>Residuals of the sets</b> (model − measured, mm)<table cellspacing=6><tr><th>set</th>"
         html += "<th>ST</th><th>SZ</th><th>SN</th><th>optic</th></tr>"
         optic_res = dict(res.optic_residuals)
         for name, d_st, d_sz, d_sn in res.residuals:
             d_optic = optic_res.get(name)
-            html += (f"<tr><td>{name}</td><td>{d_st:+.4f}</td><td>{d_sz:+.4f}</td><td>{d_sn:+.4f}</td>"
+            html += (f"<tr><td>{name}</td><td>{d_st:+.4f}</td><td>{d_sz:+.4f}</td><td>{_signed(d_sn)}</td>"
                      f"<td>{'' if d_optic is None else f'{d_optic:+.4f}'}</td></tr>")
         html += "</table>"
         if res.test_residuals:
@@ -552,10 +638,19 @@ class InitialCalibrationWindow(QtWidgets.QMainWindow):
             html += (f"<span style='color:#b36b00'><b>No optic position entered:</b> the "
                      f"{self.optic_type.currentText()} reference is not calibrated (QuickAlignment then assumes the "
                      "optic focus on the analyzer focus).</span><br>")
-        if res.dof <= 2 and not res.tests:
-            html += "<span style='color:#b36b00'>Minimum data set: mistakes in a set cannot be detected. Measuring sets 4–5 is recommended.</span><br>"
-        if res.rms > RMS_WARNING:
-            html += f"<span style='color:#c00000'><b>Residuals above {RMS_WARNING} mm: check the entries with the largest residuals.</b></span><br>"
+        if self.mode == "optics":
+            if len(res.sets) == 1 and not res.tests:
+                html += ("<span style='color:#b36b00'>One set: the kept SRn / SRz axes are not checked. Measuring "
+                         "sets 2–3 is recommended.</span><br>")
+            if res.rms > RMS_WARNING:
+                html += (f"<span style='color:#c00000'><b>Residuals above {RMS_WARNING} mm: check the entries; if they "
+                         "stay, the mechanics have changed (motors re-homed?): start again with optics + motors.</b>"
+                         "</span><br>")
+        else:
+            if res.dof <= 2 and not res.tests:
+                html += "<span style='color:#b36b00'>Minimum data set: mistakes in a set cannot be detected. Measuring sets 4–5 is recommended.</span><br>"
+            if res.rms > RMS_WARNING:
+                html += f"<span style='color:#c00000'><b>Residuals above {RMS_WARNING} mm: check the entries with the largest residuals.</b></span><br>"
         self.result_label.setText(html)
         self._new_round()
         summary = self._round_summary()
@@ -585,6 +680,11 @@ class InitialCalibrationWindow(QtWidgets.QMainWindow):
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv if argv is None else argv
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication(argv)
-    win = InitialCalibrationWindow()
+    store = CalibrationStore()
+    dialog = ModeDialog(store)
+    ok = dialog.exec() if hasattr(dialog, "exec") else dialog.exec_()
+    if not ok:
+        return 0
+    win = InitialCalibrationWindow(store, dialog.mode())
     win.show()
     return exec_app(app)

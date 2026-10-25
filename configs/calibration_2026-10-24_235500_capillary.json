@@ -1,6 +1,6 @@
 {
   "created": "2026-10-24 23:55:00",
-  "comment": "Gating plate + capillary, joint fit of two devices on Si (H 0.525 mm), SN kept at ~0 and the capillary refocused: RG_GMC (2026-10-15, x 1.51 / y 2.82 mm from the photos) at SRn 120 / SRz -12 (CPS 60.30) and SRn 92 / SRz -24 (CPS 61.74); Cav (2026-10-17, other gating plate, no photo: position fitted, x -2.44 / y 2.02 mm in this configuration) at SRn 120 / SRz -24 (CPS 58.75) and SRn 142 / SRz -24 (CPS 58.48). 12 equations, 9 unknowns, rms 22 um (CPS residuals <= 0.05). SRz axis 2.59 +- 0.39 mm behind the standard riser top, -0.23 +- 0.23 mm along ST. ST0 and SN_f cannot be separated by these data (no measurement on the analyzer focus): SN_f = -0.525 taken so that the measured surfaces (SN ~ 0) were in the analyzer focal plane; ST0 fitted. Replaces calibration_2026-10-24_234000 (ST0 = 0 there: 1.3 mm off in ST at the Cav rotation). CPS increasing moves the capillary towards the sample.",
+  "comment": "Gating plate + capillary, joint fit of two devices on Si (H 0.525 mm), SN kept at ~0 and the capillary refocused: RG_GMC (2026-10-15, x 1.51 / y 2.82 mm from the photos) at SRn 120 / SRz -12 (CPS 60.30) and SRn 92 / SRz -24 (CPS 61.74); Cav (2026-10-17, other gating plate, no photo: position fitted, x -2.44 / y 2.02 mm in this configuration) at SRn 120 / SRz -24 (CPS 58.75) and SRn 142 / SRz -24 (CPS 58.48). 12 equations, 9 unknowns, rms 22 um (CPS residuals <= 0.05). SRz axis 2.59 +- 0.39 mm behind the standard riser top, -0.23 +- 0.23 mm along ST. ST0 and SN_f cannot be separated by these data (no measurement on the analyzer focus): SN_f = -0.525 taken so that the measured surfaces (SN ~ 0) were in the analyzer focal plane; ST0 fitted. Replaces calibration_2026-10-24_234000 (ST0 = 0 there: 1.3 mm off in ST at the Cav rotation). CPS increasing moves the capillary towards the sample. Beamline notes (2026-10-25): ST0 -0.95 agrees with experience (plate centre at ST ~ -1 without rotation); all four measurements were made after the same capillary alignment. SZ0 (40.63) and the CPS reference probably depend on the capillary alignment (pitch) and have to be redone after realigning it: InitialCalibration, 'optics only', one set at SRn 120 / SRz 0 (more sets check the kept axes). SN_f, the SRn axis and the SRz axis are mechanics and stay.",
   "stage_config": {
     "st0": -0.9501,
     "sz0": 40.6295,
@@ -146,6 +146,21 @@
     },
     "rms_mm": 0.0217,
     "sensitivity": "RG x +0.3 mm: SRz offset ST +0.30, SN unchanged (absorbed by ST0); H +-0.1 mm: SRz offset SN -+0.10",
-    "previous": "2026-10-24 23:40:00"
+    "previous": "2026-10-24 23:40:00",
+    "validity": {
+      "stays": [
+        "sn_f",
+        "srn_axis_u",
+        "srn_axis_v",
+        "srz_offset_t",
+        "srz_offset_n"
+      ],
+      "after a capillary realignment": [
+        "st0",
+        "sz0",
+        "optic reference (CPS)"
+      ],
+      "experience": "plate centre at ST ~ -1 without rotation (ST0 fitted -0.95)"
+    }
   }
 }

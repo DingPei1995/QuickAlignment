@@ -606,3 +606,45 @@ def test_found_device_corrects_its_sample(window, monkeypatch):
     st.bring_target_to_focus()
     m = st.motors.value()
     assert (m.st, m.sz, m.sn) == pytest.approx((found.st, found.sz, found.sn), abs=1e-4)
+
+
+def test_initial_calibration_asks_what_was_recalibrated(tmp_path):
+    """Start-up dialog: optics only by default (mechanics kept from the newest configuration of the optic),
+    optics + motors when there is no configuration yet."""
+    from quickalignment.calibration import CalibrationRecord, CalibrationStore
+    from quickalignment.geometry import STANDARD_PLATE
+    from quickalignment.initial_calibration import on_beam
+    from quickalignment.stage import OpticsCalibration, StageConfig, StageModel
+    from quickalignment.ui.initial_calibration_window import InitialCalibrationWindow, ModeDialog
+
+    QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    store = CalibrationStore(tmp_path / "configs")
+    empty = ModeDialog(store)
+    assert empty.mode() == "full" and not empty.optics.isEnabled()
+
+    mech = dict(sn_f=-0.5, srn_axis_u=-0.3, srn_axis_v=0.1, srz_offset_t=-0.2, srz_offset_n=2.6)
+    store.save(CalibrationRecord(comment="before", config=StageConfig(st0=-1.0, sz0=40.6, **mech),
+                                 optics=OpticsCalibration(optic_type="capillary")))
+    dialog = ModeDialog(store)
+    assert dialog.optics.isEnabled() and dialog.mode() == "optics"
+
+    win = InitialCalibrationWindow(store, dialog.mode())
+    assert win.table.rowCount() == 3 and "optics recalibration" in win.windowTitle()
+    win.optic_type.setCurrentIndex(1)  # capillary
+    assert "Mechanics kept" in win.previous_label.text() and "2.6000" in win.previous_label.text()
+    truth = StageModel(StageConfig(st0=-0.8, sz0=40.9, **mech), STANDARD_PLATE)  # beam moved by the realignment
+    win.ref_x.setValue(1.0)
+    win.ref_h.setValue(0.5)
+    for row in range(3):
+        srn, srz = float(win.table.item(row, 2).text()), float(win.table.item(row, 3).text())
+        st, sz, optic = on_beam(truth, (1.0, 0.0, 5.5), srn, srz, 0.0, 150, 150, 59.0)
+        for col, value in ((4, st), (5, sz), (6, 0.0), (7, optic)):
+            win.table.item(row, col).setText(f"{value:.6f}")
+    win.compute()
+    assert win.result.config.st0 == pytest.approx(-0.8, abs=1e-5) and win.result.config.sz0 == pytest.approx(40.9, abs=1e-5)
+    assert win.result.config.srz_offset_n == 2.6 and win.result.optic_focus == pytest.approx(59.0, abs=1e-5)
+    assert "Kept" in win.result_label.text() and "Residuals above" not in win.result_label.text()
+    win.save()
+    rec = store.latest("capillary")
+    assert rec.check["mode"] == "optics" and rec.config.sn_f == -0.5 and rec.comment.startswith("optics recalibration")
+    win.close()
