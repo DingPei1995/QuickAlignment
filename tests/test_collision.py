@@ -77,14 +77,14 @@ def test_osa_stays_when_the_zone_plate_refocuses():
 
 
 def test_capillary_limit_and_analyzer():
-    """The capillary: slender cone head, wider housing set back. On a flat surface the part with the smallest
-    (d - a) comes first: the head. Lowering SN also slides the beam crossing along the plate, so a
+    """The capillary (design top view): square front plate, conical nose, body. On a flat surface the part with the
+    smallest (d - a) comes first: the front plate. Lowering SN also slides the beam crossing along the plate, so a
     (made-up) 40 mm wide sample keeps the contact point on it."""
     layout = SampleLayout(STANDARD_PLATE, [Sample("big", 0, 0, 40, 15.5, 0.5)])
     model, m = setup(layout)
     rooms = {b.name: ((b.distance - grown(CAP)) - (b.tip_radius + grown(CAP))) / np.sqrt(2) for b in CAP.optics}
     first = min(rooms, key=rooms.get)
-    assert first == "capillary"
+    assert first == "capillary front plate"
     lim = motor_limits(model, m, layout, CAP, [0.0], TRAVEL)["sn"]
     assert lim.lo_by == first and rooms[first] <= m.sn - lim.lo < rooms[first] + SAMPLING_ALLOWANCE
     # without the optic the analyzer nose, 30 mm from the focal plane, is the limit
@@ -128,13 +128,13 @@ def test_collision_now_returns_none():
 
 
 def test_default_zone_plate_and_osa_are_thin_plates():
-    """Zone plate and OSA (placeholders) as thin square plates across the beam, farther than the capillary tip;
-    the OSA, fixed, is closer than the zone plate. A plate front of half width a at distance d along the beam
+    """Zone plate and OSA (placeholders) as thin square plates across the beam; the OSA, fixed, is closer than
+    the zone plate. A plate front of half width a at distance d along the beam
     touches a flat surface at 45° when sqrt2 dSN = (d - g) - (a + g)."""
     zp = default_geometry("zone plate + OSA")
     osa, plate = zp.optics
     assert osa.square and plate.square and not osa.moves and plate.moves
-    assert CAP.optics[0].distance < osa.distance < plate.distance
+    assert osa.distance < plate.distance
     # the contact point is a sqrt2 + dSN away from the spot along the plate: a (made-up) 40 mm wide sample
     layout = SampleLayout(STANDARD_PLATE, [Sample("big", 0, 0, 40, 15.5, 0.5)])
     model, m = setup(layout)
