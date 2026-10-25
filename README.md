@@ -139,9 +139,9 @@ is checked against simple solids:
 
 - **analyzer (MBS A1)**: a truncated cone on the analyzer axis, front 30 mm from the focal plane, outer radius
   10 mm at the front (the opening must pass the ±15° lens acceptance), 35° cone (estimate);
-- **zone plate + OSA**: two thin square plates across the beam, 10 × 10 mm, 0.5 mm thick (placeholders: OSA 14 mm,
-  zone plate 29 mm before the focus. The focal length is f = D Δr / λ, λ = 13.05 nm at 95 eV: D = 1.5 mm and
-  Δr = 250 nm give 29 mm; an OSA of diameter D/2 passes the whole first-order cone only within f/2 of the focus). The zone plate moves with its motor (ZP_ZS); the **OSA is not moved when the
+- **zone plate + OSA**: two thin square plates across the beam, 10 × 10 mm, 0.5 mm thick (sizes are placeholders).
+  Zone plate: working distance 26.613 mm at 100 eV; the focal length grows with the photon energy (f = D Δr / λ), so
+  at 95 eV it is 25.28 mm. OSA: 14 mm before the focus (placeholder). The zone plate moves with its motor (ZP_ZS); the **OSA is not moved when the
   zone plate refocuses** (OSA_S stays at ≈ 80.00 in the WWS2 / S2 metadata while ZP_ZS changes): it is placed
   before the focus at the configuration's optics reference (≈ the analyzer focus);
 - **capillary** (Sigray), measured on the ANTARES design top view (scale from the plate, 18 × 5 mm there, ±5 %),
@@ -176,7 +176,7 @@ A configuration file can give its own solids (missing parts keep the defaults of
 "collision": {"margin": 0.1,
               "analyzer": {"name": "analyzer (MBS A1)", "distance": 30, "tip_radius": 10, "half_angle": 35, "length": 150},
               "optics": [{"name": "OSA", "distance": 14, "tip_radius": 5, "length": 0.5, "square": true, "moves": false},
-                         {"name": "zone plate", "distance": 29, "tip_radius": 5, "length": 0.5, "square": true}]}
+                         {"name": "zone plate", "distance": 25.28, "tip_radius": 5, "length": 0.5, "square": true}]}
 ```
 
 Not modelled: the sample holder below the plate, the cryostat and shields, the OSA / zone plate mounts beside the
