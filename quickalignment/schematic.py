@@ -4,8 +4,7 @@
   analyzer and its focal plane, beam, optic with its absolute position. The
   analyzer nose and the optic (OSA / zone plate, capillary) are the solids of
   the anti-collision check (collision.py), at scale, red when the plate
-  touches them; an inset zooms on the beam spot when an optic front is within
-  a few mm of it.
+  touches them.
 * Sample plane (front view along the surface normal, SRn rotation applied,
   SRz not shown): samples, devices and the beam spot. The axes are absolute
   ST / SZ: a point drawn at (ST, SZ) comes onto the beam with those motor
@@ -36,8 +35,6 @@ C_BEAM, C_ANALYZER, C_OPTIC, C_SRN_AXIS = "#d62728", "#1f77b4", "#8c564b", "tab:
 C_ACCEPTANCE = "#f2a65a"  # electrons accepted by the analyzer
 OPTIC_DRAW_DISTANCE = 32.0  # mm upstream of the optic focus shown at most
 ANALYZER_DRAW_LENGTH = 25.0  # mm of the analyzer cone drawn behind its front
-ZOOM_HALF_WIDTH = 2.5  # mm, half width of the zoom on the beam spot
-ZOOM_OPTIC_DISTANCE = 5.0  # mm; the zoom is drawn only for an optic front closer than this to its focus
 
 
 def convex_hull(points: np.ndarray) -> np.ndarray:
@@ -117,10 +114,10 @@ def _draw_top_content(ax, model: StageModel, m: MotorPositions, layout: SampleLa
     hit, fy = result.hit, result.focus_y
     far = max((b.distance + b.length for b in collision.optics), default=10.0)
     y_end = hit[1] if hit is not None else fy + 10
-    ax.plot([0, 0], [fy - far - 8, y_end], color=C_BEAM, lw=1.0)  # a line is clipped to the axes (zoom)
+    ax.plot([0, 0], [fy - far - 8, y_end], color=C_BEAM, lw=1.0)
     ax.annotate("", (0, y_end), (0, y_end - 0.01), arrowprops=dict(arrowstyle="-|>", color=C_BEAM, lw=1.0))
     for b in sorted(collision.optics, key=lambda b: -b.distance):  # the part closest to the focus on top
-        bad = b.name in hits
+        bad = b.assembly in hits
         origin = (fy if b.moves else fixed_y) * Y_HAT
         outlines = _sheet_outlines(b, origin) if isinstance(b, SheetBody) else [_cone_outline(b, origin, -Y_HAT)]
         for outline in outlines:
@@ -154,8 +151,7 @@ def _draw_top_view(ax, model: StageModel, m: MotorPositions, layout: SampleLayou
             ax.text(-b.tip_radius - 0.8, y, b.name, color=C_OPTIC, fontsize=7, ha="right", va="center", clip_on=True)
     x_label = max([4.0] + [b.tip_radius + 0.8 for b in collision.optics if b.moves and b.distance <= near + 1])
     ax.text(x_label, oy, f"{optic_type}\nat {result.optic_position:.4f}\nfront {near:g} mm\nfrom its focus"
-            + "".join(f"\n{b.name} (fixed) {b.distance:g} mm\nbefore ref. focus" for b in fixed
-                      if not any(b.name.startswith(f"{o.name} ") for o in fixed)),  # parts (OSA arm) not again
+            + "".join(f"\n{b.name} (fixed) {b.distance:g} mm\nbefore ref. focus" for b in fixed),
             color=C_OPTIC, fontsize=7, va="center")
     ax.text(-1.2, fy, "optic focus", color=C_OPTIC, fontsize=7, ha="right", va="center")
     required = result.required_optic_position
@@ -176,20 +172,6 @@ def _draw_top_view(ax, model: StageModel, m: MotorPositions, layout: SampleLayou
     if hits:
         title += f"\nCOLLISION: {', '.join(hits)}"
     ax.set_title(title, fontsize=9, color=C_BEAM if hits else "k")
-
-    # zoom on the beam spot, when an optic comes close to it: its front and the sample surface at true scale
-    if min((b.distance for b in collision.optics), default=99.0) > ZOOM_OPTIC_DISTANCE:
-        return
-    zoom = ax.inset_axes([0.02, 0.62, 0.36, 0.36])  # upper left: away from the analyzer and the optic
-    _draw_top_content(zoom, model, m, layout, result, collision, hits, fixed_y)
-    centre = result.hit[:2] if result.hit is not None else np.array([0.0, fy])
-    half = max([ZOOM_HALF_WIDTH] + [b.distance * 1.3 for b in collision.optics if b.distance < 5])
-    zoom.set_xlim(centre[0] - half, centre[0] + half)
-    zoom.set_ylim(centre[1] - half, centre[1] + half)
-    zoom.set_aspect("equal")
-    zoom.set_xticks([])
-    zoom.set_yticks([])
-    zoom.set_title(f"zoom ±{half:g} mm", fontsize=7, pad=2)
 
 
 def _draw_sample_plane(ax, model: StageModel, m: MotorPositions, layout: SampleLayout, result: BeamResult) -> None:

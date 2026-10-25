@@ -660,8 +660,9 @@ def test_working_distances_can_be_entered(window):
     assert osa.distance == 20.0 and not osa.moves
     st.optic_type.setCurrentText("capillary")  # another optic: its own (default) solids
     assert [b.distance for b in st.record.collision_geometry().optics] == [10.0, 10.7, 14.2, 21.1]
-    st.distance_boxes[0].setValue(15.0)
-    assert st.record.collision_geometry().optics[0].distance == 15.0
+    assert st.distance_form.rowCount() == 1  # the capillary is one assembly: one working distance
+    st.distance_boxes[0].setValue(15.0)  # moves all its parts
+    assert [b.distance for b in st.record.collision_geometry().optics] == pytest.approx([15.0, 15.7, 19.2, 26.1])
 
 
 def test_found_device_corrects_its_sample(window, monkeypatch):

@@ -154,7 +154,8 @@ is checked against simple solids:
 - **capillary** (Sigray): working distance 10 mm. Shape from the design top and side views, sizes from the chamber
   top view (scale from the plate, ±10 %), from the focus: a round nose 3.7 mm wide (front at 10 mm, 0.7 mm long),
   the head chamfered on both sides from 5.4 mm wide at 10.7 mm to 10 mm at 14.2 mm, the body (10 mm wide, 8 mm tall)
-  to 21.1 mm and a ring 6.8 mm wide. The post and base plate about 20 mm below the beam are not modelled.
+  to 21.1 mm and a ring 6.8 mm wide. The post and base plate about 20 mm below the beam are not modelled. The
+  capillary is one assembly (`group`): one working distance, its front, and all its parts move together.
 
 The optic solids must also stay out of the **analyzer acceptance cone** (±15° about the analyzer axis, i.e. within 30°
 of the beam axis seen from the focus): it is drawn in the top view, and the Stage & Optics tab warns when a solid
@@ -165,8 +166,7 @@ optic position; for the session), and kept by beamline staff in the configuratio
 
 Each solid is grown by a margin (0.1 mm) and the sampling allowance (0.18 mm). The Stage & Optics tab shows, after
 *Update*, the collision-free range of ST, SN and SZ (one motor moved, the others and the optic kept), with what sets
-each limit, and draws the solids in the top view at scale (red when touched; a zoom on the beam spot when an optic
-front is within 5 mm). *Bring target onto the beam*, *Correct SN* and *Send to Stage & Optics tab* refuse a position
+each limit, and draws the solids in the top view at scale (red when touched). *Bring target onto the beam*, *Correct SN* and *Send to Stage & Optics tab* refuse a position
 where the plate would touch something, with the optic where it is now or refocused.
 
 Geometry: at 45° incidence a front face of (half) width a at distance d before the focus clears a flat surface in

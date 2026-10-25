@@ -70,6 +70,11 @@ class SolidBody:
     square: bool = False
     height: float = 0.0
     offset: float = 0.0
+    group: str = ""  # the assembly it belongs to (one working distance, moved as one); "": itself
+
+    @property
+    def assembly(self) -> str:
+        return self.group or self.name
 
     @property
     def extra_height(self) -> float:
@@ -98,6 +103,11 @@ class SheetBody:
     thickness: float = 0.2
     height: float = 20.0
     moves: bool = True
+    group: str = ""
+
+    @property
+    def assembly(self) -> str:
+        return self.group or self.name
 
     @property
     def length(self) -> float:
@@ -136,6 +146,7 @@ ANALYZER_A1 = SolidBody("analyzer (MBS A1)", distance=30.0, tip_radius=10.0, hal
 # focus: a round nose 3.7 mm wide, 0.7 mm long, front at 10 mm; the head, chamfered on both sides from 5.4 mm wide at
 # 10.7 mm to 10 mm wide at 14.2 mm; the body, 10 mm wide and 8 mm tall, to 21.1 mm; a ring 6.8 mm wide, 2.6 mm long.
 # The post and base plate below it (about 20 mm under the beam) are out of reach of the plate and not modelled.
+# One assembly: a single working distance (its front), all parts move together.
 # At 45° incidence a front face of (half) width r at distance d from the focus clears the surface only if
 # r + margin < d - margin, and a cone only if its half angle is below the angle between beam and surface.
 DEFAULT_OPTIC_BODIES = {
@@ -145,10 +156,12 @@ DEFAULT_OPTIC_BODIES = {
         SolidBody("zone plate", distance=25.28, tip_radius=5.0, length=0.5, square=True),
     ),
     "capillary": (
-        SolidBody("capillary nose", distance=10.0, tip_radius=1.85, length=0.7),
-        SolidBody("capillary head", distance=10.7, tip_radius=2.7, half_angle=33.0, length=3.5, square=True),
-        SolidBody("capillary body", distance=14.2, tip_radius=5.0, length=6.9, square=True, height=8.0),
-        SolidBody("capillary ring", distance=21.1, tip_radius=3.4, length=2.6),
+        SolidBody("capillary nose", distance=10.0, tip_radius=1.85, length=0.7, group="capillary"),
+        SolidBody("capillary head", distance=10.7, tip_radius=2.7, half_angle=33.0, length=3.5, square=True,
+                  group="capillary"),
+        SolidBody("capillary body", distance=14.2, tip_radius=5.0, length=6.9, square=True, height=8.0,
+                  group="capillary"),
+        SolidBody("capillary ring", distance=21.1, tip_radius=3.4, length=2.6, group="capillary"),
     ),
 }
 ACCEPTANCE_HALF_ANGLE = 15.0  # deg: MBS A1 lens acceptance about the analyzer axis (electrons from the focus)
@@ -179,6 +192,8 @@ class CollisionGeometry:
             if not isinstance(raw, dict):
                 raise ValueError("collision: every body must be a JSON object.")
             values = {"name": str(raw.get("name", "body"))}
+            if "group" in raw:
+                values["group"] = str(raw["group"])
             if "points" in raw:  # a bent sheet
                 try:
                     points = tuple((float(a), float(x)) for a, x in raw["points"])
@@ -190,7 +205,7 @@ class CollisionGeometry:
                         or min(numbers) < 0:
                     raise ValueError(f"collision: {values['name']}: not a valid sheet.")
                 return SheetBody(values["name"], numbers[0], points, numbers[1], numbers[2],
-                                 bool(raw.get("moves", True)))
+                                 bool(raw.get("moves", True)), values.get("group", ""))
             for key in ("moves", "square"):
                 if key in raw:
                     values[key] = bool(raw[key])
@@ -378,8 +393,8 @@ def in_acceptance(geo: CollisionGeometry, focus_ys, fixed_y: float = 0.0,
         d = np.linalg.norm(p, axis=1)
         along = p @ -N_HAT
         inside = (along > 0) & (along <= geo.analyzer.distance) & (along >= cos_max * d)
-        if inside.any() and b.body.name not in names:
-            names.append(b.body.name)
+        if inside.any() and b.body.assembly not in names:
+            names.append(b.body.assembly)
     return names
 
 
@@ -392,8 +407,8 @@ def collisions(model: StageModel, m: MotorPositions, layout: SampleLayout, geo: 
     pts = model.plate_to_lab_many(m, surface_points(layout))
     names = []
     for b in placed_bodies(geo, focus_ys, fixed_y):
-        if b.body.name not in names and b.inside(pts).any():
-            names.append(b.body.name)
+        if b.body.assembly not in names and b.inside(pts).any():
+            names.append(b.body.assembly)
     return names
 
 
@@ -401,7 +416,7 @@ def collisions(model: StageModel, m: MotorPositions, layout: SampleLayout, geo: 
 class Limit:
     lo: float
     hi: float
-    lo_by: str  # what sets the limit: a body name or "travel"
+    lo_by: str  # what sets the limit: a body (its assembly) or "travel"
     hi_by: str
 
 
@@ -440,7 +455,7 @@ def _first_hit(pts: np.ndarray, e: np.ndarray, bodies: list[_Placed], limit: flo
                     hi = mid
                 else:
                     lo = mid
-            best, by = lo, b.body.name
+            best, by = lo, b.body.assembly
     return best, by
 
 
