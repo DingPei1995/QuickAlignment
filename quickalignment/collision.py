@@ -79,8 +79,10 @@ ANALYZER_A1 = SolidBody("analyzer (MBS A1)", distance=30.0, tip_radius=10.0, hal
 # focal length f = D dr / lambda (lambda = 13.05 nm at 95 eV): D = 1.5 mm, outermost zone dr = 250 nm (a typical EUV
 # zone plate for a ~1 µm spot) give f ≈ 29 mm. The OSA (diameter D/2) must pass the whole first-order cone, so it is
 # at most f/2 ≈ 14 mm from the focus; it is closer to the sample than the zone plate, the main limit, and is not moved
-# when the zone plate refocuses. Capillary (Sigray, 5 µm spot): working distance not published (customised, 2 mm to
-# 10 cm): 7.8 mm and a 26 mm long capillary assumed (beamline estimate); tip 4 mm wide, 10° cone (shape confirmed).
+# when the zone plate refocuses.
+# Capillary (Sigray, 5 µm spot): working distance not published (customised, 2 mm to 10 cm): 7.8 mm (beamline
+# estimate). Head: a slender cone, 4 mm wide at the front, 10° (shape confirmed); the wider housing behind it is set
+# back so that it stays out of the analyzer acceptance cone (estimate: 10 × 10 mm from 23 mm on).
 # At 45° incidence a front face of (half) width r at distance d from the focus clears the surface only if
 # r + margin < d - margin, and a cone only if its half angle is below the angle between beam and surface.
 DEFAULT_OPTIC_BODIES = {
@@ -88,8 +90,12 @@ DEFAULT_OPTIC_BODIES = {
         SolidBody("OSA", distance=14.0, tip_radius=5.0, length=0.5, moves=False, square=True),
         SolidBody("zone plate", distance=29.0, tip_radius=5.0, length=0.5, square=True),
     ),
-    "capillary": (SolidBody("capillary", distance=7.8, tip_radius=2.0, half_angle=10.0, length=26.0),),
+    "capillary": (
+        SolidBody("capillary", distance=7.8, tip_radius=2.0, half_angle=10.0, length=15.0),
+        SolidBody("capillary housing", distance=22.8, tip_radius=5.0, length=20.0, square=True),
+    ),
 }
+ACCEPTANCE_HALF_ANGLE = 15.0  # deg: MBS A1 lens acceptance about the analyzer axis (electrons from the focus)
 DEFAULT_MARGIN = 0.1  # mm added around every body
 SAMPLE_SPACING = 0.25  # mm between the points on the plate faces
 # every point of a face is within SAMPLE_SPACING / sqrt2 of a sampled point: the bodies are grown by this as well,
@@ -223,6 +229,35 @@ def placed_bodies(geo: CollisionGeometry, focus_ys, fixed_y: float = 0.0) -> lis
     return out
 
 
+def _body_surface(b: _Placed, n_s: int = 12, n_around: int = 48) -> np.ndarray:
+    """Points on the outer surface of a placed (not grown) body."""
+    s = np.linspace(b.body.distance, b.body.distance + b.body.length, n_s)
+    r = np.array([b.body.radius_at(x) for x in s])
+    t = np.linspace(0, 2 * np.pi, n_around, endpoint=False)
+    across = np.column_stack([np.cos(t), np.sin(t)])
+    if b.body.square:  # the square outline: scale the circle onto it
+        across = across / np.abs(across).max(axis=1, keepdims=True)
+    pts = (s[:, None, None] * b.axis + r[:, None, None] * (across[None, :, :1] * b.sides[0]
+                                                           + across[None, :, 1:] * b.sides[1]))
+    return b.origin + pts.reshape(-1, 3)
+
+
+def in_acceptance(geo: CollisionGeometry, focus_ys, fixed_y: float = 0.0,
+                  half_angle: float = ACCEPTANCE_HALF_ANGLE) -> list[str]:
+    """Optic solids reaching into the analyzer acceptance cone (from the analyzer focus, `half_angle` about the
+    analyzer axis, up to the analyzer front): they would shadow the electrons. Empty: none."""
+    cos_max = math.cos(math.radians(half_angle))
+    names = []
+    for b in placed_bodies(geo, focus_ys, fixed_y)[1:]:
+        p = _body_surface(b)
+        d = np.linalg.norm(p, axis=1)
+        along = p @ -N_HAT
+        inside = (along > 0) & (along <= geo.analyzer.distance) & (along >= cos_max * d)
+        if inside.any() and b.body.name not in names:
+            names.append(b.body.name)
+    return names
+
+
 def collisions(model: StageModel, m: MotorPositions, layout: SampleLayout, geo: CollisionGeometry,
                focus_ys, fixed_y: float = 0.0) -> list[str]:
     """Names of the bodies the plate is in (with the margin) at m; empty: no collision.
@@ -296,6 +331,6 @@ def motor_limits(model: StageModel, m: MotorPositions, layout: SampleLayout, geo
 
 
 __all__ = [
-    "ANALYZER_A1", "SAMPLING_ALLOWANCE", "CollisionGeometry", "SolidBody", "DEFAULT_OPTIC_BODIES", "Limit", "MOTOR_DIRECTIONS",
+    "ACCEPTANCE_HALF_ANGLE", "ANALYZER_A1", "SAMPLING_ALLOWANCE", "in_acceptance", "CollisionGeometry", "SolidBody", "DEFAULT_OPTIC_BODIES", "Limit", "MOTOR_DIRECTIONS",
     "collisions", "default_geometry", "motor_limits", "placed_bodies", "surface_points",
 ]

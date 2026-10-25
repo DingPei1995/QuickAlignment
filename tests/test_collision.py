@@ -5,7 +5,7 @@ import pytest
 
 from quickalignment.calibration import CalibrationRecord
 from quickalignment.collision import (
-    SAMPLING_ALLOWANCE, CollisionGeometry, SolidBody, collisions, default_geometry, motor_limits, placed_bodies,
+    SAMPLING_ALLOWANCE, CollisionGeometry, in_acceptance, SolidBody, collisions, default_geometry, motor_limits, placed_bodies,
     surface_points,
 )
 from quickalignment.geometry import GATING_PLATE, STANDARD_PLATE, Sample, SampleLayout
@@ -77,14 +77,16 @@ def test_osa_stays_when_the_zone_plate_refocuses():
 
 
 def test_capillary_limit_and_analyzer():
-    """Lowering SN also slides the beam crossing along the plate (by dSN towards +x): starting near the -x edge
-    keeps the contact point on the sample."""
-    layout = wide_sample()
-    model, m = setup(layout, u=-4.5)
-    cap = CAP.optics[0]
+    """The capillary: slender cone head, wider housing set back. On a flat surface the part with the smallest
+    (d - a) comes first: the head. Lowering SN also slides the beam crossing along the plate, so a
+    (made-up) 40 mm wide sample keeps the contact point on it."""
+    layout = SampleLayout(STANDARD_PLATE, [Sample("big", 0, 0, 40, 15.5, 0.5)])
+    model, m = setup(layout)
+    rooms = {b.name: ((b.distance - grown(CAP)) - (b.tip_radius + grown(CAP))) / np.sqrt(2) for b in CAP.optics}
+    first = min(rooms, key=rooms.get)
+    assert first == "capillary"
     lim = motor_limits(model, m, layout, CAP, [0.0], TRAVEL)["sn"]
-    expect = ((cap.distance - grown(CAP)) - (cap.tip_radius + grown(CAP))) / np.sqrt(2)
-    assert lim.lo_by == "capillary" and expect <= m.sn - lim.lo < expect + SAMPLING_ALLOWANCE
+    assert lim.lo_by == first and rooms[first] <= m.sn - lim.lo < rooms[first] + SAMPLING_ALLOWANCE
     # without the optic the analyzer nose, 30 mm from the focal plane, is the limit
     bare = replace(CAP, optics=())
     lim = motor_limits(model, m, layout, bare, [0.0], TRAVEL)["sn"]
@@ -146,6 +148,16 @@ def test_default_zone_plate_and_osa_are_thin_plates():
     body = placed_bodies(zp, [0.0])[1]
     a = osa.tip_radius + grown(zp) - 0.01
     assert body.body.name == "OSA" and body.inside(np.array([[a, -osa.distance, a]])).all()
+
+
+def test_optics_stay_out_of_the_analyzer_acceptance():
+    """The analyzer takes electrons within ±15° of its axis (45° from the beam): the optic solids must stay within
+    30° of the beam axis seen from the focus."""
+    for optic in ("zone plate + OSA", "capillary"):
+        assert in_acceptance(default_geometry(optic), [0.0]) == []
+    wide = replace(CAP, optics=(SolidBody("wide head", 6.0, 4.5, 0.0, 5.0, square=True),))
+    assert in_acceptance(wide, [0.0]) == ["wide head"]  # its edge 37° from the beam axis at the front
+    assert in_acceptance(wide, [-6.0]) == []  # pulled back 6 mm: 21°
 
 
 def test_configuration_roundtrip():

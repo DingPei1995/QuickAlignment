@@ -14,7 +14,7 @@ from dataclasses import replace
 
 from ._qt import QtCore, QtWidgets, Signal
 from ..calibration import CalibrationRecord
-from ..collision import collisions, motor_limits
+from ..collision import ACCEPTANCE_HALF_ANGLE, collisions, in_acceptance, motor_limits
 from ..schematic import draw_schematic
 from ..stage import (
     OPTIC_TYPES, MotorPositions, OpticsCalibration, StageConfig, StageModel, focus_correction, found_offset, sn_to_focus,
@@ -546,7 +546,12 @@ class StagePanel(QtWidgets.QWidget):
             lo = f"{lim.lo:.3f}" + (f" ({lim.lo_by})" if lim.lo_by != "travel" else "")
             hi = f"{lim.hi:.3f}" + (f" ({lim.hi_by})" if lim.hi_by != "travel" else "")
             parts.append(f"{label} {lo} … {hi}")
-        return f"{head}, one motor moved at a time: " + " · ".join(parts), []
+        text = f"{head}, one motor moved at a time: " + " · ".join(parts)
+        shadow = in_acceptance(geo, [y], fixed_y)
+        if shadow:
+            text += (f"<br><b>{', '.join(shadow)} in the analyzer acceptance cone (±{ACCEPTANCE_HALF_ANGLE:g}°): "
+                     "it would shadow the electrons.</b>")
+        return text, []
 
     def update_view(self) -> None:
         layout = self._layout_getter()
