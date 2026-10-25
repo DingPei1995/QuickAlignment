@@ -3,7 +3,7 @@ import pytest
 
 from quickalignment.geometry import Device, Sample, SampleLayout
 from quickalignment.stage import (
-    N_HAT, T_HAT, MotorPositions, OpticsCalibration, StageConfig, StageModel, focus_correction,
+    N_HAT, T_HAT, MotorPositions, OpticsCalibration, StageConfig, StageModel, focus_correction, slide_to_sn, sn_to_focus,
 )
 
 
@@ -150,3 +150,18 @@ def test_plate_from_stage_frame_inverts_stage_frame():
     m = MotorPositions(srn=157.0, pix=180.0, piy=95.0)
     q = model.stage_frame(m, 3.2, -4.1)
     assert close(model.plate_from_stage_frame(m, q), [3.2, -4.1])
+
+
+def test_on_beam_with_sn_kept():
+    """SN kept, ST / SZ put the point on the beam; it sits sqrt2 per mm of SN off the analyzer focus."""
+    model = StageModel(StageConfig(srz_offset_n=8.0))
+    u, v, w = 1.0, -0.5, 5.4
+    focus = model.motors_for_target(u, v, w, srn=130, srz=4)
+    m = model.motors_on_beam(u, v, w, srn=130, srz=4, sn=focus.sn + 0.1)
+    p = model.plate_to_lab(m, u, v, w)
+    assert m.sn == pytest.approx(focus.sn + 0.1) and m.sz == pytest.approx(focus.sz)
+    assert close(p[[0, 2]], [0, 0]) and p[1] == pytest.approx(0.1 * np.sqrt(2))
+    assert model.beam_position(m, u, v, w) == pytest.approx(0.1 * np.sqrt(2))
+    assert sn_to_focus(model, m, u, v, w) == pytest.approx(-0.1)
+    back = slide_to_sn(m, m.sn + sn_to_focus(model, m, u, v, w))
+    assert close(model.plate_to_lab(back, u, v, w), [0, 0, 0])

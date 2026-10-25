@@ -146,8 +146,11 @@ The green box lists, for every sample and device, the **ST / SZ / SN at the star
 SRz = 0°, PIX = PIY = 150 µm) that put its centre on the beam in the analyzer focus.
 
 1. Enter the current motor positions (absolute values, as on the control system).
-2. Choose a **Target** and press **Bring target to focus**: ST, SN, SZ are computed for the entered SRn, SRz, PIX,
-   PIY. If a motor would leave its range, nothing is changed and you are told which one.
+2. Choose a **Target** and press **Bring target onto the beam**: ST and SZ are computed for the entered SN, SRn,
+   SRz, PIX, PIY (**SN kept**, as the stage is usually run). The text below says how far the target then is from the
+   analyzer focus along the beam (red above 50 µm: the spectra would be distorted) and the ΔSN that would remove it.
+   Only if you judge it too far, press **Correct SN**: SN, ST, SZ that put the target on the analyzer focus. If a
+   motor would leave its range, nothing is changed and you are told which one.
 3. **Focusing optic**: enter the optic position; press **Update schematic & optics**. The schematic shows the beam,
    the analyzer focus, the optic and the position **needed** for focus on the illuminated surface.
    *Use required position* copies it into the field.
@@ -171,7 +174,8 @@ the ST, SZ that bring that point onto the beam and what lies there.
 3. **Compute new position**: ST and SZ with the piezo centred and **SN kept**, and the optic position that refocuses.
    The text says how far the point then is from the analyzer focus (red above 50 µm: the spectra would be
    distorted). SRn alone keeps the surface plane; SRz does not.
-4. Tick **Correct SN** to see SN, ST, SZ and the optic position that put the point **on the analyzer focus**. If a
+4. Only if the point is too far from the focus, tick **Correct SN** to see SN, ST, SZ and the optic position that
+   put the point **on the analyzer focus** (every new computation starts unticked). If a
    motor range does not allow it, the closest reachable position is given with its distance from the focus.
 5. **Send to Stage & Optics tab** takes the shown solution (refused if it is out of range).
 

@@ -12,12 +12,11 @@
 from __future__ import annotations
 
 from ._qt import QtCore, QtWidgets
-from .stage_panel import MOTOR_SPECS, MotorForm, align_labels, equal_row, out_of_range, spin
+from .stage_panel import FOCUS_WARNING, MOTOR_SPECS, MotorForm, align_labels, equal_row, out_of_range, spin
 from ..rotation import relocate
 
 Qt = QtCore.Qt
 
-FOCUS_WARNING = 0.05  # mm from the analyzer focus
 LIMITS = {name: MOTOR_SPECS[name][1:3] for name in ("st", "sn", "sz")}
 
 
@@ -153,6 +152,10 @@ class RotationPanel(QtWidgets.QWidget):
             self.result_label.setText(f"<b>{exc}</b>")
             self._show()
             return
+        # every new position starts with SN kept; SN is corrected only if the user then asks for it
+        self.correct_sn.blockSignals(True)
+        self.correct_sn.setChecked(False)
+        self.correct_sn.blockSignals(False)
         self._show()
 
 
@@ -186,8 +189,12 @@ class RotationPanel(QtWidgets.QWidget):
             + (f"<br><span style='color:#b00'><b>Out of range: {', '.join(bad)}</b> — not reachable with SN kept, "
                "use the corrected solution.</span>" if bad else "")
         )
-        text = (f"With SN kept the point is {r.focus_distance * 1000:.0f} µm from the analyzer focus "
+        y = r.beam_offset
+        side = "" if abs(y) < 1e-6 else f" {'downstream' if y > 0 else 'upstream'}"
+        text = (f"With SN kept the point is {r.focus_distance * 1000:.0f} µm{side} from the analyzer focus "
                 f"(now: {r.measured_focus_distance * 1000:.0f} µm, model); the optic refocuses on it.")
+        if abs(y) >= 1e-6:
+            text += f" Removing it would take ΔSN ≈ {-y / 2 ** 0.5:+.4f} mm (ST compensating)."
         if r.focus_distance > FOCUS_WARNING:
             text = (f"<span style='color:#b00'><b>{text}</b> Too far from the analyzer focus, the data would be "
                     "distorted: correct SN?</span>")

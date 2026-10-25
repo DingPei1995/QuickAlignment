@@ -212,6 +212,34 @@ def test_session_roundtrip(window, tmp_path):
     assert st.motors.value().srn == 131
 
 
+def test_stage_panel_on_beam_keeps_sn_then_corrects(window):
+    ed, st = window.editor, window.stage
+    ed.add_sample(Sample("A", u=1.0, v=2.0, length=2, width=2, height=0.4))
+    st.refresh_targets()
+    st.target_combo.setCurrentText("A")
+    st.motors.boxes["sn"].setValue(0.6)  # 0.2 mm behind the focal plane for this sample
+    new = st.bring_target_on_beam()
+    m = st.motors.value()
+    assert m.sn == pytest.approx(0.6) and (m.st, m.sz) == pytest.approx((-1.2, 38.0), abs=1e-4)
+    assert new is not None and st.last_result.target == "A"
+    assert st.last_result.hit[1] == pytest.approx(0.2 * 2 ** 0.5, abs=1e-6)  # on the beam, downstream
+    text = st.goto_label.text()
+    assert "283 µm downstream" in text and "ΔSN = -0.2000" in text and "Correct SN?" in text
+    assert not st.goto_label.isHidden()
+
+    # close enough: no correction proposed
+    st.motors.boxes["sn"].setValue(0.42)
+    assert st.goto_label.isHidden()  # stale once a position is edited
+    st.bring_target_on_beam()
+    assert "no SN correction needed" in st.goto_label.text()
+
+    # second step: SN, ST, SZ on the analyzer focus
+    st.bring_target_to_focus()
+    m = st.motors.value()
+    assert (m.st, m.sz, m.sn) == pytest.approx((-1.0, 38.0, 0.4), abs=1e-4)
+    assert "on the analyzer focus" in st.goto_label.text() and "ΔSN = -0.0200" in st.goto_label.text()
+
+
 def test_stage_results_use_absolute_coordinates(window):
     ed, st = window.editor, window.stage
     ed.add_sample(Sample("A", u=1.0, v=2.0, length=2, width=2, height=0.4))
@@ -438,6 +466,8 @@ def test_rotation_tab(window):
     r = panel.result
     assert r.new.sn == pytest.approx(r.measured.sn) and r.focus_distance > 0.05
     assert "correct SN?" in panel.focus_label.text()
+    assert f"ΔSN ≈ {-r.beam_offset / 2 ** 0.5:+.4f} mm" in panel.focus_label.text()
+    assert abs(r.beam_offset) == pytest.approx(r.focus_distance)
     panel.send_to_stage()
     assert st.motors.value().st == pytest.approx(r.new.st, abs=1e-4) and st.motors.value().sn == pytest.approx(r.new.sn)
     assert st.optic_pos.value() == pytest.approx(r.optic_new, abs=1e-4)
@@ -450,6 +480,8 @@ def test_rotation_tab(window):
     assert "on the analyzer focus" in panel.corrected_label.text()
     panel.send_to_stage()
     assert st.motors.value().sn == pytest.approx(c.new.sn, abs=1e-4)
+    panel.compute()  # a new computation starts again with SN kept
+    assert not panel.correct_sn.isChecked() and panel.chosen() is panel.result
 
 
 def test_custom_plate_dialog_and_focus(window, monkeypatch):

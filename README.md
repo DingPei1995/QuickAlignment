@@ -74,8 +74,10 @@ y up, front view (sample side) with the tab up), not motor positions; the plate 
 Positions here are **absolute motor values** (ST, SZ, SN, …, optic).
 
 - enter the stage positions and press **Update schematic & optics** (the schematic is only redrawn on this button)
-- *Bring target to focus*: computes ST/SN/SZ that put a sample/device on the beam at the analyzer focus,
-  keeping SRn, SRz, PIX, PIY
+- *Bring target onto the beam*: computes ST/SZ that put a sample/device on the beam with **SN kept** as entered
+  (how the stage is run), keeping SRn, SRz, PIX, PIY, and says how far it then is from the analyzer focus along
+  the beam (red above 50 µm) and the ΔSN that would remove it. Only if that is too far, *Correct SN* computes
+  SN/ST/SZ that put it on the analyzer focus.
 - **focusing optic** (zone plate + OSA or capillary, only along the beam): its absolute position is read
   from the configuration and can be typed in. The result gives the **absolute optic position** for focus
   on the illuminated surface; *Use required position* copies it into the field. After focusing by hand,
@@ -95,7 +97,8 @@ Gives the stage positions that keep a sample point on the beam when the sample i
    (PIX = PIY = 150 µm) and SN unchanged (default), and the optic position that refocuses. Below, it says how far
    the point then is from the analyzer focus (model; red above 50 µm, where the data would be distorted: SRn alone
    keeps the surface plane, SRz does not). Ticking *Correct SN* shows the SN, ST, SZ and optic position that put the
-   point on the analyzer focus (absolute: relies on ST0 / SZ0 / SN_f and the rotation axes of the configuration).
+   point on the analyzer focus (absolute: relies on ST0 / SZ0 / SN_f and the rotation axes of the configuration);
+   every new computation starts unticked (SN kept).
    If a motor range does not allow it, the closest reachable position is given with its distance from the focus.
    *Send to Stage & Optics tab* takes the shown solution (refused if it is out of range).
 
@@ -124,7 +127,7 @@ The sign conventions between the stage and the ARPES viewer contour (`AnalyzerGe
 first real use: after turning, the point should appear where the preview shows it.
 
 Motor travel ranges (`MOTOR_SPECS` in `quickalignment/ui/stage_panel.py`): ST −6 … 6, SN −0.5 … 65, SZ 35 … 45 mm.
-The motor fields do not accept values outside them; *Bring target to focus* and the Rotate tab warn when a
+The motor fields do not accept values outside them; *Bring target onto the beam*, *Correct SN* and the Rotate tab warn when a
 position would be out of range (e.g. at SRn = 120 a point more than 5 mm above or below the plate centre needs
 SZ outside 35 … 45).
 

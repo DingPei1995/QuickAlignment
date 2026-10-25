@@ -33,6 +33,7 @@ import numpy as np
 from .geometry import SampleLayout
 from .stage import (
     B, N_HAT, T_HAT, Z_HAT, MotorPositions, OpticsCalibration, StageConfig, StageModel, beam_on_layout, rot_2d, rot_z,
+    slide_to_sn,
 )
 
 SLIT_ORIENTATIONS = ("horizontal", "vertical")  # ANTARES: horizontal slit
@@ -203,6 +204,7 @@ class Relocation:
     optic_source: str
     focus_distance: float = 0.0  # mm, model distance of the point from the analyzer focus at the new position
     measured_focus_distance: float = 0.0  # ... at the measured position
+    beam_offset: float = 0.0  # mm, model position of the point along the beam from the analyzer focus (+ = downstream)
 
 
 def focus_distance(model: StageModel, m: MotorPositions, u: float, v: float, w: float) -> float:
@@ -259,10 +261,7 @@ def relocate(
         new.sn += measured.sn - old.sn
         new.sz += measured.sz - old.sz
     if keep_sn:
-        # SN and ST move the point by (N + T)/sqrt2 per mm: x unchanged when dST = -dSN
-        d_sn = measured.sn - new.sn
-        new.sn += d_sn
-        new.st -= d_sn
+        new = slide_to_sn(new, measured.sn)
     for name, (lo, hi) in (limits or {}).items():
         setattr(new, name, float(min(max(getattr(new, name), lo), hi)))
 
@@ -275,7 +274,8 @@ def relocate(
     new_hit = model.beam_hit(new, w)
     optic_new = None if new_hit is None else ref.position_for_focus(model, float(new_hit[1]))
     return Relocation(measured, new, (u, v, w), target, optic_measured, optic_new, source,
-                      focus_distance(model, new, u, v, w), focus_distance(model, measured, u, v, w))
+                      focus_distance(model, new, u, v, w), focus_distance(model, measured, u, v, w),
+                      model.beam_position(new, u, v, w))
 
 
 @dataclass
