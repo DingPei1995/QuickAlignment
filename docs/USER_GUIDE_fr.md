@@ -104,36 +104,45 @@ Au lieu de les dessiner, les échantillons peuvent être trouvés sur une photo 
      les échantillons couvrent presque toute la zone, *Pick bare plate colour* puis cliquer sur la plaquette nue.
    - *ΔE threshold* : l'écart de couleur (CIELAB) qui les sépare ; *min. size* écarte les poussières ; *border left
      out* ignore le bord de la zone.
-4. Corriger à la main : **Draw box** puis glisser dans la vue de droite pour ajouter un échantillon non trouvé ;
-   cliquer un cadre (ou sa ligne) et **Delete selected** (ou Suppr) pour en retirer un faux ; sélectionner les morceaux
-   d'un échantillon coupé par de la laque ou des fils (Ctrl + clic) et **Merge selected**. Ces corrections restent
-   quand le seuil change ; *Undo hand edits* les oublie. Décocher ce qui ne doit pas être ajouté.
+4. Corriger à la main. Tous les cadres de la liste sont ajoutés ; *sélectionner* des cadres en cliquant dessus dans la
+   vue de droite (Ctrl + clic : plusieurs) ou sur leurs lignes, puis : **Delete selected** (ou Suppr) retire ce qui
+   n'est pas un échantillon, **Merge selected** réunit les morceaux d'un échantillon coupé par de la laque ou des fils.
+   **Draw box** puis glisser dans la vue de droite ajoute un échantillon non trouvé. Ces corrections restent quand le
+   seuil change ; *Undo hand edits* les oublie.
 5. Entrer la **hauteur H** (invisible d'en haut ; par défaut *Default H*), par échantillon dans le tableau ou avec
-   *Set H of all*, puis **Add to plate**. *Remove the samples already on the plate* remplace les échantillons présents.
+   *Set H of all*.
+6. Si besoin, placer les dispositifs sur une deuxième photo (onglet 2, ci-dessous), puis **Add to plate**. *Remove the
+   samples already on the plate* remplace les échantillons présents.
 
 Les cadres sont les rectangles englobants de ce qui a été trouvé, en coordonnées plaquette ; ils se déplacent, se
 redimensionnent et reçoivent des dispositifs comme les échantillons dessinés. La précision dépend des clics sur les
 coins (environ 0,1–0,3 mm) ; *Found here* dans l'onglet Stage & Optics corrige le reste. Tout est calculé sur
 l'ordinateur, rien n'est envoyé.
 
-### Dispositifs depuis une photo rapprochée
+#### Onglet 2 : dispositifs sur une deuxième photo
 
-Une photo de toute la plaquette ne montre souvent que le contour d'un substrat. Pour placer ses dispositifs,
-sélectionner le substrat, appuyer sur **Device from photo…** et ouvrir une photo plus proche (microscope ou appareil,
-d'en haut) :
+La photo de la plaquette montre où est un substrat, mais rarement ses dispositifs ; une photo plus proche (microscope,
+appareil) montre les dispositifs mais souvent pas les bords du substrat. Les deux photos sont mises en correspondance
+par des points que vous marquez sur les deux :
 
-![Dispositifs depuis une photo rapprochée](images/guide/device_photo_dialog.png)
+![Dispositifs sur une deuxième photo](images/guide/photo_devices.png)
 
-1. Cliquer sur la photo les quatre **coins du substrat** dans l'ordre des numéros rouges de la vue de droite (comme
-   ci-dessus). Si la photo montre toute la zone d'échantillons, choisir *reference: corners of the sample area*.
-2. Vérifier que le contour du substrat (orange) est dessus, puis cliquer chaque **dispositif** (sur la photo ou dans
-   la vue de droite). Le tableau donne sa position sur la plaquette et ses distances dx, dy aux bords gauche et bas du
-   substrat ; le curseur les montre aussi. Renommer les dispositifs dans le tableau, effacer les faux.
-3. **Add to …** les ajoute au substrat (d'autres bords de référence se choisissent ensuite dans le tableau des
-   dispositifs).
+1. Choisir le **substrat** (ou sélectionner son cadre dans l'onglet 1). La vue de gauche montre la photo de la
+   plaquette autour de lui, déjà en coordonnées plaquette. **Open device photo…** (vue de droite).
+2. *mark the same point on both* : cliquer à gauche un détail visible aussi sur la photo des dispositifs (point de
+   laque, coin d'un motif, rayure), puis le même détail à droite ; repères numérotés, déplaçables. Avec 2 paires la
+   photo est placée par rotation + échelle + translation, avec 3 par une application affine, avec 4 ou plus par une
+   perspective. La ligne au-dessus des vues donne l'écart des points (µm) : avec plus de paires que nécessaire, il
+   révèle un point faux. Le contour du substrat (orange) est tracé sur la photo des dispositifs pour vérifier.
+3. *mark devices* : cliquer chaque dispositif sur la photo des dispositifs (ou à gauche). Le tableau donne sa position
+   sur la plaquette, son substrat et dx, dy aux bords gauche / bas du substrat ; y renommer les dispositifs, effacer les
+   faux. Les dispositifs n'ont pas de hauteur : ils sont à la surface de leur substrat.
+4. Une autre photo de dispositifs (autre substrat, autre partie) peut être ouverte : les dispositifs déjà marqués
+   gardent leur position. *Add to plate* ajoute chaque dispositif à l'échantillon sur lequel il se trouve (ceux hors de
+   tout échantillon sont écartés).
 
-Les dispositifs sont placés par rapport au substrat : le dessiner ou le trouver d'abord ; les dispositifs le suivent
-quand il est corrigé plus tard.
+La précision est celle de la photo de la plaquette (clics des coins, 0,1–0,3 mm) plus celle de la mise en
+correspondance.
 
 Une fois les échantillons dessinés, appuyer sur **Samples placed → Stage**.
 

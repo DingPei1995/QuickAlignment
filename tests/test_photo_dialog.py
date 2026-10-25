@@ -1,12 +1,12 @@
 import os
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 qt = pytest.importorskip("quickalignment.ui._qt")
 from quickalignment.geometry import GATING_PLATE, STANDARD_PLATE, Sample, SampleLayout  # noqa: E402
-from quickalignment.ui.device_photo_dialog import DevicePhotoDialog  # noqa: E402
 from quickalignment.ui.photo_dialog import BY_PLATE, BY_SAMPLE, PhotoImportDialog  # noqa: E402
 from quickalignment.ui.plate_editor import PlateEditor  # noqa: E402
 
@@ -36,9 +36,10 @@ def test_dialog_finds_and_returns_samples(app):
     dlg.set_corners(PHOTO_CORNERS)
     assert dlg.rectified is not None
     assert len(dlg.detections) == 3 and dlg.add_btn.isEnabled()
-    # untick one, change the height of another
-    dlg.table.item(1, 0).setCheckState(Qt.Unchecked)
-    dlg.table.item(0, 6).setText("0.7")
+    # delete one (not a sample), change the height of another
+    dlg._select_row(1)
+    dlg.delete_selected()
+    dlg.table.item(0, 5).setText("0.7")
     samples = dlg.samples()
     assert [s.name for s in samples] == ["S2", "S4"]  # S1 is taken on the plate
     assert samples[0].height == pytest.approx(0.7) and samples[1].height == pytest.approx(0.3)
@@ -47,7 +48,7 @@ def test_dialog_finds_and_returns_samples(app):
     assert samples[0].length == pytest.approx(u1 - u0, abs=0.15)
     # threshold change keeps the edits of the rows
     dlg.threshold.setValue(14)
-    assert dlg.table.item(0, 6).text() == "0.700"
+    assert dlg.table.item(0, 5).text() == "0.700"
 
 
 def test_bad_corner_order_reported(app):
@@ -150,6 +151,7 @@ def test_draw_delete_kept_on_redetection(app):
     drawn = [d for d in dlg.detections if d.manual]
     assert len(drawn) == 1 and drawn[0].rect == pytest.approx((-5.0, -7.0, -3.0, -5.5))
     assert dlg.table.item(dlg.detections.index(drawn[0]), 7).text() == "drawn"
+    assert dlg.table.columnCount() == 8 and dlg.table.horizontalHeaderItem(0).text() == "Name"
     names = [s.name for s in dlg.samples()]
     assert len(names) == len(set(names)) == 3
     # both edits survive a new detection, the names stay
@@ -184,30 +186,56 @@ class _Wheel:
         return QtCore.QPoint(0, self.dy)
 
 
-def test_device_from_close_up_photo(app):
-    # the synthetic photo seen as a close-up: the substrate is the first sample of the photo
+def test_devices_from_second_photo_by_point_pairs(app):
+    img, _ = synthetic_photo()
+    dlg = PhotoImportDialog(STANDARD_PLATE, 0.5)
+    dlg.mode.setCurrentIndex(BY_PLATE)
+    dlg.set_photo(img)
+    dlg.set_corners(PHOTO_CORNERS)
+    panel = dlg.devices_panel
+    assert [n for n, _ in panel.substrates] == ["S1", "S2", "S3"]
     (u0, v0, u1, v1), _ = SAMPLES[0]
-    substrate = Sample("Chip", u=(u0 + u1) / 2, v=(v0 + v1) / 2, length=u1 - u0, width=v1 - v0)
-    layout = SampleLayout(samples=[substrate])
-    img, h = synthetic_photo()
-    dlg = DevicePhotoDialog(layout, substrate)
-    dlg.reg.set_photo(img)
-    assert "corner of substrate Chip" in dlg.instruction.text()
-    corners = apply_homography(h, [(u0, v1), (u1, v1), (u1, v0), (u0, v0)])
-    dlg.reg.set_corners(corners)
-    assert dlg.reg.h is not None
-    # click a device on the photo, 0.7 mm from the left and 0.4 mm from the bottom edge
-    (x, y), = apply_homography(h, [(u0 + 0.7, v0 + 0.4)])
-    dlg.reg._on_photo_click(x, y)
-    devs = dlg.devices()
-    assert len(devs) == 1 and devs[0].name == "D1"
-    assert (devs[0].dx, devs[0].dy) == pytest.approx((0.7, 0.4), abs=0.01)
-    assert dlg.table.item(0, 5).text() == "ok"
-    # added to the substrate in the editor
-    ed = PlateEditor(layout)
-    for d in devs:
-        ed.add_device(substrate, d)
-    assert substrate.devices[0].position(substrate) == pytest.approx((u0 + 0.7, v0 + 0.4), abs=0.01)
+    panel.select_substrate("S1")
+    assert panel.crop_item.pixmap().width() > 0
+    # device photo: 200 px/mm, turned by 25°, not showing the substrate edges
+    c, s_ = np.cos(np.radians(25)), np.sin(np.radians(25))
+    t_true = np.array([[c, -s_, -2.5], [s_, c, 3.0], [0, 0, 1]]) @ np.diag([1 / 200, -1 / 200, 1])
+    panel.set_photo(np.full((500, 700, 3), 90, np.uint8))
+    dlg.tabs.setCurrentIndex(1)
+    assert "point 1 on the left" in dlg.instruction.text()
+    # pairs by clicking: left (plate photo crop, scene = (u, -v)) then right (device photo)
+    plate_pts = [(-3.5, 2.5), (-1.5, 3.6), (-2.0, 2.2)]
+    photo_pts = apply_homography(np.linalg.inv(t_true), plate_pts)
+    for (u, v), (x, y) in zip(plate_pts[:2], photo_pts[:2]):
+        panel._on_left_click(u, -v)
+        assert "same point" in dlg.instruction.text()
+        panel._on_right_click(x, y)
+    assert panel.t is not None and "rotation + scale + shift" in panel.match_label.text()
+    panel._on_left_click(*np.array(plate_pts[2]) * [1, -1])
+    panel._on_right_click(*photo_pts[2])
+    assert "affine" in panel.match_label.text() and panel.rms < 1e-6
+    # devices clicked on the device photo get plate coordinates
+    panel.device_radio.setChecked(True)
+    target = (u0 + 0.8, v0 + 0.6)
+    (x, y), = apply_homography(np.linalg.inv(t_true), [target])
+    panel._on_right_click(x, y)
+    assert len(panel.devices) == 1
+    assert (panel.devices[0].u, panel.devices[0].v) == pytest.approx(target, abs=1e-6)
+    assert panel.table.item(0, 1).text() == "S1" and dlg.table.item(0, 6).text() == "1"
+    # dragging a point moves the devices of this photo with the matching
+    panel.right_pts[0].setPos(panel.right_pts[0].pos() + QtCore.QPointF(10, 0))
+    assert panel.devices[0].u != pytest.approx(target[0], abs=1e-6)
+    panel.right_pts[0].setPos(panel.right_pts[0].pos() - QtCore.QPointF(10, 0))
+    # a new device photo keeps the devices already placed
+    panel.set_photo(np.zeros((100, 100, 3), np.uint8))
+    assert panel.t is None and panel.devices[0].px is None
+    assert panel.devices[0].u == pytest.approx(target[0], abs=1e-6)
+    # added with the samples, relative to their substrate; no height
+    sample = dlg.samples()[0]
+    assert sample.name == "S1" and [d.name for d in sample.devices] == ["D1"]
+    dev = sample.devices[0]
+    assert dev.position(sample) == pytest.approx(target, abs=1e-3)
+    assert not hasattr(dev, "height")
 
 
 def test_plate_editor_zoom_kept(app):

@@ -430,9 +430,6 @@ class PlateEditor(QtWidgets.QWidget):
         photo_btn = QtWidgets.QPushButton("From photo…")
         photo_btn.setToolTip("Find the samples on a photo of the plate taken from above (sample side)")
         photo_btn.clicked.connect(self.samples_from_photo)
-        dev_photo_btn = QtWidgets.QPushButton("Device from photo…")
-        dev_photo_btn.setToolTip("Locate devices of the selected substrate on a close-up photo")
-        dev_photo_btn.clicked.connect(self.devices_from_photo)
         dev_btn = QtWidgets.QPushButton("Add device")
         dev_btn.setToolTip("Add a device to the selected sample (it becomes a substrate)")
         dev_btn.clicked.connect(self.add_device_to_selected)
@@ -456,7 +453,7 @@ class PlateEditor(QtWidgets.QWidget):
         form.addWidget(si)
         form.addStretch(1)
         buttons = QtWidgets.QHBoxLayout()
-        for b in (add_btn, photo_btn, dev_btn, dev_photo_btn, del_btn):
+        for b in (add_btn, photo_btn, dev_btn, del_btn):
             buttons.addWidget(b)
         buttons.addStretch(1)
         buttons.addWidget(done_btn)
@@ -612,18 +609,6 @@ class PlateEditor(QtWidgets.QWidget):
                                    [s.name for s in self.layout_model.samples], self)
         if dialog.exec_() if hasattr(dialog, "exec_") else dialog.exec():
             self.import_samples(dialog.samples(), dialog.replace_existing())
-
-    def devices_from_photo(self) -> None:
-        from .device_photo_dialog import DevicePhotoDialog
-
-        sel = self.selected_samples()
-        if len(sel) != 1:
-            QtWidgets.QMessageBox.information(self, "Device from photo", "Select exactly one sample (substrate) first.")
-            return
-        dialog = DevicePhotoDialog(self.layout_model, sel[0], self)
-        if dialog.exec_() if hasattr(dialog, "exec_") else dialog.exec():
-            for device in dialog.devices():
-                self.add_device(sel[0], device)
 
     def import_samples(self, samples: list[Sample], replace: bool = False) -> None:
         """Add samples (e.g. found on a photo), optionally instead of the present ones; names are made unique."""

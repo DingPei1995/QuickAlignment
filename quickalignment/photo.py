@@ -74,6 +74,37 @@ def apply_homography(h: np.ndarray, pts) -> np.ndarray:
     return q[:, :2] / q[:, 2:3]
 
 
+def pair_transform(photo_pts, plate_pts) -> tuple[np.ndarray, float]:
+    """Photo pixels -> plate mm from point pairs the user marked as the same place on both.
+
+    2 pairs: rotation + scale + shift (photo from above, not mirrored); 3: affine;
+    4 or more: perspective (least squares). Returns the 3 x 3 matrix and the rms
+    residual of the pairs in mm (0 when there are no more pairs than needed)."""
+    src, dst = np.asarray(photo_pts, float), np.asarray(plate_pts, float)
+    n = len(src)
+    if n < 2 or src.shape != dst.shape:
+        raise ValueError("At least 2 point pairs are needed.")
+    flip = np.diag([1.0, -1.0, 1.0])  # image y points down, plate v up
+    s = src * [1, -1]
+    if n == 2:
+        z0, z1 = complex(*s[0]), complex(*s[1])
+        w0, w1 = complex(*dst[0]), complex(*dst[1])
+        if abs(z1 - z0) < 1e-9 or abs(w1 - w0) < 1e-12:
+            raise ValueError("The two points of a photo coincide.")
+        a = (w1 - w0) / (z1 - z0)
+        b = w0 - a * z0
+        t = np.array([[a.real, -a.imag, b.real], [a.imag, a.real, b.imag], [0, 0, 1]]) @ flip
+    elif n == 3:
+        m = np.c_[src, np.ones(3)]
+        if abs(np.linalg.det(m)) < 1e-9 * max(1.0, np.abs(src).max() ** 2):
+            raise ValueError("The three points are on a line.")
+        t = np.vstack([np.linalg.solve(m, dst).T, [0, 0, 1]])
+    else:
+        t = homography(src, dst)
+    res = apply_homography(t, src) - dst
+    return t, float(np.sqrt((res ** 2).sum(axis=1).mean()))
+
+
 def check_corners(ref_pts, photo_pts) -> None:
     """Raise ValueError if the points clicked on the photo cannot be the reference points (plate
     coordinates, e.g. the corners of the sample area) seen from the sample side."""

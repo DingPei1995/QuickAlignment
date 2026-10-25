@@ -94,3 +94,25 @@ def test_label_regions():
     m[3:5, 3:6] = True
     regions = sorted(label_regions(m), key=len)
     assert [len(r) for r in regions] == [2, 6]
+
+
+def test_pair_transform():
+    from quickalignment.photo import pair_transform
+
+    # device photo: scaled 80 px/mm, rotated 30°, shifted, image y down
+    c, s = np.cos(np.radians(30)), np.sin(np.radians(30))
+    t_true = np.array([[c, -s, 1.0], [s, c, 2.0], [0, 0, 1]]) @ np.diag([1 / 80, -1 / 80, 1])
+    photo = np.array([(100.0, 120.0), (900.0, 200.0), (300.0, 700.0), (820.0, 640.0), (500.0, 400.0)])
+    plate = apply_homography(t_true, photo)
+    for n in (2, 3, 4, 5):
+        t, rms = pair_transform(photo[:n], plate[:n])
+        assert np.allclose(apply_homography(t, photo), plate, atol=1e-6)
+        assert rms < 1e-6
+    # a misplaced point shows in the residual
+    bad = plate.copy()
+    bad[4] += 0.05
+    assert pair_transform(photo, bad)[1] > 0.005
+    with pytest.raises(ValueError):
+        pair_transform(photo[:1], plate[:1])
+    with pytest.raises(ValueError):
+        pair_transform([(0, 0), (0, 0)], plate[:2])

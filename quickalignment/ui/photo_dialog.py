@@ -9,12 +9,13 @@
    the bare plate; adjust the ΔE threshold
 4. correct by hand: draw missing boxes, delete wrong ones, merge the pieces of
    a sample broken up by paint (kept when the detection is run again)
-5. enter the sample height H (not visible on a photo from above), choose the
-   samples to keep and add them to the plate
+5. enter the sample height H (not visible on a photo from above)
+6. optionally (tab 2) locate devices on a second photo, matched to the plate
+   photo by points the user marks on both (device_match.py)
+7. add the samples (with their devices) to the plate
 
 The boxes are a starting point: they can be moved / resized in the Samples
-tab like drawn ones; devices are located on a close-up photo with "Device
-from photo…", and "Found here" corrects the positions later.
+tab like drawn ones, and "Found here" corrects the positions later.
 """
 
 from __future__ import annotations
@@ -24,15 +25,17 @@ import math
 import numpy as np
 
 from ._qt import QtCore, QtGui, QtWidgets
+from .device_match import DeviceMatchPanel, container
 from .photo_widgets import PhotoRegistration, array_to_qimage, lab_to_rgb
 from .plate_editor import COLOR_SAMPLE, cosmetic_pen
-from ..geometry import PlateGeometry, Sample
+from ..geometry import Device, PlateGeometry, Sample
 from ..photo import PX_PER_MM, Detection, detect_samples, overlap, plate_view_bounds, rgb_to_lab
 
 Qt = QtCore.Qt
 
 COLOR_FOUND = QtGui.QColor("#18c418")
-RESULT_COLUMNS = ["Use", "Name", "x (mm)", "y (mm)", "L (mm)", "W (mm)", "H (mm)", "ΔE"]
+RESULT_COLUMNS = ["Name", "x (mm)", "y (mm)", "L (mm)", "W (mm)", "H (mm)", "Devices", "ΔE"]
+NAME, H_COL, DEV_COL = 0, 5, 6
 MODES = ["colour different from the bare plate", "colour of picked samples"]
 BY_PLATE, BY_SAMPLE = range(2)
 DEFAULT_THRESHOLD = (12.0, 20.0)  # per mode
@@ -147,18 +150,20 @@ class PhotoImportDialog(QtWidgets.QDialog):
         self.table = QtWidgets.QTableWidget(0, len(RESULT_COLUMNS))
         self.table.setHorizontalHeaderLabels(RESULT_COLUMNS)
         self.table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(1, QtWidgets.QHeaderView.Stretch)
+        self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.horizontalHeaderItem(6).setToolTip("Devices located on it in tab 2")
         self.table.horizontalHeaderItem(7).setToolTip("Mean colour difference; “drawn”: box drawn or merged by hand")
         self.table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
         self.table.setMinimumHeight(130)
         self.table.itemChanged.connect(self._on_table_changed)
-        self.table.itemSelectionChanged.connect(self._draw_detections)
+        self.table.itemSelectionChanged.connect(self._on_selection)
         merge_btn = QtWidgets.QPushButton("Merge selected")
-        merge_btn.setToolTip("One sample from the selected rows (pieces of a sample broken up by paint or wires).")
+        merge_btn.setToolTip("One sample from the selected boxes (pieces of a sample broken up by paint or wires).\n"
+                             "Select boxes by clicking them (Ctrl + click: several) or their rows.")
         merge_btn.clicked.connect(self.merge_selected)
         delete_btn = QtWidgets.QPushButton("Delete selected")
-        delete_btn.setToolTip("Remove wrong boxes (also with the Delete key). They stay removed when the detection "
-                              "is run again.")
+        delete_btn.setToolTip("Remove the selected boxes: what is not a sample (also with the Delete key).\n"
+                              "They stay removed when the detection is run again.")
         delete_btn.clicked.connect(self.delete_selected)
         undo_btn = QtWidgets.QPushButton("Undo hand edits")
         undo_btn.setToolTip("Forget the drawn, merged and deleted boxes: only what the colour finds")
@@ -177,6 +182,9 @@ class PhotoImportDialog(QtWidgets.QDialog):
         cancel = QtWidgets.QPushButton("Cancel")
         cancel.setAutoDefault(False)
         cancel.clicked.connect(self.reject)
+
+        self.devices_panel = DeviceMatchPanel()
+        self.devices_panel.changed.connect(self._on_devices_changed)
 
         top = QtWidgets.QHBoxLayout()
         top.addWidget(open_btn)
@@ -204,7 +212,7 @@ class PhotoImportDialog(QtWidgets.QDialog):
         params2.addStretch(1)
 
         height_row = QtWidgets.QHBoxLayout()
-        height_row.addWidget(QtWidgets.QLabel("<b>Samples</b>   height H"))
+        height_row.addWidget(QtWidgets.QLabel("<b>Samples</b> (all are added)   height H"))
         height_row.addWidget(self.height_box)
         height_row.addWidget(height_all)
         note = QtWidgets.QLabel("(not visible from above; Si wafer substrate 0.525 mm)")
@@ -232,12 +240,20 @@ class PhotoImportDialog(QtWidgets.QDialog):
         split.setStretchFactor(0, 3)
         split.setStretchFactor(1, 2)
 
+        tab1 = QtWidgets.QWidget()
+        t1 = QtWidgets.QVBoxLayout(tab1)
+        t1.addLayout(top)
+        t1.addLayout(params)
+        t1.addLayout(params2)
+        t1.addWidget(split, 1)
+        self.tabs = QtWidgets.QTabWidget()
+        self.tabs.addTab(tab1, "1  Plate photo → samples")
+        self.tabs.addTab(self.devices_panel, "2  Devices (second photo)")
+        self.tabs.currentChanged.connect(lambda _: self._update_instruction())
+
         box = QtWidgets.QVBoxLayout(self)
-        box.addLayout(top)
         box.addWidget(self.instruction)
-        box.addLayout(params)
-        box.addLayout(params2)
-        box.addWidget(split, 1)
+        box.addWidget(self.tabs, 1)
         box.addLayout(bottom)
         self._on_mode(BY_SAMPLE)
 
@@ -265,11 +281,16 @@ class PhotoImportDialog(QtWidgets.QDialog):
         self.reg.set_corners(points)
 
     def _on_registration(self) -> None:
+        self.devices_panel.set_source(self.reg.photo, self.reg.h)
         if self.rectified is not None:
             self.reg.place_on_rectified(self.mask_item)
         self.detect()
 
     def _update_instruction(self, error: str = "") -> None:
+        if self.tabs.currentIndex() == 1:
+            self.instruction.setStyleSheet("font-weight: bold; color: #00609a;")
+            self.instruction.setText(self.devices_panel.instruction())
+            return
         error = error or self.reg.error
         text = self.reg.corner_instruction()
         if self.reg.photo is None:
@@ -415,6 +436,7 @@ class PhotoImportDialog(QtWidgets.QDialog):
                 taken.add(best)
         self._fill_table(states)
         self._update_swatch()
+        self._update_substrates()
         self._draw_detections()
 
     def _update_swatch(self) -> None:
@@ -438,9 +460,7 @@ class PhotoImportDialog(QtWidgets.QDialog):
         selected = self._selected_rows()
         shapes = []
         for row, d in enumerate(self.detections):
-            used = self._used(row)
-            pen = cosmetic_pen(COLOR_FOUND if used else "#888888", 3 if row in selected else 1.8,
-                               Qt.SolidLine if used else Qt.DashLine)
+            pen = cosmetic_pen(COLOR_FOUND, 3 if row in selected else 1.8)
             item = self.reg.plate_scene.addRect(QtCore.QRectF(d.u0, -d.v1, d.u1 - d.u0, d.v1 - d.v0), pen,
                                                 QtGui.QBrush(COLOR_SAMPLE if row in selected else Qt.NoBrush))
             item.setZValue(9)
@@ -452,18 +472,25 @@ class PhotoImportDialog(QtWidgets.QDialog):
             label.setZValue(9)
             label.setAcceptedMouseButtons(Qt.NoButton)
             self._plate_overlay += [item, label]
-            if used:
-                shapes.append(([(d.u0, d.v0), (d.u1, d.v0), (d.u1, d.v1), (d.u0, d.v1)], COLOR_FOUND,
-                               3 if row in selected else 2))
+            shapes.append(([(d.u0, d.v0), (d.u1, d.v0), (d.u1, d.v1), (d.u0, d.v1)], COLOR_FOUND,
+                           3 if row in selected else 2))
+        for dev in self.devices_panel.devices:
+            dot = self.reg.plate_scene.addEllipse(-4, -4, 8, 8, cosmetic_pen("#e00000", 2))
+            dot.setFlag(QtWidgets.QGraphicsItem.ItemIgnoresTransformations)
+            dot.setPos(dev.u, -dev.v)
+            dot.setZValue(10)
+            dot.setToolTip(dev.name)
+            dot.setAcceptedMouseButtons(Qt.NoButton)
+            self._plate_overlay.append(dot)
         self.reg.set_photo_overlay(shapes)
-        n = sum(self._used(r) for r in range(len(self.detections)))
+        n = len(self.detections)
         self.add_btn.setEnabled(n > 0)
         if self.rectified is None:
             self.status.setText("")
         else:
-            self.status.setText(f"{len(self.detections)} sample(s), {n} to add. Touching samples come out as one "
-                                "box; positions can be refined afterwards in the Samples tab, devices located with "
-                                "“Device from photo…”.")
+            self.status.setText(f"{n} sample(s) to add, {len(self.devices_panel.devices)} device(s). Click a box to "
+                                "select it (Ctrl + click: several), then Merge or Delete. Positions can be refined "
+                                "afterwards in the Samples tab.")
 
     # -- hand edits ----------------------------------------------------------------
     def add_box(self, u0: float, v0: float, u1: float, v1: float) -> Detection | None:
@@ -531,6 +558,12 @@ class PhotoImportDialog(QtWidgets.QDialog):
         self.table.clearSelection()
         self.table.selectRow(row)
 
+    def _on_selection(self) -> None:
+        rows = self._selected_rows()
+        if len(rows) == 1:  # tab 2 shows the selected substrate
+            self.devices_panel.select_substrate(self._name(rows[0]))
+        self._draw_detections()
+
     def _selected_rows(self) -> list[int]:
         return sorted({i.row() for i in self.table.selectedIndexes()})
 
@@ -545,34 +578,34 @@ class PhotoImportDialog(QtWidgets.QDialog):
         return names
 
     def _row_states(self) -> list[tuple]:
-        """(tick, name, H) of the table rows."""
-        return [(self.table.item(row, 0).checkState(), self.table.item(row, 1).text(), self.table.item(row, 6).text())
+        """(name, H) of the table rows."""
+        return [(self.table.item(row, NAME).text(), self.table.item(row, H_COL).text())
                 for row in range(self.table.rowCount())]
 
     def _fill_table(self, states: list) -> None:
-        """Rows for the detections; states[row] (tick, name, H) are kept where given (not None)."""
+        """Rows for the detections; states[row] (name, H) are kept where given (not None)."""
         self._filling = True
         self.table.setRowCount(len(self.detections))
-        names = iter(self._default_names(sum(s is None for s in states), {s[1] for s in states if s}))
+        names = iter(self._default_names(sum(s is None for s in states), {s[0] for s in states if s}))
         for row, d in enumerate(self.detections):
             (u, v), (length, width) = d.center, d.size
-            check, name, height = states[row] or (Qt.Checked, next(names), f"{self.height_box.value():.3f}")
+            name, height = states[row] or (next(names), f"{self.height_box.value():.3f}")
             de = "drawn" if d.manual and math.isnan(d.delta_e) else f"{d.delta_e:.0f}" + (" (merged)" if d.manual else "")
-            values = ["", name, f"{u:.2f}", f"{v:.2f}", f"{length:.2f}", f"{width:.2f}", height, de]
+            values = [name, f"{u:.2f}", f"{v:.2f}", f"{length:.2f}", f"{width:.2f}", height, "", de]
             for col, text in enumerate(values):
                 item = QtWidgets.QTableWidgetItem(text)
-                if col == 0:
-                    item.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled | Qt.ItemIsSelectable)
-                    item.setCheckState(check)
-                elif col not in (1, 6):
+                if col not in (NAME, H_COL):
                     item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
                 self.table.setItem(row, col, item)
         self._filling = False
+        self._update_device_counts()
 
     def _on_table_changed(self, item) -> None:
         if self._filling:
             return
-        if item.column() == 6:
+        if item.column() == NAME:
+            self._update_substrates()
+        if item.column() == H_COL:
             try:
                 value = float(item.text())
                 ok = 0 <= value <= 20
@@ -583,30 +616,54 @@ class PhotoImportDialog(QtWidgets.QDialog):
             self._filling = False
         self._draw_detections()
 
-    def _used(self, row: int) -> bool:
-        item = self.table.item(row, 0)
-        return item is not None and item.checkState() == Qt.Checked
-
     def _name(self, row: int) -> str:
-        item = self.table.item(row, 1)
+        item = self.table.item(row, NAME)
         return item.text().strip() if item is not None else ""
 
     def set_height_of_all(self) -> None:
         self._filling = True
         for row in range(self.table.rowCount()):
-            self.table.item(row, 6).setText(f"{self.height_box.value():.3f}")
+            self.table.item(row, H_COL).setText(f"{self.height_box.value():.3f}")
         self._filling = False
 
     # -- result ------------------------------------------------------------------
+    # -- devices (tab 2) ----------------------------------------------------------
+    def _substrates(self) -> list[tuple[str, tuple]]:
+        return [(self._name(row), d.rect) for row, d in enumerate(self.detections)]
+
+    def _update_substrates(self) -> None:
+        self.devices_panel.set_substrates(self._substrates())
+
+    def _devices_of(self, row: int) -> list:
+        subs = self._substrates()
+        return [d for d in self.devices_panel.devices if (c := container(subs, d.u, d.v)) and c[0] == subs[row][0]]
+
+    def _update_device_counts(self) -> None:
+        self._filling = True
+        for row in range(self.table.rowCount()):
+            n = len(self._devices_of(row))
+            self.table.item(row, DEV_COL).setText(str(n) if n else "")
+        self._filling = False
+
+    def _on_devices_changed(self) -> None:
+        self._update_device_counts()
+        self._draw_detections()
+        self._update_instruction()
+
+    # -- result ------------------------------------------------------------------
     def samples(self) -> list[Sample]:
-        """The ticked samples (names may still clash with existing ones: the editor makes them unique)."""
+        """The samples with their devices (names may still clash with existing ones: the editor makes them
+        unique). Devices not on a sample are left out."""
         out = []
         for row, d in enumerate(self.detections):
-            if not self._used(row):
-                continue
             (u, v), (length, width) = d.center, d.size
-            out.append(Sample(self._name(row), u=round(u, 3), v=round(v, 3), length=round(length, 3),
-                              width=round(width, 3), height=float(self.table.item(row, 6).text())))
+            s = Sample(self._name(row), u=round(u, 3), v=round(v, 3), length=round(length, 3),
+                       width=round(width, 3), height=float(self.table.item(row, H_COL).text()))
+            for p in self._devices_of(row):
+                dev = Device(p.name)
+                dev.set_position(s, round(p.u, 3), round(p.v, 3))
+                s.devices.append(dev)
+            out.append(s)
         return out
 
     def replace_existing(self) -> bool:
