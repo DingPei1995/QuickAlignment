@@ -293,8 +293,8 @@ def candidates(model: StageModel, geo: AnalyzerGeometry, t: HexTarget, hv: float
             out.append(Candidate(label, real_srn, real_srz, th, ph, err, srn, srz, theta, (kx, ky), problems))
     m = t.measured
     # reachable first; among those SRz <= 0 (beam closer to the normal), then the smallest turn from the map;
-    # among the others the fewest problems
-    out.sort(key=lambda c: (not c.ok, c.srz > 0 if c.ok else len(c.problems),
+    # among the others the one closest to the slit centre
+    out.sort(key=lambda c: (not c.ok, c.srz > 0 if c.ok else round(c.offset() + c.direction_error, 3),
                             abs(c.srn - m.srn) + abs(c.srz - m.srz)))
     return out
 
@@ -490,7 +490,7 @@ def draw_preview(fig, model, geo, t: HexTarget, hv: float, cand: Candidate | Non
         left.plot(th, ph, color="0.35", lw=0.9)
     for name, kx, ky in points:
         th, ph = k_to_angles(model, geo, frame, kp, srn, srz, np.array([[kx, ky]]))
-        if np.isfinite(th[0]) and abs(ph[0]) < SLIT_HALF_ANGLE + 3:
+        if np.isfinite(th[0]):
             left.plot(th, ph, "o", ms=3, color="#1f4e9c")
             left.annotate(name, (th[0], ph[0]), xytext=(3, 3), textcoords="offset points", fontsize=9, color="#1f4e9c")
     for lo, hi, color in ((DEFLECTOR_GAP, DEFLECTOR_MAX, "#f3c9c9"), (DEFLECTOR_MAX, 30, "#dddddd")):
@@ -502,8 +502,9 @@ def draw_preview(fig, model, geo, t: HexTarget, hv: float, cand: Candidate | Non
     if cand:
         left.plot([cand.theta], [cand.phi], "*", ms=13, color="#d62728", label=cand.label.split(" ")[0])
     xlim = max(18.0, abs(cand.theta) + 3 if cand else 0.0)
+    ylim = max(SLIT_HALF_ANGLE + 3, abs(cand.phi) + 3 if cand else 0.0)
     left.set_xlim(-xlim, xlim)
-    left.set_ylim(-SLIT_HALF_ANGLE - 3, SLIT_HALF_ANGLE + 3)
+    left.set_ylim(-ylim, ylim)
     left.set_xlabel("θ, deflector (°)")
     left.set_ylabel("φ, along the slit (°)")
     left.set_title(f"Map at SRn = {srn:.1f}°, SRz = {srz:.1f}°", fontsize=10)
