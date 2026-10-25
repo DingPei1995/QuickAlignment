@@ -175,3 +175,18 @@ def test_configuration_roundtrip():
     data["collision"] = {"optics": [{"name": "x", "distance": -1}]}
     with pytest.raises(ValueError):
         CalibrationRecord.from_dict(data)
+
+
+def test_tall_narrow_shield():
+    """A square body with a height is a rectangle across the beam: narrow horizontally, tall vertically."""
+    osa = default_geometry("zone plate + OSA").optics[0]
+    assert osa.square and osa.height > 2 * osa.tip_radius
+    geo = CollisionGeometry(optics=(osa,), margin=0.0)
+    body = [b for b in placed_bodies(geo, [0.0]) if b.body.name == "OSA"][0]
+    s = osa.distance + osa.length / 2
+    g = SAMPLING_ALLOWANCE
+    inside = lambda x, z: bool(body.inside(np.array([[x, -s, z]]))[0])  # noqa: E731
+    assert inside(0.0, osa.height / 2 - 0.1) and not inside(0.0, osa.height / 2 + g + 0.1)
+    assert inside(osa.tip_radius - 0.1, 0.0) and not inside(osa.tip_radius + g + 0.1, 0.0)
+    data = CollisionGeometry(optics=(osa,)).to_dict()
+    assert CollisionGeometry.from_dict(data).optics[0].height == osa.height

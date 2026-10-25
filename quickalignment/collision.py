@@ -51,7 +51,8 @@ class SolidBody:
     axis, sides horizontal and vertical); the outer wall opens by `half_angle`
     (0: cylinder, or plate) over `length` mm behind the front face. A thin plate
     across the beam (zone plate, OSA) is square, half_angle 0 and a short
-    length (its thickness). Optic bodies with
+    length (its thickness); `height` (square only, 0: as wide as it is) makes
+    it a rectangle, `height` tall, e.g. a narrow upright shield. Optic bodies with
     `moves` follow the optic motor (their focus point is the optic focus);
     the others (the OSA, not moved when the zone plate refocuses) stay where
     they are for the configuration's optics reference.
@@ -64,6 +65,12 @@ class SolidBody:
     length: float = 50.0
     moves: bool = True
     square: bool = False
+    height: float = 0.0
+
+    @property
+    def extra_height(self) -> float:
+        """How much farther the (square) body reaches vertically than horizontally, from the axis."""
+        return self.height / 2 - self.tip_radius if self.square and self.height > 0 else 0.0
 
     def radius_at(self, s: float) -> float:
         """Outer radius at `s` mm from the focus point (s >= distance)."""
@@ -75,10 +82,13 @@ class SolidBody:
 ANALYZER_A1 = SolidBody("analyzer (MBS A1)", distance=30.0, tip_radius=10.0, half_angle=35.0, length=150.0)
 
 # The working distances can be entered in the Stage & Optics tab.
-# Zone plate and OSA: thin square plates across the beam (10 × 10 mm, 0.5 mm: placeholders). Zone plate: working
+# Zone plate and OSA: thin plates across the beam. Zone plate (10 × 10 mm, 0.5 mm: placeholder): working
 # distance 26.613 mm at 100 eV (beamline data); the focal length f = D dr / lambda grows with the photon energy, so at
-# 95 eV it is 26.613 * 95 / 100 = 25.28 mm. OSA: 14 mm (placeholder); it is closer to the sample than the zone plate,
-# the main limit, and is not moved when the zone plate refocuses.
+# 95 eV it is 26.613 * 95 / 100 = 25.28 mm. OSA: the copper shield just in front of the plate, estimated on the
+# design view at 100 eV (no scale: plate and zone plate distance as references, 1.3 ... 5.4 mm): 3.5 mm before the
+# focus; not moved when the zone plate refocuses (so the same at 95 eV); the main limit. At 45° incidence, 3.5 mm
+# upstream the surface is 3.5 mm to one side of the beam and the analyzer acceptance edge 2 mm to the other: the
+# shield is narrow across (3 mm, estimate) and tall (20 mm, estimate).
 # Capillary (Sigray, 5 µm spot; Sigray publishes no single working distance, 2 mm to 10 cm): measured on the ANTARES
 # design top view (scale from the plate, 18 mm wide and 5 mm thick there: 11 px/mm, ±5 %). From the focus: a square
 # front plate 17.8 mm wide, 3 mm thick, from 17.4 mm; a conical nose, radius 8.2 mm at 17.4 mm opening by 16° to
@@ -89,7 +99,7 @@ ANALYZER_A1 = SolidBody("analyzer (MBS A1)", distance=30.0, tip_radius=10.0, hal
 # r + margin < d - margin, and a cone only if its half angle is below the angle between beam and surface.
 DEFAULT_OPTIC_BODIES = {
     "zone plate + OSA": (
-        SolidBody("OSA", distance=14.0, tip_radius=5.0, length=0.5, moves=False, square=True),
+        SolidBody("OSA", distance=3.5, tip_radius=1.5, length=0.2, moves=False, square=True, height=20.0),
         SolidBody("zone plate", distance=25.28, tip_radius=5.0, length=0.5, square=True),
     ),
     "capillary": (
@@ -129,7 +139,7 @@ class CollisionGeometry:
             for key in ("moves", "square"):
                 if key in raw:
                     values[key] = bool(raw[key])
-            for key in ("distance", "tip_radius", "half_angle", "length"):
+            for key in ("distance", "tip_radius", "half_angle", "length", "height"):
                 if key in raw:
                     v = float(raw[key])
                     if not math.isfinite(v) or v < 0 or (key == "half_angle" and v >= 90):
@@ -197,9 +207,11 @@ class _Placed:
         return self
 
     def _across(self, rel: np.ndarray, s: np.ndarray) -> np.ndarray:
-        """Distance from the axis: Euclidean (round) or the larger side component (square)."""
+        """Distance from the axis: Euclidean (round) or the larger side component (square; the vertical one less
+        the extra height of a rectangle)."""
         if self.body.square:
-            return np.abs(rel @ self.sides.T).max(axis=-1)
+            c = np.abs(rel @ self.sides.T)
+            return np.maximum(c[..., 0], c[..., 1] - self.body.extra_height)
         return np.sqrt(np.maximum(np.einsum("...i,...i->...", rel, rel) - s * s, 0.0))
 
     def inside(self, p: np.ndarray) -> np.ndarray:
@@ -240,8 +252,8 @@ def _body_surface(b: _Placed, n_s: int = 12, n_around: int = 48) -> np.ndarray:
     across = np.column_stack([np.cos(t), np.sin(t)])
     if b.body.square:  # the square outline: scale the circle onto it
         across = across / np.abs(across).max(axis=1, keepdims=True)
-    pts = (s[:, None, None] * b.axis + r[:, None, None] * (across[None, :, :1] * b.sides[0]
-                                                           + across[None, :, 1:] * b.sides[1]))
+    pts = (s[:, None, None] * b.axis + r[:, None, None] * across[None, :, :1] * b.sides[0]
+           + (r[:, None, None] + b.body.extra_height) * across[None, :, 1:] * b.sides[1])
     return b.origin + pts.reshape(-1, 3)
 
 

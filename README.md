@@ -139,9 +139,12 @@ is checked against simple solids:
 
 - **analyzer (MBS A1)**: a truncated cone on the analyzer axis, front 30 mm from the focal plane, outer radius
   10 mm at the front (the opening must pass the ±15° lens acceptance), 35° cone (estimate);
-- **zone plate + OSA**: two thin square plates across the beam, 10 × 10 mm, 0.5 mm thick (sizes are placeholders).
-  Zone plate: working distance 26.613 mm at 100 eV; the focal length grows with the photon energy (f = D Δr / λ), so
-  at 95 eV it is 25.28 mm. OSA: 14 mm before the focus (placeholder). The zone plate moves with its motor (ZP_ZS); the **OSA is not moved when the
+- **zone plate + OSA**: thin plates across the beam. Zone plate (10 × 10 mm, 0.5 mm thick, placeholder size): working
+  distance 26.613 mm at 100 eV; the focal length grows with the photon energy (f = D Δr / λ), so at 95 eV it is
+  25.28 mm. OSA: the copper shield just in front of the plate, estimated on the design view at 100 eV (no scale; the
+  plate and the zone plate distance as references give 1.3 … 5.4 mm): 3.5 mm before the focus, 3 mm wide and 20 mm
+  tall (`height`), 0.2 mm thick. At 45° incidence, 3.5 mm upstream the surface is 3.5 mm to one side of the beam and
+  the analyzer acceptance edge 2 mm to the other, hence a narrow, tall shield. The zone plate moves with its motor (ZP_ZS); the **OSA is not moved when the
   zone plate refocuses** (OSA_S stays at ≈ 80.00 in the WWS2 / S2 metadata while ZP_ZS changes): it is placed
   before the focus at the configuration's optics reference (≈ the analyzer focus);
 - **capillary** (Sigray), measured on the ANTARES design top view (scale from the plate, 18 × 5 mm there, ±5 %),
@@ -175,7 +178,7 @@ A configuration file can give its own solids (missing parts keep the defaults of
 ```json
 "collision": {"margin": 0.1,
               "analyzer": {"name": "analyzer (MBS A1)", "distance": 30, "tip_radius": 10, "half_angle": 35, "length": 150},
-              "optics": [{"name": "OSA", "distance": 14, "tip_radius": 5, "length": 0.5, "square": true, "moves": false},
+              "optics": [{"name": "OSA", "distance": 3.5, "tip_radius": 1.5, "height": 20, "length": 0.2, "square": true, "moves": false},
                          {"name": "zone plate", "distance": 25.28, "tip_radius": 5, "length": 0.5, "square": true}]}
 ```
 

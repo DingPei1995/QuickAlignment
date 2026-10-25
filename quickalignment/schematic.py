@@ -130,15 +130,14 @@ def _draw_top_view(ax, model: StageModel, m: MotorPositions, layout: SampleLayou
     near = min((b.distance for b in collision.optics if b.moves), default=0.0)
     fixed = [b for b in collision.optics if not b.moves]
     far = max((b.distance + b.length for b in collision.optics), default=10.0)
-    first = min((b.distance for b in collision.optics), default=10.0)
-    oy = fy - first - 3  # beside the optic front, clear of the plate
+    oy = fy - near + 3  # beside the front of the moving optic, clear of the plate
     gap = min((b.distance + (0.0 if b.moves else fy - fixed_y) for b in collision.optics), default=10.0)
     ax.text(0.5, fy - gap / 2, "beam", color=C_BEAM, fontsize=7, va="center")  # between the optic front and the spot
     for b in (collision.optics if fixed else ()):  # parts moving differently (zone plate, OSA): named
         y = (fy if b.moves else fixed_y) - b.distance - b.length / 2
         if b.distance + b.length / 2 <= OPTIC_DRAW_DISTANCE:
             ax.text(-b.tip_radius - 0.8, y, b.name, color=C_OPTIC, fontsize=7, ha="right", va="center", clip_on=True)
-    x_label = max([4.0] + [b.tip_radius + 0.8 for b in collision.optics if b.distance <= first + 1])
+    x_label = max([4.0] + [b.tip_radius + 0.8 for b in collision.optics if b.moves and b.distance <= near + 1])
     ax.text(x_label, oy, f"{optic_type}\nat {result.optic_position:.4f}\nfront {near:g} mm\nfrom its focus"
             + "".join(f"\n{b.name} (fixed) {b.distance:g} mm\nbefore ref. focus" for b in fixed),
             color=C_OPTIC, fontsize=7, va="center")
