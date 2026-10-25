@@ -423,6 +423,9 @@ class PlateEditor(QtWidgets.QWidget):
 
         add_btn = QtWidgets.QPushButton("Add sample")
         add_btn.clicked.connect(self.add_default_sample)
+        photo_btn = QtWidgets.QPushButton("From photo…")
+        photo_btn.setToolTip("Find the samples on a photo of the plate taken from above (sample side)")
+        photo_btn.clicked.connect(self.samples_from_photo)
         dev_btn = QtWidgets.QPushButton("Add device")
         dev_btn.setToolTip("Add a device to the selected sample (it becomes a substrate)")
         dev_btn.clicked.connect(self.add_device_to_selected)
@@ -446,7 +449,7 @@ class PlateEditor(QtWidgets.QWidget):
         form.addWidget(si)
         form.addStretch(1)
         buttons = QtWidgets.QHBoxLayout()
-        for b in (add_btn, dev_btn, del_btn):
+        for b in (add_btn, photo_btn, dev_btn, del_btn):
             buttons.addWidget(b)
         buttons.addStretch(1)
         buttons.addWidget(done_btn)
@@ -455,7 +458,7 @@ class PlateEditor(QtWidgets.QWidget):
             "Sample plate, front view (sample side), tab up. Coordinates x, y are in mm on the plate "
             "(origin = centre of the back plate, red cross), not motor positions.\n"
             "Drag on empty plate to draw a sample; drag a sample to move it, its edges to resize "
-            "(mouse positions are rounded to 0.1 mm). "
+            "(mouse positions are rounded to 0.1 mm), or find them on a photo ('From photo…'). "
             "Select a sample and press 'Add device' to mark a device on a substrate. "
             "Wheel = zoom, middle drag = pan, right click = whole plate, Del = delete."
         )
@@ -594,6 +597,25 @@ class PlateEditor(QtWidgets.QWidget):
 
     def add_default_sample(self) -> Sample:
         return self.add_sample(Sample(self.layout_model.unique_name(), height=self.height_box.value()))
+
+    def samples_from_photo(self) -> None:
+        from .photo_dialog import PhotoImportDialog
+
+        dialog = PhotoImportDialog(self.layout_model.plate, self.height_box.value(),
+                                   [s.name for s in self.layout_model.samples], self)
+        if dialog.exec_() if hasattr(dialog, "exec_") else dialog.exec():
+            self.import_samples(dialog.samples(), dialog.replace_existing())
+
+    def import_samples(self, samples: list[Sample], replace: bool = False) -> None:
+        """Add samples (e.g. found on a photo), optionally instead of the present ones; names are made unique."""
+        if replace:
+            self.layout_model.samples.clear()
+        for s in samples:
+            if not s.name or any(o.name == s.name for o in self.layout_model.samples):
+                s.name = self.layout_model.unique_name()
+            self.layout_model.samples.append(s)
+        self.set_layout(self.layout_model)
+        self.layoutChanged.emit()
 
     def add_device(self, sample: Sample, device: Device | None = None) -> Device:
         if device is None:

@@ -79,6 +79,33 @@ refuse values outside the travel ranges.
   on the drawing have a problem.
 - Wheel = zoom, middle drag = pan, right click = whole plate, Del = delete the selection.
 
+### Samples from a photo
+
+Instead of drawing, the samples can be found on a photo of the plate taken from straight above (sample side; a phone
+photo is fine). Press **From photo…**:
+
+![Samples from a photo](images/guide/photo_dialog.png)
+
+1. *Open photo…* and click the **four corners of the sample area** in the order shown above the photo: top left, top
+   right (tab side), bottom right, bottom left (gating plate: the lower corners are where the sample area meets the
+   contact block). Drag the markers to refine; wheel = zoom, middle drag = pan.
+2. The photo is mapped onto the plate model (right view, blue outlines). Check that the outlines lie on the plate.
+3. Samples are found by their colour (green boxes, magenta = what is taken):
+   - *colour different from the bare plate*: everything on the plate, also silver paint and glue. If samples cover most
+     of the sample area, *Pick bare plate colour* and click on bare plate.
+   - *colour of picked samples*: *Pick sample colour* and click on a sample in the right view (once per kind of
+     sample); only regions close to these colours are taken, silver paint is left out.
+   - *ΔE threshold*: the colour difference (CIELAB) that separates them; *min. size* drops dust; *border left out*
+     ignores the edge of the sample area.
+4. A sample broken up by paint or wires gives several boxes: select their rows (Ctrl + click) and press
+   *Merge selected*. Untick what is not a sample.
+5. Enter the **height H** (it cannot be seen from above; default: *Default H*), per sample in the table or with *Set H
+   of all*, and press **Add to plate**. *Remove the samples already on the plate* replaces the present ones.
+
+The boxes are the bounding rectangles of what was found, in plate coordinates; they can then be moved, resized and
+given devices like drawn samples. The accuracy is set by the corner clicks (about 0.1–0.3 mm); *Found here* in the
+Stage & Optics tab corrects the rest. Everything runs on the computer, nothing is sent anywhere.
+
 When all samples are drawn, press **Samples placed → Stage**.
 
 ## Stage & Optics tab: going to a sample

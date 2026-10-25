@@ -82,6 +82,36 @@ configuration). Les champs moteurs refusent les valeurs hors course.
   du dessin ont un problème.
 - Molette = zoom, bouton du milieu = déplacer, clic droit = plaquette entière, Suppr = effacer la sélection.
 
+### Échantillons depuis une photo
+
+Au lieu de les dessiner, les échantillons peuvent être trouvés sur une photo de la plaquette prise d'en haut (côté
+échantillons ; une photo de téléphone suffit). Appuyer sur **From photo…** :
+
+![Échantillons depuis une photo](images/guide/photo_dialog.png)
+
+1. *Open photo…*, puis cliquer les **quatre coins de la zone d'échantillons** dans l'ordre indiqué au-dessus de la
+   photo : haut gauche, haut droit (côté languette), bas droit, bas gauche (plaquette gating : les coins du bas sont où
+   la zone rencontre le bloc de contacts). Faire glisser les repères pour affiner ; molette = zoom, bouton du milieu =
+   déplacer.
+2. La photo est projetée sur le modèle de la plaquette (vue de droite, contours bleus). Vérifier que les contours sont
+   sur la plaquette.
+3. Les échantillons sont trouvés par leur couleur (cadres verts, magenta = ce qui est retenu) :
+   - *colour different from the bare plate* : tout ce qui est sur la plaquette, laque d'argent et colle comprises. Si
+     les échantillons couvrent presque toute la zone, *Pick bare plate colour* puis cliquer sur la plaquette nue.
+   - *colour of picked samples* : *Pick sample colour* puis cliquer sur un échantillon dans la vue de droite (une fois
+     par sorte d'échantillon) ; seules les régions proches de ces couleurs sont retenues, sans la laque d'argent.
+   - *ΔE threshold* : l'écart de couleur (CIELAB) qui les sépare ; *min. size* écarte les poussières ; *border left
+     out* ignore le bord de la zone.
+4. Un échantillon coupé par de la laque ou des fils donne plusieurs cadres : sélectionner leurs lignes (Ctrl + clic)
+   et *Merge selected*. Décocher ce qui n'est pas un échantillon.
+5. Entrer la **hauteur H** (invisible d'en haut ; par défaut *Default H*), par échantillon dans le tableau ou avec
+   *Set H of all*, puis **Add to plate**. *Remove the samples already on the plate* remplace les échantillons présents.
+
+Les cadres sont les rectangles englobants de ce qui a été trouvé, en coordonnées plaquette ; ils se déplacent, se
+redimensionnent et reçoivent des dispositifs comme les échantillons dessinés. La précision dépend des clics sur les
+coins (environ 0,1–0,3 mm) ; *Found here* dans l'onglet Stage & Optics corrige le reste. Tout est calculé sur
+l'ordinateur, rien n'est envoyé.
+
 Une fois les échantillons dessinés, appuyer sur **Samples placed → Stage**.
 
 ## Onglet Stage & Optics : aller sur un échantillon

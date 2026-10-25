@@ -82,6 +82,26 @@ def quickalignment_shots(app, store: CalibrationStore) -> None:
     editor._on_dev_table_selection()
     save(win, "samples_tab", app)
 
+    # samples from a photo: the gating plate photo of the tests, colour picked on the substrate
+    from quickalignment.geometry import GATING_PLATE
+    from quickalignment.ui.photo_dialog import PhotoImportDialog
+
+    sys.path.insert(0, str(HERE / "tests"))
+    from test_photo_dialog import REAL_CORNERS, REAL_PHOTO
+
+    photo = PhotoImportDialog(GATING_PLATE, 0.525)
+    photo.resize(1400, 900)
+    photo.show()
+    photo.load_photo(str(REAL_PHOTO))
+    photo.file_label.setText(REAL_PHOTO.name)
+    photo.set_corners(REAL_CORNERS)
+    photo.pick_sample_color(3.65, 6.15)
+    settle(app)
+    photo.photo_view.fit()
+    photo.plate_view.fit()
+    save(photo, "photo_dialog", app)
+    photo.close()
+
     # samples placed -> start positions in the Stage & Optics tab
     win.resize(1450, 1000)
     win.go_to_stage()
