@@ -129,6 +129,12 @@ class StageModel:
         q = np.array([u, v]) + self._piezo(m)
         return rot_2d(self._srn_angle(m)) @ (q - axis) + axis
 
+    def plate_from_stage_frame(self, m: MotorPositions, q) -> np.ndarray:
+        """Inverse of stage_frame: plate point (u, v) seen at stage-frame point q."""
+        c = self.config
+        axis = np.array([c.srn_axis_u, c.srn_axis_v])
+        return rot_2d(-self._srn_angle(m)) @ (np.asarray(q, float) - axis) + axis - self._piezo(m)
+
     def reference_motors(self, u: float, v: float, w: float) -> tuple[float, float, float]:
         """(ST, SZ, SN) putting plate point (u, v, w) on the focus at SRn = ref, SRz = 0, piezo centred."""
         c = self.config

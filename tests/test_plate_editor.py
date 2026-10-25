@@ -648,3 +648,22 @@ def test_initial_calibration_asks_what_was_recalibrated(tmp_path):
     rec = store.latest("capillary")
     assert rec.check["mode"] == "optics" and rec.config.sn_f == -0.5 and rec.comment.startswith("optics recalibration")
     win.close()
+
+
+def test_stage_schematic_cursor_readout(window):
+    from matplotlib.backend_bases import MouseEvent
+
+    layout = window.editor.layout_model
+    layout.samples[:] = [Sample("S1", u=2.0, v=3.0, length=4.0, width=4.0)]
+    stage = window.stage
+    stage.update_view()
+    ax, model, m, _ = stage._plane
+    st, sz = model.reference_motors(2.0, 3.0, 0.0)[:2]  # S1 centre (SRn = ref)
+    x, y = ax.transData.transform((st, sz))
+    canvas = stage.canvas
+    canvas.callbacks.process("motion_notify_event", MouseEvent("motion_notify_event", canvas, x, y))
+    text = stage.cursor_label.text()
+    assert f"ST = {st:.3f}" in text and f"SZ = {sz:.3f}" in text
+    assert "x = 2.00, y = 3.00" in text and "on S1" in text
+    canvas.callbacks.process("motion_notify_event", MouseEvent("motion_notify_event", canvas, 1, 1))
+    assert stage.cursor_label.text() == "cursor: ST = –, SZ = –"

@@ -184,12 +184,14 @@ def _draw_sample_plane(ax, model: StageModel, m: MotorPositions, layout: SampleL
 
 def draw_schematic(
     fig, model: StageModel, m: MotorPositions, layout: SampleLayout, result: BeamResult, optic_type: str = "optic"
-) -> None:
+):
+    """Draw both views; returns (top view axes, sample plane axes)."""
     fig.clear()
     ax_top, ax_plane = fig.subplots(1, 2)
     _draw_top_view(ax_top, model, m, layout, result, optic_type)
     _draw_sample_plane(ax_plane, model, m, layout, result)
     fig.tight_layout()
+    return ax_top, ax_plane
 
 
 def feature_warnings(plate: PlateGeometry, u: float, v: float) -> list[str]:

@@ -216,10 +216,22 @@ class StagePanel(QtWidgets.QWidget):
 
         self.figure = Figure(figsize=(11, 5.5))
         self.canvas = FigureCanvasQTAgg(self.figure)
+        self.canvas.mpl_connect("motion_notify_event", self._on_canvas_motion)
+        self.canvas.mpl_connect("figure_leave_event", lambda _event: self._show_cursor(None))
+        self.cursor_label = QtWidgets.QLabel()
+        self.cursor_label.setToolTip("Mouse position in the sample plane view (as of the last update): the ST, SZ\n"
+                                     "that bring this point onto the beam, and where it is on the plate.")
+        self._plane = None  # (axes, model, motors, layout) of the last drawn sample plane view
+        self._show_cursor(None)
+        right = QtWidgets.QWidget()
+        rv = QtWidgets.QVBoxLayout(right)
+        rv.setContentsMargins(0, 0, 0, 0)
+        rv.addWidget(self.canvas, 1)
+        rv.addWidget(self.cursor_label)
 
         splitter = QtWidgets.QSplitter()
         splitter.addWidget(scroll)
-        splitter.addWidget(self.canvas)
+        splitter.addWidget(right)
         splitter.setStretchFactor(1, 1)
         box = QtWidgets.QVBoxLayout(self)
         box.setContentsMargins(4, 4, 4, 4)
@@ -385,10 +397,37 @@ class StagePanel(QtWidgets.QWidget):
         model = self.model()
         m = self.motors.value()
         res = focus_correction(model, m, layout, self.calibration(), self.optic_pos.value())
-        draw_schematic(self.figure, model, m, layout, res, self.optic_type.currentText())
+        _, ax_plane = draw_schematic(self.figure, model, m, layout, res, self.optic_type.currentText())
+        self._plane = (ax_plane, model, m, layout)
+        self._show_cursor(None)
         self.canvas.draw_idle()
         self.result_label.setText(self.describe(res))
         self.last_result = res
+
+    # -- cursor readout ------------------------------------------------------
+    def _on_canvas_motion(self, event) -> None:
+        if self._plane is None or event.inaxes is not self._plane[0] or event.xdata is None:
+            self._show_cursor(None)
+        else:
+            self._show_cursor((event.xdata, event.ydata))
+
+    def cursor_text(self, st: float, sz: float) -> str:
+        """Readout for the sample plane point (ST, SZ): plate position and what lies there."""
+        _, model, m, layout = self._plane
+        c = model.config
+        u, v = model.plate_from_stage_frame(m, (c.st0 - st, c.sz0 - sz))
+        text = f"cursor: ST = {st:.3f} mm, SZ = {sz:.3f} mm   (plate x = {u:.2f}, y = {v:.2f} mm)"
+        hits = []
+        for s in layout.samples:
+            u0, v0, u1, v1 = s.bounds()
+            if u0 <= u <= u1 and v0 <= v <= v1:
+                hits.append(s.name)
+        if hits:
+            text += "   on " + ", ".join(hits)
+        return text
+
+    def _show_cursor(self, point) -> None:
+        self.cursor_label.setText("cursor: ST = –, SZ = –" if point is None else self.cursor_text(*point))
 
     def describe_focal_plane(self) -> str:
         """Which surface height is on the analyzer focal plane (the camera "SN = 0" line) now.
