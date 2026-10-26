@@ -23,7 +23,7 @@ from ..stage import (
 Qt = QtCore.Qt
 
 MOTOR_SPECS = {  # name: (label, min, max, decimals, step, suffix); min / max: default limits (Configuration window)
-    "st": ("ST", -6, 6, 4, 0.1, " mm"),
+    "st": ("ST", -9, 9, 4, 0.1, " mm"),
     # SN: below the focal plane (SN_f ≈ 0) the real limit is a collision (OSA / capillary, analyzer 30 mm away),
     # computed for the current positions by the anti-collision check
     "sn": ("SN", -30, 65, 4, 0.1, " mm"),
@@ -120,7 +120,7 @@ def align_labels(*parts) -> None:
 
 
 def out_of_range(m: MotorPositions) -> list[str]:
-    """Motors of m outside their range, e.g. ["ST = 7.2000 (range −6 … 6)"]."""
+    """Motors of m outside their range, e.g. ["ST = 9.2000 (range −9 … 9)"]."""
     out = []
     for name, (label, lo, hi, dec, *_) in MOTOR_SPECS.items():
         value = getattr(m, name)

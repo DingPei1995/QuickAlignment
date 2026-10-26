@@ -60,7 +60,7 @@ At every start the program asks which **sample plate** is mounted and which **fo
 |---|---|---|
 | x, y | position on the plate (mm), front view with the tab up, origin = centre of the back plate | – |
 | H | sample height above the plate surface (mm) | – |
-| ST | along the analyzer focal plane; ST < 0 moves the sample upper-left (top view) | −6 … 6 mm |
+| ST | along the analyzer focal plane; ST < 0 moves the sample upper-left (top view) | −9 … 9 mm |
 | SN | perpendicular to the analyzer focal plane; SN = 65 is the transfer position | −30 … 65 mm; below SN_f the limit is a collision (see *Anti-collision*) |
 | SZ | vertical | 35 … 45 mm |
 | SRn | azimuth about the sample normal; SRn = 120°: plate vertical, tab up | usable 60 … 180° |
@@ -251,9 +251,9 @@ watch the camera.
 
 **Example.** R7G is on the beam at SRn = 120°, SRz = 0° (ST = −2.4601, SZ = 37.8095, SN = 0, capillary 59.6926);
 wanted: SRn = 92°, SRz = −24°. With SN kept, ST = −6.0561, SZ = 38.9759 and the capillary at 61.7277 put R7G back on
-the beam, but 2035 µm downstream of the analyzer focus (red), and ST is just outside its default range (−6 … 6):
-*Out of range … use the corrected solution*. With *Correct SN*: ST = −4.6171, SZ = 38.9759, SN = −1.4390, the
-capillary unchanged: R7G on the analyzer focus, all in range. *Send to Stage & Optics tab*:
+the beam, but 2035 µm downstream of the analyzer focus (red: the spectra would be distorted). With *Correct SN*:
+ST = −4.6171, SZ = 38.9759, SN = −1.4390, the capillary unchanged: R7G on the analyzer focus. Ticked, *Send to Stage
+& Optics tab*:
 
 ![R7G found again after the rotation](images/guide/rotate_found.png)
 
@@ -262,8 +262,7 @@ SRn = 92° (28° from the start orientation) and the beam spot (×) is on R7G, o
 shows the plate turned by SRz = −24°. *Bring target onto the beam* / *Correct SN* there give the same positions.
 
 **Checked on the beamline**: at SRn = 92°, SRz = −24° with SN kept at 0, R7G was found at ST = −6.0479,
-SZ = 38.9880, capillary 61.74, within 8 µm, 12 µm and 0.01 of the SN-kept prediction above. The stage reached
-ST = −6.05 there: if your ST travel is larger than the default −6 … 6, enter it in *Configuration… → Motor limits*.
+SZ = 38.9880, capillary 61.74, within 8 µm, 12 µm and 0.01 of the SN-kept prediction above.
 
 ## Correct SN: putting the point back on the analyzer focus
 

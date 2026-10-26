@@ -62,7 +62,7 @@ utilisée :
 |---|---|---|
 | x, y | position sur la plaquette (mm), vue de face, languette en haut, origine = centre de la plaquette | – |
 | H | hauteur de l'échantillon au-dessus de la surface de la plaquette (mm) | – |
-| ST | le long du plan focal de l'analyseur ; ST < 0 déplace l'échantillon vers le haut à gauche (vue de dessus) | −6 … 6 mm |
+| ST | le long du plan focal de l'analyseur ; ST < 0 déplace l'échantillon vers le haut à gauche (vue de dessus) | −9 … 9 mm |
 | SN | perpendiculaire au plan focal de l'analyseur ; SN = 65 est la position de transfert | −30 … 65 mm ; sous SN_f la limite est une collision (voir *Anticollision*) |
 | SZ | vertical | 35 … 45 mm |
 | SRn | azimut autour de la normale ; SRn = 120° : plaquette verticale, languette en haut | utilisable 60 … 180° |
@@ -264,9 +264,9 @@ Garder une distance de sécurité et surveiller la caméra.
 
 **Exemple.** R7G est sous le faisceau à SRn = 120°, SRz = 0° (ST = −2.4601, SZ = 37.8095, SN = 0, capillaire
 59.6926) ; voulu : SRn = 92°, SRz = −24°. Avec SN gardé, ST = −6.0561, SZ = 38.9759 et le capillaire à 61.7277
-remettent R7G sous le faisceau, mais à 2035 µm en aval du foyer de l'analyseur (rouge), et ST sort juste de sa course
-par défaut (−6 … 6) : *Out of range … use the corrected solution*. Avec *Correct SN* : ST = −4.6171, SZ = 38.9759,
-SN = −1.4390, capillaire inchangé : R7G au foyer de l'analyseur, tout dans les courses. *Send to Stage & Optics tab* :
+remettent R7G sous le faisceau, mais à 2035 µm en aval du foyer de l'analyseur (rouge : les spectres seraient
+déformés). Avec *Correct SN* : ST = −4.6171, SZ = 38.9759, SN = −1.4390, capillaire inchangé : R7G au foyer de
+l'analyseur. Case cochée, *Send to Stage & Optics tab* :
 
 ![R7G retrouvé après la rotation](images/guide/rotate_found.png)
 
@@ -276,8 +276,7 @@ foyer de l'analyseur (+) ; la vue de dessus montre la plaquette tournée de SRz 
 *Correct SN* y donnent les mêmes positions.
 
 **Vérifié sur la ligne** : à SRn = 92°, SRz = −24° avec SN gardé à 0, R7G a été trouvé à ST = −6.0479,
-SZ = 38.9880, capillaire 61.74, à 8 µm, 12 µm et 0.01 de la prédiction avec SN gardé ci-dessus. La platine atteignait
-alors ST = −6.05 : si votre course ST dépasse le −6 … 6 par défaut, l'entrer dans *Configuration… → Motor limits*.
+SZ = 38.9880, capillaire 61.74, à 8 µm, 12 µm et 0.01 de la prédiction avec SN gardé ci-dessus.
 
 ## Correct SN : remettre le point au foyer de l'analyseur
 

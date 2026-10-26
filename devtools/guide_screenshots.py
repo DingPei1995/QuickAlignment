@@ -116,6 +116,11 @@ def grab_question(app, name: str):
     return question
 
 
+def refuse_warning(parent, title, text, *args, **kwargs):
+    """A warning box would wait for a click: stop instead (the example must stay reachable)."""
+    raise RuntimeError(f"{title}: {text}")
+
+
 def quickalignment_shots(app, store: CalibrationStore) -> None:
     """One example all along: the gating plate of the tests (RG_GMC, device R7G; capillary), samples from the
     photo, start positions, R7G found, then turned to SRn 92 / SRz -24 as on the beamtime (2026-10-24)."""
@@ -124,6 +129,7 @@ def quickalignment_shots(app, store: CalibrationStore) -> None:
     from quickalignment.ui.photo_dialog import NAME, PhotoImportDialog
     from quickalignment.ui.plate_choice import PlateChoiceDialog
 
+    QtWidgets.QMessageBox.warning = staticmethod(refuse_warning)
     dlg = PlateChoiceDialog("gating", optic="capillary")
     dlg.show()
     save(dlg, "setup_dialog", app)
@@ -224,27 +230,19 @@ def quickalignment_shots(app, store: CalibrationStore) -> None:
     rp.correct_sn.setChecked(True)
     save(win, "rotate_tab", app)
 
-    # with SN kept, ST = -6.056 is outside the default ST range (the beamtime found R7G at ST -6.048 with SN kept:
-    # the real travel is larger); the corrected solution is sent: R7G on the beam and the analyzer focus again
+    # the SN-kept solution (2.0 mm from the analyzer focus) and the corrected one sent to the Stage tab: R7G on
+    # the beam again (the beamtime found it at ST -6.048, SZ 38.988 with SN kept); the corrected one is shown
     win.resize(1450, 1000)
+    rp.correct_sn.setChecked(False)
+    rp.send_to_stage()
+    kept = top_view(st)
+    rp.correct_sn.setChecked(True)
     rp.send_to_stage()
     st.target_combo.setCurrentText(target)
     st.bring_target_to_focus()
     win.tabs.setCurrentWidget(st)
     save(win, "rotate_found", app)
-    corrected = top_view(st)
-    # top view with SN kept, ST limit widened for it only (Configuration window, Motor limits)
-    from quickalignment.ui.stage_panel import DEFAULT_LIMITS, set_motor_limits
-
-    set_motor_limits({**DEFAULT_LIMITS, "st": (-7.0, 6.0)})
-    st.motors.apply_limits()
-    st.motors.set_value(rp.result.new)
-    st.optic_pos.setValue(rp.result.optic_new)
-    st.update_view()
-    kept = top_view(st)
-    set_motor_limits(DEFAULT_LIMITS)
-    st.motors.apply_limits()
-    correct_sn_figure(kept, corrected)
+    correct_sn_figure(kept, top_view(st))
 
     # BZ window: graphene K, map at SRn 120 / SRz 0, 95 eV
     QtWidgets.QMessageBox.information = staticmethod(lambda *a, **k: None)

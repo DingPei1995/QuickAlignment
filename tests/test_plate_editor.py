@@ -576,8 +576,8 @@ def test_motor_ranges(window, monkeypatch):
     from quickalignment.ui.stage_panel import out_of_range
 
     assert out_of_range(MotorPositions()) == []
-    assert out_of_range(MotorPositions(st=7, sn=-31, sz=34)) == [
-        "ST = 7.0000 (range -6 … 6)", "SN = -31.0000 (range -30 … 65)", "SZ = 34.0000 (range 35 … 45)"]
+    assert out_of_range(MotorPositions(st=10, sn=-31, sz=34)) == [
+        "ST = 10.0000 (range -9 … 9)", "SN = -31.0000 (range -30 … 65)", "SZ = 34.0000 (range 35 … 45)"]
 
     # y = 6 needs SZ = SZ0 - 6 = 34 at SRn = 120: refused, positions unchanged
     ed, st = window.editor, window.stage
@@ -661,7 +661,7 @@ def test_working_distances_can_be_entered(window):
     osa = st.record.collision_geometry().optics[0]
     assert osa.distance == 20.0 and not osa.moves
     st.optic_type.setCurrentText("capillary")  # another optic: its own (default) solids
-    assert [b.distance for b in st.record.collision_geometry().optics] == [10.0, 10.7, 14.2, 21.1]
+    assert [b.distance for b in st.record.collision_geometry().optics] == pytest.approx([7.2, 7.9, 11.4, 18.3])
     assert st.distance_form.rowCount() == 1  # the capillary is one assembly: one working distance
     st.distance_boxes[0].setValue(15.0)  # moves all its parts
     assert [b.distance for b in st.record.collision_geometry().optics] == pytest.approx([15.0, 15.7, 19.2, 26.1])

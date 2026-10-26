@@ -135,7 +135,7 @@ SRn = 120°（托竖直、tab 朝上）为机械参考；标定时 PIX = PIY = 1
 
 ### 防碰撞实体模型
 
-分析器前端、zone plate 与 OSA、capillary 用简单实体表示（见 README 的 *Anti-collision*）。zone plate / OSA 的尺寸是 **占位值**，capillary 的工作距离是估计值：请测量（各前端到焦点的距离、宽度、厚度；OSA 还需对应的 OSA_S 位置），写入配置文件的 `"collision"` 项（修改副本后另存为新文件）。InitialCalibration 会沿用同一元件上一份配置中的实体模型。
+分析器前端、zone plate 与 OSA、capillary 用简单实体表示（见 README 的 *Anti-collision*）。zone plate / OSA 的尺寸是 **占位值**（capillary 的工作距离 7.2 mm 为线站给出的值）：请测量（各前端到焦点的距离、宽度、厚度；OSA 还需对应的 OSA_S 位置），写入配置文件的 `"collision"` 项（修改副本后另存为新文件）。InitialCalibration 会沿用同一元件上一份配置中的实体模型。
 
 ## 程序维护
 
