@@ -102,32 +102,25 @@ def quickalignment_shots(app, store: CalibrationStore) -> None:
     photo.reg._show_cursor(1.51, 2.82)
     save(photo, "photo_dialog", app)
 
-    # tab 2, devices from a second photo. Stand-in for a closer photo: a crop of the same photo around the
-    # substrate, turned by 90°, so the matched points (paint dots, centre hole) are surely the same; device R7G
-    # clicked where the capillary configuration fit puts it
-    from quickalignment.photo import apply_homography
-
+    # tab 2, devices from a second photo: the microscope photo of the substrate centre. Matched points: the
+    # silver paint dot above the centre and the centre circle (black blob and round purple pad under the
+    # microscope); device R7G clicked on the flake of the channel between them
     panel = photo.devices_panel
     photo.tabs.setCurrentIndex(1)
     panel.select_substrate("S1")
-    corners = apply_homography(photo.reg.h, [(-1.75, -0.95), (5.5, -0.95), (5.5, 6.8), (-1.75, 6.8)])
-    x0, y0 = (int(c) for c in corners.min(axis=0))
-    x1, y1 = (int(c) + 1 for c in corners.max(axis=0))
-    crop = photo.reg.photo[y0:y1, x0:x1]
-    panel.set_photo(np.ascontiguousarray(np.rot90(crop, k=-1)))  # clockwise: (x, y) -> (height - y, x)
-    panel.file_label.setText("close-up (stand-in)")
-    plate_pts = [(1.85, 2.52), (1.54, 3.81), (2.82, 1.38), (0.75, 1.45)]
-    xy = apply_homography(photo.reg.h, plate_pts) - (x0, y0)
-    panel.set_pairs(plate_pts, [(crop.shape[0] - y, x) for x, y in xy])
+    device_photo = HERE / "tests" / "data" / "gating_device_photo.jpg"
+    panel.load_photo(str(device_photo))
+    panel.file_label.setText(device_photo.name)
+    panel.set_pairs([(1.51, 3.66), (1.73, 2.49)], [(235.5, 103.9), (279.1, 328.1)])
     panel.device_radio.setChecked(True)
-    (x, y), = apply_homography(photo.reg.h, [(1.51, 2.82)]) - (x0, y0)
-    panel._on_right_click(crop.shape[0] - y, x)
+    panel._on_right_click(275.0, 213.0)
     panel.devices[0].name = "R7G"
     panel._fill_table()
     photo._on_devices_changed()
     settle(app)
     panel.right_view.fit()
-    panel._show_cursor(1.51, 2.82)
+    r7g = panel.devices[0]
+    panel._show_cursor(r7g.u, r7g.v)
     save(photo, "photo_devices", app)
     photo.close()
 

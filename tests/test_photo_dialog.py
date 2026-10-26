@@ -18,7 +18,7 @@ Qt = QtCore.Qt
 
 # photo of a gating plate with the RG_GMC substrate (cropped, downscaled), and its sample area corners
 REAL_PHOTO = Path(__file__).parent / "data" / "gating_plate_photo.jpg"
-REAL_CORNERS = [(200.0, 217.5), (537.5, 297.5), (465.0, 620.0), (127.5, 542.5)]
+REAL_CORNERS = [(207.5, 212.0), (543.5, 298.0), (466.5, 624.0), (128.0, 542.0)]
 
 
 @pytest.fixture
@@ -91,7 +91,7 @@ def test_real_photo_by_sample_colour(app):
     assert dlg.pick_sample_color(3.65, 6.15)
     assert dlg.mode.currentIndex() == 1
     big = max(dlg.detections, key=lambda d: d.area)
-    assert (big.u0, big.v0, big.u1, big.v1) == pytest.approx((-1.75, -0.95, 5.5, 6.8), abs=0.25)
+    assert (big.u0, big.v0, big.u1, big.v1) == pytest.approx((-1.85, -0.95, 5.5, 6.75), abs=0.25)
     # the device found on the beam (fit of the capillary configuration) is on it
     assert big.u0 < 1.51 < big.u1 and big.v0 < 2.82 < big.v1
 
