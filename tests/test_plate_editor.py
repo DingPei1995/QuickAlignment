@@ -802,3 +802,11 @@ def test_motor_limits_set_in_the_configuration_window(window, tmp_path):
         assert sp.current_limits() == sp.DEFAULT_LIMITS
     finally:
         sp.set_motor_limits(sp.DEFAULT_LIMITS)
+
+
+def test_rounded_zero_is_shown_without_sign():
+    from quickalignment.ui.stage_panel import unsigned_zero
+
+    assert f"{unsigned_zero(-1e-16, 3):.3f}" == "0.000"
+    assert f"{unsigned_zero(-4e-5, 4):+.4f}" == "+0.0000"
+    assert f"{unsigned_zero(-0.2024, 3):.3f}" == "-0.202"

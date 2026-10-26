@@ -1,9 +1,11 @@
 """Take the screenshots of the user and staff guides (``docs/images/guide/``).
 
-Drives QuickAlignment and InitialCalibration off-screen with an example
-plate (standard plate, three samples, one substrate with two devices) and the
-newest capillary configuration of ``configs/``; InitialCalibration works on a
-temporary copy of the configurations, so nothing is written to ``configs/``.
+Drives QuickAlignment and InitialCalibration off-screen. The user guide follows
+one real example: the gating plate photo of the tests (substrate RG_GMC, device
+R7G on the microscope photo), found, then turned to SRn 92 / SRz -24 as on the
+beamtime, with the newest capillary configuration of ``configs/``;
+InitialCalibration works on a temporary copy of the configurations, so nothing
+is written to ``configs/``.
 
 Nothing here is part of the program; run it by hand after a change of the
 interface, then rebuild the PDFs (``devtools/build_guides.py``).
@@ -17,6 +19,7 @@ import os
 import shutil
 import sys
 import tempfile
+from io import BytesIO
 from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -24,14 +27,15 @@ HERE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(HERE))
 
 import numpy as np  # noqa: E402
+from matplotlib.transforms import Bbox  # noqa: E402
 
 from quickalignment.calibration import CalibrationStore  # noqa: E402
-from quickalignment.geometry import STANDARD_PLATE, Device, Sample, SampleLayout  # noqa: E402
+from quickalignment.geometry import STANDARD_PLATE, SampleLayout  # noqa: E402
 from quickalignment.rotation import AnalyzerGeometry, analyzer_angles, plate_to_lab_dir  # noqa: E402
 from quickalignment.session import Session  # noqa: E402
 from quickalignment.stage import MotorPositions, StageModel  # noqa: E402
 from quickalignment import bz_target as bt  # noqa: E402
-from quickalignment.ui._qt import QtCore, QtWidgets  # noqa: E402
+from quickalignment.ui._qt import QtCore, QtGui, QtWidgets  # noqa: E402
 
 OUT = HERE / "docs" / "images" / "guide"
 Qt = QtCore.Qt
@@ -48,16 +52,6 @@ def save(widget, name: str, app) -> None:
     print("wrote", name)
 
 
-def example_layout() -> SampleLayout:
-    chip = Sample("Chip", u=-1.5, v=1.5, length=4.0, width=4.0, height=0.525,
-                  devices=[Device("D1", "left", 2.6, "top", 1.0), Device("D2", "right", 1.1, "bottom", 0.9)])
-    return SampleLayout(plate=STANDARD_PLATE, samples=[
-        Sample("WSe2", u=3.0, v=3.2, length=2.0, width=1.6, height=0.3),
-        chip,
-        Sample("Au ref", u=3.2, v=-2.6, length=1.5, width=1.5, height=0.2),
-    ])
-
-
 def hide_tmp_folder(win) -> None:
     """The screenshots run on a temporary copy of configs/: show the real folder name."""
     for label in win.findChildren(QtWidgets.QLabel):
@@ -65,27 +59,83 @@ def hide_tmp_folder(win) -> None:
             label.setText(label.text().replace(str(win.store.folder), "QuickAlignment/configs"))
 
 
+def top_view(stage, half: float = 6.0) -> QtGui.QImage:
+    """The top view of the Stage tab schematic (left axes of its figure), zoomed on the analyzer focus (origin of
+    the view, +/- `half` mm), with the analyzer focus and the beam spot named."""
+    ax = stage.figure.axes[0]
+    ax.set_xlim(-half, half)
+    ax.set_ylim(-half * 0.75, half * 1.25)
+    hit = stage.last_result.hit
+    ax.annotate("analyzer focus", (0, 0), (-1.0, -2.2), color="#1f77b4", fontsize=9, ha="right",
+                arrowprops=dict(arrowstyle="-", color="#1f77b4", lw=0.8))
+    ax.annotate("beam spot on R7G", (hit[0], hit[1]), (2.0, hit[1] + 2.5), color="#d62728", fontsize=9,
+                arrowprops=dict(arrowstyle="-", color="#d62728", lw=0.8))
+    for text in ax.texts:
+        text.set_clip_on(True)
+    fig = stage.figure
+    fig.canvas.draw()
+    box = Bbox.union([ax.bbox, ax.title.get_window_extent(fig.canvas.get_renderer())])
+    buf = BytesIO()
+    fig.savefig(buf, format="png", dpi=2.2 * fig.dpi, bbox_inches=box.transformed(fig.dpi_scale_trans.inverted()),
+                pad_inches=0.05)
+    img = QtGui.QImage.fromData(buf.getvalue())
+    stage.update_view()  # back to the normal view
+    return img
+
+
+def correct_sn_figure(kept: QtGui.QImage, corrected: QtGui.QImage) -> None:
+    """Side by side: the top view with SN kept and with SN corrected, after the same rotation."""
+    gap, head = 50, 70
+    w, h = kept.width() + corrected.width() + gap, max(kept.height(), corrected.height()) + head
+    out = QtGui.QImage(w, h, QtGui.QImage.Format_RGB32)
+    out.fill(QtGui.QColor("white"))
+    p = QtGui.QPainter(out)
+    font = p.font()
+    font.setPixelSize(36)
+    font.setBold(True)
+    p.setFont(font)
+    for x, img, text, colour in ((0, kept, "SN kept: 2.0 mm from the analyzer focus", "#b00000"),
+                                 (kept.width() + gap, corrected, "Correct SN: on the analyzer focus", "#207020")):
+        p.setPen(QtGui.QColor(colour))
+        p.drawText(QtCore.QRectF(x, 0, img.width(), head), Qt.AlignCenter, text)
+        p.drawImage(x, head, img)
+    p.end()
+    out.save(str(OUT / "correct_sn.png"))
+    print("wrote correct_sn")
+
+
+def grab_question(app, name: str):
+    """QMessageBox.question replacement: shows the question, saves its screenshot as `name` and answers Yes."""
+    def question(parent, title, text, buttons=None, default=None):
+        box = QtWidgets.QMessageBox(QtWidgets.QMessageBox.Question, title, text,
+                                    QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No, parent)
+        box.show()
+        save(box, name, app)
+        box.close()
+        return QtWidgets.QMessageBox.Yes
+    return question
+
+
 def quickalignment_shots(app, store: CalibrationStore) -> None:
+    """One example all along: the gating plate of the tests (RG_GMC, device R7G; capillary), samples from the
+    photo, start positions, R7G found, then turned to SRn 92 / SRz -24 as on the beamtime (2026-10-24)."""
     from quickalignment.app import MainWindow
+    from quickalignment.geometry import GATING_PLATE
+    from quickalignment.ui.photo_dialog import NAME, PhotoImportDialog
     from quickalignment.ui.plate_choice import PlateChoiceDialog
 
-    dlg = PlateChoiceDialog("standard", optic="capillary")
+    dlg = PlateChoiceDialog("gating", optic="capillary")
     dlg.show()
     save(dlg, "setup_dialog", app)
     dlg.close()
 
-    win = MainWindow(Session(example_layout()), store=store, optic="capillary")
+    win = MainWindow(Session(SampleLayout(plate=GATING_PLATE, samples=[])), store=store, optic="capillary")
     win.resize(1450, 860)
     win.show()
     editor = win.editor
-    editor._select_rows(editor.dev_table, [0])
-    editor._on_dev_table_selection()
-    save(win, "samples_tab", app)
 
-    # samples from a photo: the gating plate photo of the tests, colour picked on the substrate
-    from quickalignment.geometry import GATING_PLATE
-    from quickalignment.ui.photo_dialog import PhotoImportDialog
-
+    # samples from a photo: the gating plate photo of the tests, colour picked on the substrate; the pieces of
+    # the small chip (broken up by the silver paint) merged by hand
     sys.path.insert(0, str(HERE / "tests"))
     from test_photo_dialog import REAL_CORNERS, REAL_PHOTO
 
@@ -96,10 +146,17 @@ def quickalignment_shots(app, store: CalibrationStore) -> None:
     photo.file_label.setText(REAL_PHOTO.name)
     photo.set_corners(REAL_CORNERS)
     photo.pick_sample_color(3.65, 6.15)
+    photo.table.item(0, NAME).setText("RG_GMC")
+    photo.table.clearSelection()
+    for row in range(1, photo.table.rowCount()):
+        photo.table.selectionModel().select(photo.table.model().index(row, 0),
+                                            QtCore.QItemSelectionModel.Select | QtCore.QItemSelectionModel.Rows)
+    photo.merge_selected()
+    photo.table.clearSelection()
     settle(app)
     photo.reg.photo_view.fit()
     photo.reg.plate_view.fit()
-    photo.reg._show_cursor(1.51, 2.82)
+    photo.reg._show_cursor(1.71, 3.09)
     save(photo, "photo_dialog", app)
 
     # tab 2, devices from a second photo: the microscope photo of the substrate centre. Matched points: the
@@ -107,7 +164,7 @@ def quickalignment_shots(app, store: CalibrationStore) -> None:
     # microscope); device R7G clicked on the flake of the channel between them
     panel = photo.devices_panel
     photo.tabs.setCurrentIndex(1)
-    panel.select_substrate("S1")
+    panel.select_substrate("RG_GMC")
     device_photo = HERE / "tests" / "data" / "gating_device_photo.jpg"
     panel.load_photo(str(device_photo))
     panel.file_label.setText(device_photo.name)
@@ -122,30 +179,72 @@ def quickalignment_shots(app, store: CalibrationStore) -> None:
     r7g = panel.devices[0]
     panel._show_cursor(r7g.u, r7g.v)
     save(photo, "photo_devices", app)
+    editor.import_samples(photo.samples())
     photo.close()
 
-    # samples placed -> start positions in the Stage & Optics tab
+    editor._select_rows(editor.dev_table, [0])
+    editor._on_dev_table_selection()
+    save(win, "samples_tab", app)
+
+    # samples placed -> start positions in the Stage & Optics tab; R7G brought onto the beam at SRn 120, SRz 0
     win.resize(1450, 1000)
     win.go_to_stage()
     st = win.stage
-    st.target_combo.setCurrentText("Chip/D1")
+    target = "RG_GMC/R7G"
+    st.target_combo.setCurrentText(target)
+    st.found_combo.setCurrentText(target)
+    st.motors.set_value(MotorPositions(st=0.0, sn=0.0, sz=40.0, srn=120, srz=0))
+    st.bring_target_on_beam()
     m = st.motors.value()
-    st.motors.set_value(MotorPositions(st=m.st, sn=m.sn, sz=m.sz, srn=120, srz=0))
-    st.bring_target_to_focus()
-    st.optic_pos.setValue(st.last_result.required_optic_position + 0.35)
+    st.optic_pos.setValue(round(st.last_result.required_optic_position + 0.35, 2))
     st.update_view()
     save(win, "stage_tab", app)
 
-    # Rotate sample tab
+    # R7G found a little off the listed position (the photo is good to 0.1-0.3 mm): Found here. The found
+    # position is where the beamtime configuration puts R7G (the device position it was fitted with)
+    W = GATING_PLATE.total_thickness + 0.525
+    f_st, f_sz, f_sn = st.model().reference_motors(1.51, 2.82, W)
+    st.motors.set_value(MotorPositions(st=round(f_st, 4), sn=round(f_sn, 4), sz=round(f_sz, 4), srn=120, srz=0))
+    st.update_view()
+    st.use_required_optic()
+    question = QtWidgets.QMessageBox.question
+    QtWidgets.QMessageBox.question = grab_question(app, "found_here")
+    st.correct_from_found()
+    QtWidgets.QMessageBox.question = question
+    st.update_view()
+
+    # Rotate sample tab: to SRn 92, SRz -24 (the second rotation of the beamtime)
     win.resize(1450, 860)
     win.tabs.setCurrentWidget(win.rotation)
     rp = win.rotation
     rp.copy_from_stage()
-    rp.new_srn.setValue(140.0)
-    rp.new_srz.setValue(-12.0)
+    rp.new_srn.setValue(92.0)
+    rp.new_srz.setValue(-24.0)
     rp.compute()
     rp.correct_sn.setChecked(True)
     save(win, "rotate_tab", app)
+
+    # with SN kept, ST = -6.056 is outside the default ST range (the beamtime found R7G at ST -6.048 with SN kept:
+    # the real travel is larger); the corrected solution is sent: R7G on the beam and the analyzer focus again
+    win.resize(1450, 1000)
+    rp.send_to_stage()
+    st.target_combo.setCurrentText(target)
+    st.bring_target_to_focus()
+    win.tabs.setCurrentWidget(st)
+    save(win, "rotate_found", app)
+    corrected = top_view(st)
+    # top view with SN kept, ST limit widened for it only (Configuration window, Motor limits)
+    from quickalignment.ui.stage_panel import DEFAULT_LIMITS, set_motor_limits
+
+    set_motor_limits({**DEFAULT_LIMITS, "st": (-7.0, 6.0)})
+    st.motors.apply_limits()
+    st.motors.set_value(rp.result.new)
+    st.optic_pos.setValue(rp.result.optic_new)
+    st.update_view()
+    kept = top_view(st)
+    set_motor_limits(DEFAULT_LIMITS)
+    st.motors.apply_limits()
+    correct_sn_figure(kept, corrected)
 
     # BZ window: graphene K, map at SRn 120 / SRz 0, 95 eV
     QtWidgets.QMessageBox.information = staticmethod(lambda *a, **k: None)
