@@ -110,13 +110,13 @@ def quickalignment_shots(app, store: CalibrationStore) -> None:
     panel = photo.devices_panel
     photo.tabs.setCurrentIndex(1)
     panel.select_substrate("S1")
-    corners = apply_homography(photo.reg.h, [(-2.3, -0.55), (5.05, -0.55), (5.05, 7.15), (-2.3, 7.15)])
+    corners = apply_homography(photo.reg.h, [(-1.75, -0.95), (5.5, -0.95), (5.5, 6.8), (-1.75, 6.8)])
     x0, y0 = (int(c) for c in corners.min(axis=0))
     x1, y1 = (int(c) + 1 for c in corners.max(axis=0))
     crop = photo.reg.photo[y0:y1, x0:x1]
     panel.set_photo(np.ascontiguousarray(np.rot90(crop, k=-1)))  # clockwise: (x, y) -> (height - y, x)
     panel.file_label.setText("close-up (stand-in)")
-    plate_pts = [(0.95, 3.2), (0.5, 4.45), (2.0, 2.05), (0.1, 2.1)]
+    plate_pts = [(1.85, 2.52), (1.54, 3.81), (2.82, 1.38), (0.75, 1.45)]
     xy = apply_homography(photo.reg.h, plate_pts) - (x0, y0)
     panel.set_pairs(plate_pts, [(crop.shape[0] - y, x) for x, y in xy])
     panel.device_radio.setChecked(True)
