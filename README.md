@@ -126,7 +126,7 @@ care of it.
 The sign conventions between the stage and the ARPES viewer contour (`AnalyzerGeometry`) are to be checked on the
 first real use: after turning, the point should appear where the preview shows it.
 
-Motor travel ranges (`MOTOR_SPECS` in `quickalignment/ui/stage_panel.py`): ST −6 … 6, SN −30 … 65, SZ 35 … 45 mm.
+Motor travel ranges (`MOTOR_SPECS` in `quickalignment/ui/stage_panel.py`): ST −9 … 9, SN −30 … 65, SZ 35 … 45 mm.
 The motor fields do not accept values outside them; *Bring target onto the beam*, *Correct SN* and the Rotate tab warn when a
 position would be out of range (e.g. at SRn = 120 a point more than 5 mm above or below the plate centre needs
 SZ outside 35 … 45). SN = SN_f (≈ 0) puts the plate surface in the analyzer focal plane; below it the real limit is a
@@ -151,10 +151,10 @@ is checked against simple solids:
   (lengths estimated). The zone plate moves with its motor (ZP_ZS); the **OSA is not moved when the
   zone plate refocuses** (OSA_S stays at ≈ 80.00 in the WWS2 / S2 metadata while ZP_ZS changes): it is placed
   before the focus at the configuration's optics reference (≈ the analyzer focus);
-- **capillary** (Sigray): working distance 10 mm. Shape from the design top and side views, sizes from the chamber
-  top view (scale from the plate, ±10 %), from the focus: a round nose 3.7 mm wide (front at 10 mm, 0.7 mm long),
-  the head chamfered on both sides from 5.4 mm wide at 10.7 mm to 10 mm at 14.2 mm, the body (10 mm wide, 8 mm tall)
-  to 21.1 mm and a ring 6.8 mm wide. The post and base plate about 20 mm below the beam are not modelled. The
+- **capillary** (Sigray): working distance 7.2 mm. Shape from the design top and side views, sizes from the chamber
+  top view (scale from the plate, ±10 %), from the focus: a round nose 3.7 mm wide (front at 7.2 mm, 0.7 mm long),
+  the head chamfered on both sides from 5.4 mm wide at 7.9 mm to 10 mm at 11.4 mm, the body (10 mm wide, 8 mm tall)
+  to 18.3 mm and a ring 6.8 mm wide. The post and base plate about 20 mm below the beam are not modelled. The
   capillary is one assembly (`group`): one working distance, its front, and all its parts move together.
 
 The optic solids must also stay out of the **analyzer acceptance cone** (±15° about the analyzer axis, i.e. within 30°

@@ -172,8 +172,8 @@ référence optique, les séries, les points de test et leurs résidus, pour mé
 ### Solides de l'anticollision
 
 Le nez de l'analyseur, la zone plate et l'OSA et le capillaire sont modélisés par des solides simples (README,
-*Anti-collision*). Les dimensions zone plate / OSA sont **provisoires** et la distance de travail du capillaire une
-estimation : les mesurer (distance de chaque face avant au foyer, largeur, épaisseur ; pour l'OSA, la position OSA_S
+*Anti-collision*). Les dimensions zone plate / OSA sont **provisoires** (la distance de travail du capillaire, 7,2 mm, est
+la valeur de la ligne) : les mesurer (distance de chaque face avant au foyer, largeur, épaisseur ; pour l'OSA, la position OSA_S
 correspondante) et les mettre dans la configuration sous `"collision"` (modifier une copie, puis l'enregistrer comme
 nouveau fichier). InitialCalibration reprend les solides de la configuration précédente de la même optique.
 

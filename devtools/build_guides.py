@@ -72,6 +72,7 @@ th, td { border: 1px solid #cdd6e3; padding: 1.2mm 2mm; vertical-align: top; tex
 th { background: #e8eef7; }
 tr { break-inside: avoid; }
 img.small { max-width: 62%; }
+img.tiny { max-width: 38%; }
 h2#contents + ol, h2#目录 + ol, h2#sommaire + ol { columns: 2; column-gap: 8mm; }
 """
 
@@ -93,7 +94,9 @@ def _small_images(body: str) -> str:
             width = _png_width(DOCS / src)
         except (OSError, struct.error):
             return tag
-        return tag.replace("<img ", '<img class="small" ', 1) if width < 1100 else tag
+        if width >= 1100:
+            return tag
+        return tag.replace("<img ", f'<img class="{"tiny" if width < 600 else "small"}" ', 1)
     return re.sub(r'<img [^>]*src="(images/[^"]+)"[^>]*>', mark, body)
 
 

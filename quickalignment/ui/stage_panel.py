@@ -23,7 +23,7 @@ from ..stage import (
 Qt = QtCore.Qt
 
 MOTOR_SPECS = {  # name: (label, min, max, decimals, step, suffix); min / max: default limits (Configuration window)
-    "st": ("ST", -6, 6, 4, 0.1, " mm"),
+    "st": ("ST", -9, 9, 4, 0.1, " mm"),
     # SN: below the focal plane (SN_f ≈ 0) the real limit is a collision (OSA / capillary, analyzer 30 mm away),
     # computed for the current positions by the anti-collision check
     "sn": ("SN", -30, 65, 4, 0.1, " mm"),
@@ -71,6 +71,11 @@ def set_motor_limits(limits: dict[str, tuple[float, float]]) -> None:
         TRAVEL[name] = MOTOR_SPECS[name][1:3]
 
 
+def unsigned_zero(x: float, decimals: int) -> float:
+    """x rounded to `decimals`, a value that rounds to zero without its sign (shown 0.000, not -0.000)."""
+    return round(x, decimals) + 0.0
+
+
 def set_range(box: QtWidgets.QDoubleSpinBox, name: str) -> None:
     box.setRange(*MOTOR_SPECS[name][1:3])
 
@@ -115,7 +120,7 @@ def align_labels(*parts) -> None:
 
 
 def out_of_range(m: MotorPositions) -> list[str]:
-    """Motors of m outside their range, e.g. ["ST = 7.2000 (range −6 … 6)"]."""
+    """Motors of m outside their range, e.g. ["ST = 9.2000 (range −9 … 9)"]."""
     out = []
     for name, (label, lo, hi, dec, *_) in MOTOR_SPECS.items():
         value = getattr(m, name)
@@ -417,7 +422,7 @@ class StagePanel(QtWidgets.QWidget):
         c = model.config
         rows = []
         for label in ["plate centre", *self.target_labels()]:
-            st, sz, sn = model.reference_motors(*self.target_point(label))
+            st, sz, sn = (unsigned_zero(x, 3) for x in model.reference_motors(*self.target_point(label)))
             rows.append(f"<tr><td>{label}</td><td align=right>{st:.3f}</td><td align=right>{sz:.3f}</td>"
                         f"<td align=right>{sn:.3f}</td></tr>")
         self.start_label.setText(
@@ -440,6 +445,7 @@ class StagePanel(QtWidgets.QWidget):
             return None
         m = self.motors.value()
         du, dv, dw = found_offset(self.model(), m, *t)
+        su, sv, sw = (unsigned_zero(x, 3) for x in (du, dv, dw))
         large = ""
         if max(abs(du), abs(dv), abs(dw)) > LARGE_FOUND_OFFSET:
             large = (f"\n\nThis is more than {LARGE_FOUND_OFFSET:g} mm. If other samples show the same shift, the "
@@ -448,7 +454,7 @@ class StagePanel(QtWidgets.QWidget):
             self, "Correct the sample position?",
             f"{label} is on the beam, in the analyzer focus, at ST = {m.st:.4f}, SZ = {m.sz:.4f}, SN = {m.sn:.4f} "
             f"(SRn = {m.srn:g}°, SRz = {m.srz:g}°)?\n\n"
-            f"Then it is at Δx = {du:+.3f}, Δy = {dv:+.3f} mm on the plate and ΔH = {dw:+.3f} mm from where it was "
+            f"Then it is at Δx = {su:+.3f}, Δy = {sv:+.3f} mm on the plate and ΔH = {sw:+.3f} mm from where it was "
             f"drawn. {sample.name} (with its devices) is moved there; the other samples stay." + large,
             QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No, QtWidgets.QMessageBox.Yes,
         )
@@ -527,7 +533,7 @@ class StagePanel(QtWidgets.QWidget):
                  if res is not None and res.required_optic_position is not None else "")
         if sn_before is not None:
             text = (f"<b>{label}</b> on the analyzer focus: ST = {m.st:.4f}, SZ = {m.sz:.4f}, "
-                    f"<b>SN = {m.sn:.4f}</b> (ΔSN = {m.sn - sn_before:+.4f} mm).{optic}")
+                    f"<b>SN = {m.sn:.4f}</b> (ΔSN = {unsigned_zero(m.sn - sn_before, 4):+.4f} mm).{optic}")
             self.goto_label.setStyleSheet("color: #207020;")
         else:
             text = f"<b>{label}</b> on the beam with SN = {m.sn:.4f} kept: ST = {m.st:.4f}, SZ = {m.sz:.4f}.{optic}<br>"
