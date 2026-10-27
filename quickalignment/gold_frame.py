@@ -1,18 +1,25 @@
-"""Gold-frame calibration: the stage constants from SPEM intensity maps of the gold reference frame.
+"""Gold-frame calibration: the stage constants from SPEM intensity lines over the gold reference frame.
 
 The reference sample is a square gold frame (2 x 2 mm outside, 1 x 1 mm hole)
 glued on the riser of the standard plate, in principle at its centre. Only the
-total photoemission intensity is used (no angle or energy resolution). Three
-maps are measured, SN kept at the gold focus found at SRn = 120, SRz = 0:
+total photoemission intensity is used (no angle or energy resolution).
 
-1. ``st_sz``: ST x SZ map (SRn = 120, SRz = 0): where the frame is (ST0, SZ0),
-   its in-plane rotation, the ST / SZ scales (and shear);
-2. ``srn_sz``: SZ line through the frame (ST at the frame centre) for each SRn
-   (e.g. 120 +- 60): the SRn axis on the plate;
-3. ``srz_st``: ST line through the hole (SZ at the frame centre) for each SRz
-   (SRn back at 120): the SRz axis offsets (along ST and SN).
-   ``srz_surface``: the same with ST and SN moved together along the turned
-   surface, which keeps the illuminated spot at the analyzer focus.
+SZ is the only fast motor (fly scans), ST, SRn and SRz are slow: every
+measurement is an SZ line, the slow motors only move between lines. Turning
+the frame by 45 deg with SRn makes its edges diagonal (a diamond): where an SZ
+line crosses them moves 1:1 with where the line passes across the frame, so
+the horizontal position (ST0, the SRn axis, the SRz axis) is read on the fast
+axis too. The survey (`survey_plan`):
+
+A. SRn ref, SRz 0, a few ST: SZ0, in-plane rotation;
+B. SRn ref +- 45 (diamond), SRz 0, a few ST: ST0, SRn axis, ST scale;
+C. diamond, SRz turned (e.g. -25 ... +10), two ST each: SRz axis offsets
+   (along ST, depth) and the tilt of the gold face.
+
+An ST x SZ overview map (coarse ST steps) and an SZ x SRn sweep may be added:
+`fit_global` fits every edge of every line of every scan at once (plus, as an
+option, SN focus points measured at other SRz), so no constant is passed from
+one step to the next.
 
 Simulation: the beam (lab y axis, or offset from it) is traced onto the frame
 with the stage kinematics of `StageModel`; the gold top face (height, tilts),
@@ -21,10 +28,10 @@ material; the beam spot grows out of the optic focus, and the analyzer only
 sees what lies near its focus (Gaussian acceptance). Motor scales are applied
 around a reference position (the frame centre).
 
-Fits: gold edges are taken from every line of a map (where the gold top face
-begins and ends, which is where the beam crosses an edge, whatever the
-analyzer sees), then fitted with the same geometry. The analyzer acceptance
-only weights the intensity: it does not move a sharp edge.
+Fits: gold edges are taken from every line (where the gold top face begins and
+ends, which is where the beam crosses an edge, whatever the analyzer sees),
+then fitted with the same geometry. The analyzer acceptance only weights the
+intensity: it does not move a sharp edge.
 """
 
 from __future__ import annotations
@@ -41,12 +48,12 @@ X_HAT = np.array([1.0, 0.0, 0.0])
 Y_HAT = np.array([0.0, 1.0, 0.0])
 FWHM_TO_SIGMA = 1.0 / (2.0 * math.sqrt(2.0 * math.log(2.0)))
 
-# what each map scans: (outer axis = map x, scanned axis = map y)
+# what each scan steps and scans: (outer axis = map x, scanned axis = map y)
 KINDS = {
     "st_sz": ("ST (mm)", "SZ (mm)"),
     "srn_sz": ("SRn (deg)", "SZ (mm)"),
-    "srz_st": ("SRz (deg)", "ST (mm)"),
-    "srz_surface": ("SRz (deg)", "along the surface (mm)"),
+    "sz_lines": ("ST (mm)", "SZ (mm)"),  # SZ lines at given SRn / SRz (the survey), ST stepped
+    "lines": ("line", "scanned (mm)"),
 }
 MOTORS = ("st", "sn", "sz", "srn", "srz", "pix", "piy")
 
@@ -155,33 +162,19 @@ class Scan:
                        intensity=d["intensity"].astype(float))
 
 
-def make_scan(kind: str, x, y, fixed: MotorPositions, surface_st=None, surface_sn=None) -> Scan:
-    """A map of `kind` over x (outer) and y (scanned), the other motors at `fixed`.
-
-    srz_surface: y is the distance along the turned surface from (surface_st[i],
-    surface_sn[i]) (default: fixed.st / fixed.sn); ST and SN move as
-    (cos a, sin a) * y with a = -SRz.
-    """
+def make_scan(kind: str, x, y, fixed: MotorPositions) -> Scan:
+    """A map of `kind` over x (outer, stepped) and y (scanned SZ), the other motors at `fixed`:
+    st_sz and sz_lines step ST, srn_sz steps SRn."""
     x, y = np.asarray(x, float), np.asarray(y, float)
     n = len(x)
     base = {k: np.full(n, float(getattr(fixed, k))) for k in MOTORS}
     slope = {k: np.zeros(n) for k in MOTORS}
-    if kind == "st_sz":
+    if kind in ("st_sz", "sz_lines"):
         base["st"], base["sz"], slope["sz"] = x.copy(), np.zeros(n), np.ones(n)
     elif kind == "srn_sz":
         base["srn"], base["sz"], slope["sz"] = x.copy(), np.zeros(n), np.ones(n)
-    elif kind == "srz_st":
-        base["srz"], base["st"], slope["st"] = x.copy(), np.zeros(n), np.ones(n)
-    elif kind == "srz_surface":
-        a = np.radians(-x)
-        base["srz"] = x.copy()
-        if surface_st is not None:
-            base["st"] = np.asarray(surface_st, float).copy()
-        if surface_sn is not None:
-            base["sn"] = np.asarray(surface_sn, float).copy()
-        slope["st"], slope["sn"] = np.cos(a), np.sin(a)
     else:
-        raise ValueError(f"unknown map kind {kind!r} (one of {', '.join(KINDS)})")
+        raise ValueError(f"unknown map kind {kind!r} (one of st_sz, srn_sz, sz_lines)")
     return Scan(kind, x, y, base, slope)
 
 
@@ -552,32 +545,6 @@ def fit_st_sz(scan: Scan, frame: GoldFrame | None = None, core: float = 0.6) -> 
                      len(found[0]) + len(found[1]))
 
 
-def _edge_residuals(setup_for, measured, scan, use=None):
-    """Residual function for steps 2 / 3: measured minus predicted edges, line by line
-    (lines with use[i] False left out)."""
-    def residual(p):
-        s = setup_for(p)
-        out = []
-        for i, e in enumerate(measured):
-            if e is None or (use is not None and not use[i]):
-                continue
-            pred = s.edges(scan, i)
-            out.append(e - (pred if len(e) == 4 else pred[[0, 3]]))
-        r = np.concatenate(out) if out else np.zeros(0)
-        return np.where(np.isfinite(r), r, 10.0)
-    return residual
-
-
-def _line_rms(setup, measured, scan, use):
-    out = np.full(len(measured), np.nan)
-    for i, e in enumerate(measured):
-        if e is not None and use[i]:
-            pred = setup.edges(scan, i)
-            r = e - (pred if len(e) == 4 else pred[[0, 3]])
-            out[i] = float(np.sqrt(np.mean(np.where(np.isfinite(r), r, 10.0) ** 2)))
-    return out
-
-
 def _grid_start(residual, grids):
     best, best_cost = None, np.inf
     for p in np.array(np.meshgrid(*grids, indexing="ij")).reshape(len(grids), -1).T:
@@ -586,76 +553,6 @@ def _grid_start(residual, grids):
         if cost < best_cost:
             best, best_cost = p, cost
     return best
-
-
-def fit_axis(setup: Setup, scan: Scan, names: tuple, grids: dict, steps: dict, adjust=None) -> FitResult:
-    """Fit config / frame / instrument parameters `names` to the edges of a map (steps 2 and 3).
-
-    A name is a StageConfig field, ``frame.<field>`` or ``instrument.<field>``.
-    The parameters start from the best point of `grids` (values for the names
-    found there; the others start at their value in `setup`). `adjust(setup)`,
-    if given, is applied to every trial setup (parameters tied to the fitted ones).
-    """
-    measured = map_edges(scan)
-    if sum(e is not None for e in measured) < len(names) + 1:
-        raise ValueError(f"{scan.kind}: too few lines with clear gold edges ({sum(e is not None for e in measured)})")
-
-    def setup_for(p):
-        cfg, fr, inst = setup.config, setup.frame, setup.instrument
-        for name, value in zip(names, p):
-            if name.startswith("frame."):
-                fr = replace(fr, **{name[6:]: float(value)})
-            elif name.startswith("instrument."):
-                inst = replace(inst, **{name[11:]: float(value)})
-            else:
-                cfg = replace(cfg, **{name: float(value)})
-        out = replace(setup, config=cfg, frame=fr, instrument=inst)
-        return adjust(out) if adjust else out
-
-    use = np.array([e is not None for e in measured])
-    residual = _edge_residuals(setup_for, measured, scan, use)
-    start = [_get(setup, n) for n in names]
-    grid_names = [n for n in names if n in grids]
-    if grid_names:
-        def partial(q):
-            p = list(start)
-            for n, v in zip(grid_names, q):
-                p[names.index(n)] = v
-            return _robust(residual(np.array(p)))
-        q = _grid_start(partial, [grids[n] for n in grid_names])
-        for n, v in zip(grid_names, q):
-            start[names.index(n)] = v
-    # start with the lines that agree with the start point (a line whose edges were taken wrongly
-    # must not pull the first fit away)
-    rms = _line_rms(setup_for(np.array(start)), measured, scan, use)
-    near = use & (rms < 0.15)
-    if near.sum() >= len(names) + 2:
-        use = near
-        residual = _edge_residuals(setup_for, measured, scan, use)
-    steps_ = [steps.get(n, 1e-4) for n in names]
-    x, r, J = _lm(residual, start, steps_)
-    # lines whose edges were taken wrongly (part of the frame out of the map or not seen by the
-    # analyzer): far off the fit; dropped and fitted again
-    notes = []
-    for _ in range(3):
-        rms = _line_rms(setup_for(x), measured, scan, np.array([e is not None for e in measured]))
-        limit = max(5.0 * float(np.nanmedian(rms[use])), 0.01)
-        new_use = np.isfinite(rms) & (rms <= limit)
-        if np.array_equal(new_use, use):
-            break
-        use = new_use
-        residual = _edge_residuals(setup_for, measured, scan, use)
-        x, r, J = _lm(residual, x, steps_)
-    left = [i for i, e in enumerate(measured) if e is not None and not use[i]]
-    if left:
-        notes.append(f"{len(left)} line(s) left out (edges far off the fit: part of the frame outside the map "
-                     f"or not seen by the analyzer) at {', '.join(f'{scan.x[i]:g}' for i in left)}")
-    missing = [i for i, e in enumerate(measured) if e is None]
-    if missing:
-        notes.append(f"{len(missing)} line(s) without clear gold edges at {', '.join(f'{scan.x[i]:g}' for i in missing)}")
-    sig = _uncertainty(r, J)
-    return FitResult(names, dict(zip(names, map(float, x))), dict(zip(names, map(float, sig))),
-                     float(np.sqrt(np.mean(r ** 2))) if len(r) else float("nan"), len(r), int(use.sum()), notes)
 
 
 def _robust(r):
@@ -671,177 +568,428 @@ def _get(setup: Setup, name: str) -> float:
     return float(getattr(setup.config, name))
 
 
-# -- the whole calibration ----------------------------------------------------------------------------------
+
+
+def _set(setup: Setup, name: str, value: float) -> Setup:
+    if name.startswith("frame."):
+        return replace(setup, frame=replace(setup.frame, **{name[6:]: float(value)}))
+    if name.startswith("instrument."):
+        return replace(setup, instrument=replace(setup.instrument, **{name[11:]: float(value)}))
+    return replace(setup, config=replace(setup.config, **{name: float(value)}))
+
+
+# -- the measurement plan: SZ fly lines ---------------------------------------------------------------------
 @dataclass
-class StepResults:
-    setup: Setup
-    step1: FitResult | None = None
-    step2: FitResult | None = None
-    step3: FitResult | None = None
-    notes: list = field(default_factory=list)
+class PlanLine:
+    """One SZ fly line of the survey: SRn, SRz, ST and SN set before it (slow motors), SZ scanned (fast).
+
+    group: "A" (SRn ref, SRz 0), "B" (frame turned by +-45 deg: a diamond, SRz 0), "C" (diamond, SRz turned).
+    du: where the line passes, across it, from the frame centre (mm on the plate, along the line normal).
+    """
+
+    group: str
+    srn: float
+    srz: float
+    du: float
+    st: float
+    sn: float
+    sz_from: float
+    sz_to: float
+
+    def motors(self, pi_center: float = 150.0) -> MotorPositions:
+        return MotorPositions(st=self.st, sn=self.sn, sz=(self.sz_from + self.sz_to) / 2, srn=self.srn,
+                              srz=self.srz, pix=pi_center, piy=pi_center)
 
 
-def setup_from_step1(fit: FitResult, sn_gold: float, frame: GoldFrame, base: StageConfig | None = None,
-                     instrument: Instrument | None = None, plate: PlateGeometry = STANDARD_PLATE,
-                     beam_x: float = 0.0, beam_z: float = 0.0, sn_map: float | None = None) -> Setup:
-    """Stage constants from the frame centre of step 1: ST0, SZ0 such that the model puts the frame
-    centre (frame.u, frame.v, at its nominal place) on the beam at (st_c, sz_c) with SN = sn_map (the SN
-    of the map, default sn_gold), and SN_f such that the gold top is in the analyzer focus at
-    SN = sn_gold. The ST / SZ scales of step 1 are applied around the frame centre. Axes start from
-    `base` (or zero)."""
-    base = base or StageConfig()
-    v = fit.values
-    inst = replace(instrument or Instrument(), st_scale=v["scale_st"], sz_scale=v["scale_sz"],
-                   scale_st_ref=v["st_c"], scale_sz_ref=v["sz_c"], beam_x=beam_x, beam_z=beam_z)
-    frame = replace(frame, rotation=v["rotation"])
-    sn_f = sn_gold - (plate.total_thickness + frame.height - STANDARD_PLATE.total_thickness)
-    cfg = replace(base, st0=0.0, sz0=0.0, sn_f=float(sn_f))
-    m = MotorPositions(st=v["st_c"], sn=sn_gold if sn_map is None else sn_map, sz=v["sz_c"], srn=cfg.srn_ref, srz=0.0,
-                       pix=cfg.pi_center, piy=cfg.pi_center)
-
-    def hit(st0, sz0):
-        s = Setup(replace(cfg, st0=st0, sz0=sz0), frame, inst, plate)
-        P, D, _, _ = s.beam_in_plate(m)
-        H = P + s._gold_s(P[None, :], D)[0] * D
-        return H[:2]
-
-    h0 = hit(0.0, 0.0)
-    M = np.column_stack([hit(1.0, 0.0) - h0, hit(0.0, 1.0) - h0])
-    st0, sz0 = np.linalg.solve(M, np.array([frame.u, frame.v]) - h0)
-    return Setup(replace(cfg, st0=float(st0), sz0=float(sz0)), frame, inst, plate)
+GROUP_TEXT = {
+    "A": "SRn ref, SRz 0: SZ0, in-plane rotation, SZ scale",
+    "B": "frame turned 45 deg (diamond), SRz 0: ST0, SRn axis, ST scale",
+    "C": "diamond, SRz turned: SRz axis (offset along ST, depth), tilt of the gold face",
+}
 
 
-SRN_GRID = np.arange(-1.5, 1.51, 0.25)
-SRZ_T_GRID = np.arange(-3.0, 3.01, 0.5)
-SRZ_N_GRID = np.arange(-2.0, 8.01, 0.5)
+SURVEY_SRZ = (-25.0, -18.0, -11.0, -4.0, 3.0, 10.0)
 
 
-def fit_step2(setup: Setup, scan: Scan, free_rotation: bool = True) -> FitResult:
-    names = ("srn_axis_u", "srn_axis_v") + (("frame.rotation",) if free_rotation else ())
-    return fit_axis(setup, scan, names, {"srn_axis_u": SRN_GRID, "srn_axis_v": SRN_GRID},
-                    {"frame.rotation": 1e-3})
+def survey_plan(guide: Setup, srn_diag=(165.0, 75.0), srz_angles=SURVEY_SRZ,
+                du_flat=(-0.8, -0.4, 0.0, 0.4, 0.8), du_diag=(-1.0, -0.5, 0.0, 0.5, 1.0), du_srz=(-0.4, 0.0, 0.4),
+                sz_half: float = 2.2) -> list[PlanLine]:
+    """The SZ lines of the survey, placed with the `guide` setup (the newest configuration, frame at its
+    nominal place): ST so that the line passes du from the frame centre, SN so that the frame centre is at
+    the analyzer focus (one SN per SRn / SRz), SZ +-sz_half around the frame centre.
 
-
-def tilt_width_factor(setup: Setup) -> float:
-    """How much wider the frame looks in ST at SRn = ref, SRz = 0 because of its tilt about v
-    (frame width in ST with the tilt / without, motor scale 1)."""
-    m = setup.frame_motors()
-    line = make_scan("srz_st", [0.0], [0.0], m)
-    flat = replace(setup, frame=replace(setup.frame, tilt_u=0.0, tilt_v=0.0),
-                   instrument=replace(setup.instrument, st_scale=1.0))
-    tilted = replace(flat, frame=replace(flat.frame, tilt_u=setup.frame.tilt_u))
-    a, b = tilted.edges(line, 0), flat.edges(line, 0)
-    return float((a[3] - a[0]) / (b[3] - b[0]))
-
-
-def fit_step3(setup: Setup, scan: Scan, free_tilt: bool = False) -> FitResult:
-    """SRz axis offsets (and ST0 again: with ST along the fast axis it is better known here than from
-    the point-by-point ST of step 1, and it must not bias the offsets). free_tilt: also the tilt of the
-    gold face about v, the ST scale following it so that the frame keeps its apparent width of step 1."""
-    names = ("st0", "srz_offset_t", "srz_offset_n") + (("frame.tilt_u",) if free_tilt else ())
-    # step 1 saw the scale st_scale / factor (a frame looking `factor` times as wide)
-    apparent = setup.instrument.st_scale / tilt_width_factor(setup)
-
-    def keep_apparent_width(s):
-        return replace(s, instrument=replace(s.instrument, st_scale=apparent * tilt_width_factor(s)))
-    return fit_axis(setup, scan, names, {"srz_offset_t": SRZ_T_GRID, "srz_offset_n": SRZ_N_GRID},
-                    {"st0": 1e-4, "frame.tilt_u": 1e-3}, keep_apparent_width if free_tilt else None)
-
-
-def calibrate(step1: Scan, sn_gold: float, frame: GoldFrame | None = None, step2: Scan | None = None,
-              step3: Scan | None = None, base: StageConfig | None = None, free_tilt: bool = False,
-              plate: PlateGeometry = STANDARD_PLATE, instrument: Instrument | None = None) -> StepResults:
-    """All three steps: step 1 gives ST0, SZ0, SN_f (and the scales), step 2 the SRn axis, step 3 the SRz
-    axis offsets. Steps 2 / 3 may be missing: those constants then stay as in `base`."""
-    frame = frame or GoldFrame()
-    r1 = fit_st_sz(step1, frame)
-    setup = setup_from_step1(r1, sn_gold, frame, base, instrument, plate, sn_map=float(step1.base["sn"][0]))
-    out = StepResults(setup, r1)
-    if step2 is not None:
-        out.step2 = fit_step2(setup, step2)
-        v = out.step2.values
-        setup = replace(setup, config=replace(setup.config, srn_axis_u=v["srn_axis_u"], srn_axis_v=v["srn_axis_v"]))
-    if step3 is not None:
-        out.step3 = fit_step3(setup, step3, free_tilt)
-        v = out.step3.values
-        setup = replace(setup, config=replace(setup.config, st0=v["st0"], srz_offset_t=v["srz_offset_t"],
-                                              srz_offset_n=v["srz_offset_n"]))
-        if free_tilt:
-            apparent = setup.instrument.st_scale / tilt_width_factor(setup)
-            tilted = replace(setup, frame=replace(setup.frame, tilt_u=v["frame.tilt_u"]))
-            setup = replace(tilted, instrument=replace(setup.instrument,
-                                                       st_scale=apparent * tilt_width_factor(tilted)))
-    out.setup = setup
-    for name, k in (("ST", "scale_st"), ("SZ", "scale_sz")):
-        if abs(r1.values[k] - 1) > 0.01:
-            out.notes.append(f"{name} scale {r1.values[k]:.4f}: more than 1 % from 1 (motor scale, or the gold "
-                             f"face tilted{' about the vertical' if name == 'ST' else ''}); QuickAlignment assumes 1")
-    if abs(r1.values["shear"]) > 0.5:
-        out.notes.append(f"shear {r1.values['shear']:.2f} deg between the ST and SZ edges (gold face tilted about the "
-                         "horizontal, or ST / SZ not at right angles)")
+    With the frame turned by 45 deg its edges are diagonal: an SZ line crosses them at SZ positions that
+    move 1:1 with where the line passes across the frame, so ST0, the SRn axis and the SRz axis are read
+    on the fast SZ axis; ST, SRn and SRz only move between lines.
+    """
+    c = guide.config
+    f = guide.frame
+    out = []
+    groups = [("A", c.srn_ref, 0.0, du_flat)] + [("B", srn, 0.0, du_diag) for srn in srn_diag]
+    groups += [("C", srn_diag[0], srz, du_srz) for srz in srz_angles if abs(srz) > 1e-9]
+    for group, srn, srz, dus in groups:
+        centre = guide.model.motors_for_target(f.u, f.v, guide.gold_w(), srn, srz)
+        a = math.radians(srn - c.srn_ref)
+        for du in dus:
+            # across the line in the stage frame = the plate direction R(-a) (1, 0)
+            u, v = f.u + du * math.cos(a), f.v - du * math.sin(a)
+            m = guide.model.motors_for_target(u, v, guide.gold_w(), srn, srz)
+            m = replace(m, st=m.st - (centre.sn - m.sn), sn=centre.sn)  # SN kept for the group: ST slides along
+            out.append(PlanLine(group, float(srn), float(srz), float(du), float(m.st), float(m.sn),
+                                float(m.sz - sz_half), float(m.sz + sz_half)))
     return out
 
 
-def standard_scans(setup: Setup, step: float = 0.02, angle_step: float = 2.0, srz_range=(-25.0, 10.0),
-                   srn_range=(60.0, 180.0), st_half: float = 2.0, sz_half: float = 2.5, srz_st_half: float = 3.5,
-                   surface: bool = False) -> dict[str, Scan]:
-    """The three maps around where `setup` expects the frame (its nominal config, frame at its nominal place)."""
-    nominal = replace(setup, frame=GoldFrame(outer=setup.frame.outer, inner=setup.frame.inner,
-                                              height=setup.frame.height), instrument=Instrument())
+def plan_scan(lines: list[PlanLine], step: float = 0.02, pi_center: float = 150.0) -> Scan:
+    """The plan as one Scan of SZ lines (for simulation): line i at its motors, SZ = base + y."""
+    n = len(lines)
+    half = max((p.sz_to - p.sz_from) / 2 for p in lines)
+    y = np.arange(-half, half + step / 2, step)
+    base = {k: np.zeros(n) for k in MOTORS}
+    slope = {k: np.zeros(n) for k in MOTORS}
+    for i, p in enumerate(lines):
+        m = p.motors(pi_center)
+        for k in MOTORS:
+            base[k][i] = getattr(m, k)
+        slope["sz"][i] = 1.0
+    return Scan("sz_lines", np.arange(n, dtype=float), y, base, slope,
+                info={"plan": [asdict(p) for p in lines]})
+
+
+def split_by_angles(scan: Scan) -> dict[str, Scan]:
+    """A plan scan cut into one Scan per (SRn, SRz): the files a beamline scan would write (ST stepped
+    between lines, SZ fast)."""
+    out = {}
+    keys = list(dict.fromkeys(zip(scan.base["srn"], scan.base["srz"])))
+    for srn, srz in keys:
+        idx = np.flatnonzero((scan.base["srn"] == srn) & (scan.base["srz"] == srz))
+        part = Scan("sz_lines", scan.base["st"][idx].copy(), scan.y.copy(),
+                    {k: v[idx].copy() for k, v in scan.base.items()}, {k: v[idx].copy() for k, v in scan.slope.items()},
+                    None if scan.intensity is None else scan.intensity[:, idx].copy())
+        out[f"srn{srn:g}_srz{srz:g}"] = part
+    return out
+
+
+# -- optional: SN focus at other SRz ----------------------------------------------------------------------------
+@dataclass
+class SNPoint:
+    """SN (ST following, dST = -dSN) at which the gold under the beam was in the analyzer focus, measured
+    at another SRz (and SRn): ST, SZ, SN read at the intensity peak. Optional data of the global fit."""
+
+    srn: float
+    srz: float
+    st: float
+    sz: float
+    sn: float
+    use: bool = True
+
+    def motors(self, pi_center: float = 150.0) -> MotorPositions:
+        return MotorPositions(st=self.st, sn=self.sn, sz=self.sz, srn=self.srn, srz=self.srz, pix=pi_center,
+                              piy=pi_center)
+
+
+def sn_point_plan(guide: Setup, srz_angles=SURVEY_SRZ, srn: float | None = None) -> list[SNPoint]:
+    """Where to measure the optional SN points: the middle of the frame's right bar (seen at the given SRn,
+    default the reference), at the analyzer focus according to `guide` (SN is the expected peak)."""
+    f = guide.frame
+    srn = guide.config.srn_ref if srn is None else srn
+    u = f.u + (f.outer + f.inner) / 4
+    out = []
+    for srz in srz_angles:
+        m = guide.model.motors_for_target(u, f.v, guide.gold_w(), srn, srz)
+        out.append(SNPoint(float(srn), float(srz), float(m.st), float(m.sz), float(m.sn)))
+    return out
+
+
+def sn_focus_error(setup: Setup, point: SNPoint) -> float:
+    """How far (in SN) the gold under the beam is from the analyzer focus at the point's motors (0 if the
+    setup is right): its distance along the beam / sqrt 2."""
+    P, D, _, _ = setup.beam_in_plate(point.motors(setup.config.pi_center))
+    return float(setup._gold_s(P[None, :], D)[0]) / math.sqrt(2.0)
+
+
+# -- the global fit -------------------------------------------------------------------------------------------
+GLOBAL_PARAMS = ("st0", "sz0", "srn_axis_u", "srn_axis_v", "srz_offset_t", "srz_offset_n", "frame.rotation",
+                 "frame.tilt_u", "instrument.st_scale", "instrument.sz_scale")
+PARAM_STEPS = {"frame.rotation": 1e-3, "frame.tilt_u": 1e-3, "instrument.st_scale": 1e-5, "instrument.sz_scale": 1e-5}
+PARAM_TEXT = {
+    "st0": "ST0", "sz0": "SZ0", "srn_axis_u": "SRn axis x", "srn_axis_v": "SRn axis y",
+    "srz_offset_t": "SRz offset ST", "srz_offset_n": "SRz offset SN", "frame.rotation": "frame rotation (deg)",
+    "frame.tilt_u": "tilt of the gold face about v (deg)", "instrument.st_scale": "ST scale",
+    "instrument.sz_scale": "SZ scale",
+}
+
+
+@dataclass
+class GlobalResult:
+    setup: Setup
+    values: dict
+    sigma: dict
+    rms: float  # edges, mm
+    edges: int
+    lines_used: int
+    lines_total: int
+    per_scan: list  # (used lines, lines, rms mm) per scan
+    left_out: list  # (scan index, line index)
+    sn_residuals: list  # SN focus error per SN point (mm), None where not used
+    kept: dict  # parameter -> why it was not fitted
+    overview: FitResult | None = None
+    notes: list = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        return {"values": {k: round(float(v), 5) for k, v in self.values.items()},
+                "sigma": {k: round(float(v), 5) for k, v in self.sigma.items()},
+                "edge_rms_mm": round(self.rms, 5), "edges": self.edges,
+                "lines": f"{self.lines_used}/{self.lines_total}",
+                "sn_points_residual_mm": [None if r is None else round(r, 4) for r in self.sn_residuals],
+                "kept": dict(self.kept), "notes": list(self.notes),
+                **({"overview_map": self.overview.to_dict()} if self.overview else {})}
+
+
+def _sz_lines(scans) -> list:
+    """(scan index, line index, measured edges or None) of every line of every scan."""
+    out = []
+    for k, scan in enumerate(scans):
+        for i, e in enumerate(map_edges(scan)):
+            out.append((k, i, e))
+    return out
+
+
+def fit_global(scans: list, sn_gold: float, frame: GoldFrame | None = None, base: StageConfig | None = None,
+               free_tilt: bool = True, free_scales: bool = True, sn_points=(), edge_sigma: float = 0.003,
+               sn_sigma: float = 0.01, plate: PlateGeometry = STANDARD_PLATE,
+               instrument: Instrument | None = None) -> GlobalResult:
+    """Every edge of every line of every scan, and the optional SN points, fitted at once.
+
+    scans: any lines (SZ lines of the survey, an ST x SZ overview map, an SZ x SRn map...). A parameter the
+    data cannot fix (no line with SRn turned: the SRn axis; none with SRz turned: the SRz axis and the tilt)
+    is kept from `base` (the newest configuration). SN_f comes from sn_gold (SN with the gold top at the
+    analyzer focus at SRn ref, SRz 0) and the gold height. The frame is taken to be at (frame.u, frame.v).
+    """
+    frame = frame or GoldFrame()
+    base = base or StageConfig()
+    sn_f = sn_gold - (plate.total_thickness + frame.height - STANDARD_PLATE.total_thickness)
+    setup = Setup(replace(base, sn_f=float(sn_f)), frame, instrument or Instrument(), plate)
+    m0 = setup.frame_motors()
+    setup = replace(setup, instrument=replace(setup.instrument, scale_st_ref=m0.st, scale_sz_ref=m0.sz))
+    scans = list(scans)
+    notes = []
+
+    # an ST x SZ map at SRn ref / SRz 0 gives a good start for ST0, SZ0 and the rotation
+    overview = None
+    for scan in scans:
+        if (scan.kind == "st_sz" and np.allclose(scan.base["srn"], base.srn_ref) and np.allclose(scan.base["srz"], 0)
+                and len(scan.x) >= 5):
+            try:
+                overview = fit_st_sz(scan, frame)
+            except ValueError:
+                continue
+            st0, sz0 = _centre_constants(setup, overview, float(scan.base["sn"][0]))
+            # rotation from the horizontal edges (found along SZ, the fast axis): with coarse ST steps the
+            # vertical ones are only known to a step
+            rotation = overview.values["rotation"] + overview.values["shear"] / 2
+            setup = _set(_set(_set(setup, "st0", st0), "sz0", sz0), "frame.rotation", rotation)
+            break
+
+    items = _sz_lines(scans)
+    srn_turned = any(abs(scans[k].motors(i, 0.0).srn - base.srn_ref) > 5 for k, i, e in items if e is not None)
+    srz_turned = any(abs(scans[k].motors(i, 0.0).srz) > 2 for k, i, e in items if e is not None)
+    sn_used = [p for p in sn_points if p.use]
+    names, kept = [], {}
+    for name in GLOBAL_PARAMS:
+        if name in ("srn_axis_u", "srn_axis_v") and not srn_turned:
+            kept[name] = "no line with SRn turned"
+        elif name in ("srz_offset_t", "srz_offset_n") and not (srz_turned or any(abs(p.srz) > 2 for p in sn_used)):
+            kept[name] = "no line with SRz turned"
+        elif name == "frame.tilt_u" and not (free_tilt and srz_turned):
+            kept[name] = "not fitted" if not free_tilt else "no line with SRz turned"
+        elif name.startswith("instrument.") and not free_scales:
+            kept[name] = "not fitted"
+        else:
+            names.append(name)
+    weight = edge_sigma / sn_sigma
+
+    def residual(p, use, points=sn_used):
+        s = setup
+        for n, v in zip(names, p):
+            s = _set(s, n, v)
+        out = []
+        for (k, i, e), ok in zip(items, use):
+            if ok:
+                pred = s.edges(scans[k], i)
+                out.append(e - (pred if len(e) == 4 else pred[[0, 3]]))
+        for pt in points:
+            out.append(np.array([weight * sn_focus_error(s, pt)]))
+        r = np.concatenate(out) if out else np.zeros(0)
+        return np.where(np.isfinite(r), r, 10.0)
+
+    def line_rms(p):
+        s = setup
+        for n, v in zip(names, p):
+            s = _set(s, n, v)
+        out = np.full(len(items), np.nan)
+        for j, (k, i, e) in enumerate(items):
+            if e is not None:
+                pred = s.edges(scans[k], i)
+                d = e - (pred if len(e) == 4 else pred[[0, 3]])
+                out[j] = float(np.sqrt(np.mean(np.where(np.isfinite(d), d, 10.0) ** 2)))
+        return out
+
+    have = np.array([e is not None for _, _, e in items])
+    if have.sum() < len(names) + 1:
+        raise ValueError(f"too few lines with clear gold edges ({int(have.sum())}) for {len(names)} parameters")
+    flat = np.array([e is not None and abs(scans[k].motors(i, 0.0).srz) <= 2 for k, i, e in items])
+    x = np.array([_get(setup, n) for n in names])
+    steps = [PARAM_STEPS.get(n, 1e-4) for n in names]
+
+    # 1. lines at SRz 0: where the frame is (coarse grid on ST0 / SZ0 unless an overview map gave them)
+    if flat.sum() >= 3:
+        i0, i1 = names.index("st0"), names.index("sz0")
+        if overview is None:
+            def shifted(q):
+                p = x.copy()
+                p[i0], p[i1] = x[i0] + q[0], x[i1] + q[1]
+                return _robust(residual(p, flat, ()))
+            grid = np.arange(-0.8, 0.81, 0.1)
+            q = _grid_start(shifted, [grid, grid])
+            x[i0], x[i1] = x[i0] + q[0], x[i1] + q[1]
+        srz_names = [n for n in names if n.startswith("srz_") or n == "frame.tilt_u"]
+        sub = [j for j, n in enumerate(names) if n not in srz_names]
+
+        def flat_res(q):
+            p = x.copy()
+            p[sub] = q
+            return residual(p, flat, ())
+        q, _, _ = _lm(flat_res, x[sub], [steps[j] for j in sub])
+        x[sub] = q
+    # 2. the SRz axis: coarse grid on its offsets with the rest kept, then everything together
+    if "srz_offset_t" in names:
+        jt, jn = names.index("srz_offset_t"), names.index("srz_offset_n")
+
+        def srz_res(q):
+            p = x.copy()
+            p[jt], p[jn] = q
+            return _robust(residual(p, have))
+        q = _grid_start(srz_res, [x[jt] + np.arange(-2.5, 2.51, 0.25), x[jn] + np.arange(-3.0, 3.01, 0.25)])
+        x[jt], x[jn] = q
+    use = have.copy()
+    near = have & (line_rms(x) < 0.15)
+    if near.sum() >= len(names) + 1:
+        use = near
+    x, r, J = _lm(lambda p: residual(p, use), x, steps)
+    for _ in range(4):  # lines whose edges were taken wrongly are left out
+        rms = line_rms(x)
+        limit = max(5.0 * float(np.nanmedian(rms[use])), 0.01)
+        new = have & (rms <= limit)
+        if np.array_equal(new, use):
+            break
+        use = new
+        x, r, J = _lm(lambda p: residual(p, use), x, steps)
+    sig = _uncertainty(r, J)
+    final = setup
+    for n, v in zip(names, x):
+        final = _set(final, n, v)
+    rms = line_rms(x)
+    per_scan = []
+    for k in range(len(scans)):
+        idx = [j for j, it in enumerate(items) if it[0] == k and have[j]]  # lines across the frame
+        u = [j for j in idx if use[j]]
+        per_scan.append((len(u), len(idx), float(np.sqrt(np.nanmean(rms[u] ** 2))) if u else float("nan")))
+    left = [(items[j][0], items[j][1]) for j in range(len(items)) if have[j] and not use[j]]
+    sn_res = [sn_focus_error(final, p) if p.use else None for p in sn_points]
+    edge_r = r[:len(r) - len(sn_used)] if sn_used else r
+    for name, key in (("ST", "instrument.st_scale"), ("SZ", "instrument.sz_scale")):
+        if key in names and abs(_get(final, key) - 1) > 0.005:
+            notes.append(f"{name} scale {_get(final, key):.4f}: more than 0.5 % from 1; QuickAlignment assumes 1")
+    if "frame.tilt_u" in names and abs(_get(final, "frame.tilt_u")) > 2:
+        notes.append(f"gold face tilted {_get(final, 'frame.tilt_u'):.2f} deg about v: check the mounting")
+    for n, why in kept.items():
+        if n in ("srn_axis_u", "srz_offset_t"):
+            notes.append(f"{PARAM_TEXT[n].split(' ')[0]} axis kept from the newest configuration: {why}")
+    return GlobalResult(final, dict(zip(names, map(float, x))), dict(zip(names, map(float, sig))),
+                        float(np.sqrt(np.mean(edge_r ** 2))) if len(edge_r) else float("nan"), len(edge_r),
+                        int(use.sum()), int(have.sum()), per_scan, left, sn_res, kept, overview, notes)
+
+
+def _centre_constants(setup: Setup, overview: FitResult, sn_map: float) -> tuple[float, float]:
+    """ST0, SZ0 putting the frame centre on the beam where the overview map found it."""
+    v = overview.values
+    m = MotorPositions(st=v["st_c"], sn=sn_map, sz=v["sz_c"], srn=setup.config.srn_ref, srz=0.0,
+                       pix=setup.config.pi_center, piy=setup.config.pi_center)
+
+    def hit(st0, sz0):
+        s = _set(_set(setup, "st0", st0), "sz0", sz0)
+        P, D, _, _ = s.beam_in_plate(m)
+        return (P + s._gold_s(P[None, :], D)[0] * D)[:2]
+
+    h0 = hit(0.0, 0.0)
+    M = np.column_stack([hit(1.0, 0.0) - h0, hit(0.0, 1.0) - h0])
+    st0, sz0 = np.linalg.solve(M, np.array([setup.frame.u, setup.frame.v]) - h0)
+    return float(st0), float(sz0)
+
+
+# -- simulated measurements --------------------------------------------------------------------------------------
+def simulated_measurement(guide: Setup, truth: Setup, overview: bool = True, srn_sweep: bool = False,
+                          step: float = 0.02, overview_st_step: float = 0.1, rng=None, **plan) -> dict[str, Scan]:
+    """What the beamline would measure with the protocol, placed with `guide`, simulated on `truth`:
+    an ST x SZ overview (coarse ST steps, optional), the SZ x SRn sweep (optional) and the survey,
+    one Scan per (SRn, SRz) as the beamline writes them."""
+    rng = rng or np.random.default_rng(0)
+    nominal = replace(guide, frame=GoldFrame(outer=guide.frame.outer, inner=guide.frame.inner,
+                                              height=guide.frame.height), instrument=Instrument())
     m = nominal.frame_motors()
-    ax = lambda c, h, d: c + np.arange(-h, h + d / 2, d)  # noqa: E731
-    step1 = make_scan("st_sz", ax(m.st, st_half, step), ax(m.sz, st_half, step), m)
-    step2 = make_scan("srn_sz", np.arange(srn_range[0], srn_range[1] + angle_step / 2, angle_step),
-                      ax(m.sz, sz_half, step / 2), m)
-    srz = np.arange(srz_range[0], srz_range[1] + angle_step / 4, angle_step / 2)
-    if surface:
-        ms = [nominal.frame_motors(srz=a) for a in srz]
-        step3 = make_scan("srz_surface", srz, np.arange(-srz_st_half, srz_st_half + step / 4, step / 2), m,
-                          [q.st for q in ms], [q.sn for q in ms])
-    else:
-        step3 = make_scan("srz_st", srz, ax(m.st, srz_st_half, step / 2), m)
-    return {"step1": step1, "step2": step2, "step3": step3}
+    out = {}
+    if overview:
+        out["overview"] = make_scan("st_sz", m.st + np.arange(-2.0, 2.0 + overview_st_step / 2, overview_st_step),
+                                    m.sz + np.arange(-2.0, 2.0 + step / 2, step), m)
+    if srn_sweep:
+        out["srn_sweep"] = make_scan("srn_sz", np.arange(60.0, 180.1, 2.0), m.sz + np.arange(-2.5, 2.5 + step / 2, step), m)
+    survey = plan_scan(survey_plan(nominal, **plan), step)
+    out.update(split_by_angles(survey))
+    for scan in out.values():
+        truth.simulate(scan, rng)
+    return out
 
 
-def sn_scan(setup: Setup, sn_values, u: float | None = None, v: float | None = None) -> np.ndarray:
-    """Intensity on the gold (default: the middle of the frame's right bar) against SN at SRn = ref,
-    SRz = 0, ST following SN (dST = -dSN) so that the point stays on the beam and slides along it:
-    the peak is SN_gold, the width the analyzer acceptance across its axis (the spot moves dSN
-    across it and dSN along it)."""
+def sn_scan(setup: Setup, sn_values, u: float | None = None, v: float | None = None, srz: float = 0.0,
+            srn: float | None = None) -> np.ndarray:
+    """Intensity on the gold (default: the middle of the frame's right bar) against SN, ST following SN
+    (dST = -dSN) so that the point stays on the beam and slides along it: the peak is the SN with the gold
+    at the analyzer focus (SN_gold at SRz 0), the width the analyzer acceptance across its axis."""
     f = setup.frame
     u = f.u + (f.outer + f.inner) / 4 if u is None else u
     v = f.v if v is None else v
-    m = setup.model.motors_for_target(u, v, setup.gold_w(), setup.config.srn_ref, 0.0)
+    m = setup.model.motors_for_target(u, v, setup.gold_w(), setup.config.srn_ref if srn is None else srn, srz)
     sn = np.asarray(sn_values, float)
-    scan = make_scan("srz_st", np.zeros(len(sn)), np.zeros(1), m)
+    scan = make_scan("sz_lines", np.zeros(len(sn)), np.zeros(1), m)
     scan.base["sn"] = sn.copy()
     scan.base["st"] = m.st - (sn - m.sn)
-    scan.x = sn
+    scan.slope["sz"][:] = 0.0
+    scan.base["sz"][:] = m.sz
     return setup.simulate(scan)[0]
 
 
-def record_for(results: StepResults, optics, comment: str, sources: dict | None = None):
+def record_for(result: GlobalResult, optics, comment: str, sources: dict | None = None, sn_points=()):
     """A CalibrationRecord (not yet saved) with the fitted constants and what was measured."""
     from .calibration import CalibrationRecord
 
-    s = results.setup
+    s = result.setup
     check = {
-        "type": "gold frame (SPEM intensity maps): ST x SZ map, SZ line vs SRn, ST line vs SRz",
+        "type": "gold frame (SPEM intensity, SZ fly lines), one global fit of every edge",
         "plate": s.plate.key,
         "frame": {k: v for k, v in asdict(s.frame).items()},
-        "step1_st_sz": results.step1.to_dict() if results.step1 else None,
-        "step2_srn_sz": results.step2.to_dict() if results.step2 else None,
-        "step3_srz_st": results.step3.to_dict() if results.step3 else None,
+        "fit": result.to_dict(),
         "motor_scales": {"st": round(s.instrument.st_scale, 5), "sz": round(s.instrument.sz_scale, 5),
                          "note": "fitted, not used by QuickAlignment (it assumes 1)"},
-        "notes": list(results.notes),
+        **({"sn_points": [asdict(p) for p in sn_points]} if sn_points else {}),
         **({"sources": sources} if sources else {}),
     }
     return CalibrationRecord(comment=comment, config=s.config, optics=optics, check=check)
 
 
 __all__ = [
-    "GoldFrame", "Instrument", "Scan", "Setup", "FitResult", "StepResults", "KINDS",
-    "make_scan", "standard_scans", "profile_edges", "map_edges", "sn_scan", "tilt_width_factor",
-    "fit_st_sz", "fit_step2", "fit_step3", "setup_from_step1", "calibrate", "record_for",
+    "GoldFrame", "Instrument", "Scan", "Setup", "FitResult", "GlobalResult", "PlanLine", "SNPoint", "KINDS",
+    "GROUP_TEXT", "GLOBAL_PARAMS", "SURVEY_SRZ", "PARAM_TEXT", "make_scan", "profile_edges", "map_edges", "fit_st_sz",
+    "survey_plan", "plan_scan", "split_by_angles", "sn_point_plan", "sn_focus_error", "fit_global",
+    "simulated_measurement", "sn_scan", "record_for",
 ]

@@ -1,4 +1,4 @@
-"""Gold-frame calibration: simulated maps of a frame with known faults must give back the constants."""
+"""Gold-frame calibration: simulated SZ lines over a frame with known faults must give back the constants."""
 
 from dataclasses import replace
 
@@ -7,92 +7,139 @@ import pytest
 
 from quickalignment.calibration import CalibrationRecord, CalibrationStore
 from quickalignment.gold_frame import (
-    GoldFrame, Instrument, Setup, calibrate, fit_st_sz, make_scan, profile_edges, record_for, standard_scans,
-    tilt_width_factor,
+    GoldFrame, Instrument, Scan, Setup, SNPoint, fit_global, plan_scan, profile_edges, record_for,
+    simulated_measurement, sn_focus_error, sn_point_plan, survey_plan,
 )
 from quickalignment.stage import OpticsCalibration, StageConfig
 
 TRUE = StageConfig(st0=-0.95, sz0=40.63, sn_f=-0.525, srn_axis_u=-0.26, srn_axis_v=-0.05,
                    srz_offset_t=-0.23, srz_offset_n=2.59)
-NOMINAL = Setup(StageConfig(st0=-1.0, sz0=40.6, sn_f=-0.5))  # what the beamline believes before
+# what the beamline believes before: the lines are placed with it, the fit starts from it
+GUIDE = replace(TRUE, st0=-1.0, sz0=40.6, srn_axis_u=0.0, srn_axis_v=0.0, srz_offset_t=0.0, srz_offset_n=2.3)
 WIDE = dict(analyzer_fwhm_h=50.0, analyzer_fwhm_v=50.0, analyzer_fwhm_axial=50.0)
+H = 0.05
 
 
-def measure(truth: Setup, surface=False, step=0.025, seed=0):
-    scans = standard_scans(NOMINAL, step=step, surface=surface)
-    rng = np.random.default_rng(seed)
-    for s in scans.values():
-        truth.simulate(s, rng)
-    return scans
+def truth(frame=None, **inst) -> Setup:
+    m = Setup(TRUE, GoldFrame(height=H)).frame_motors()
+    return Setup(TRUE, frame or GoldFrame(height=H),
+                 Instrument(**{"counts": 3000, **WIDE, **inst}, scale_st_ref=m.st, scale_sz_ref=m.sz))
 
 
-def run(truth: Setup, frame=None, **kw):
-    scans = measure(truth, kw.pop("surface", False))
-    return calibrate(scans["step1"], truth.frame_motors().sn, frame or GoldFrame(height=truth.frame.height),
-                     scans["step2"], scans["step3"], **kw), scans
+def measure(t: Setup, seed=0, **kw):
+    return simulated_measurement(Setup(GUIDE, GoldFrame(height=H)), t, rng=np.random.default_rng(seed), **kw)
+
+
+def fit(t: Setup, scans, **kw):
+    return fit_global(list(scans.values()), t.frame_motors().sn, GoldFrame(height=H), GUIDE, **kw)
+
+
+def expected(t: Setup) -> StageConfig:
+    """The constants the fit should give: a mounting shift of the frame goes into ST0 / SZ0 and the axes."""
+    du, dv, c = t.frame.u, t.frame.v, t.config
+    return replace(c, st0=c.st0 - du, sz0=c.sz0 - dv, srn_axis_u=c.srn_axis_u - du, srn_axis_v=c.srn_axis_v - dv,
+                   srz_offset_t=c.srz_offset_t - du)
+
+
+TOL = {"st0": 0.005, "sz0": 0.005, "sn_f": 1e-9, "srn_axis_u": 0.005, "srn_axis_v": 0.005,
+       "srz_offset_t": 0.025, "srz_offset_n": 0.025}
+
+
+def check(result, t, tol=TOL):
+    exp = expected(t)
+    for name, limit in tol.items():
+        assert getattr(result.setup.config, name) == pytest.approx(getattr(exp, name), abs=limit), name
+
+
+def test_the_plan_crosses_the_frame():
+    guide = Setup(GUIDE, GoldFrame(height=H))
+    plan = survey_plan(guide)
+    groups = [p.group for p in plan]
+    assert groups.count("A") == 5 and groups.count("B") == 10 and groups.count("C") == 18
+    assert {p.srn for p in plan if p.group == "B"} == {165.0, 75.0}
+    assert all(p.srz == 0 for p in plan if p.group in "AB") and all(p.srz != 0 for p in plan if p.group == "C")
+    scan = plan_scan(plan)
+    for i, p in enumerate(plan):
+        e = guide.edges(scan, i)
+        assert e[0] < e[3], i  # every line crosses the frame
+        if abs(p.du) < 0.3:
+            assert e[1] < e[2], i  # and the hole near the centre
+    # one SN per SRn / SRz setting: ST alone moves between the lines of a group
+    for key in {(p.srn, p.srz) for p in plan}:
+        assert len({round(p.sn, 9) for p in plan if (p.srn, p.srz) == key}) == 1
 
 
 def test_perfect_frame_gives_back_every_constant():
-    res, _ = run(Setup(TRUE, GoldFrame(), Instrument(counts=3000, **WIDE)))
-    c = res.setup.config
-    for name, tol in (("st0", 0.005), ("sz0", 0.005), ("sn_f", 1e-9), ("srn_axis_u", 0.008), ("srn_axis_v", 0.008),
-                      ("srz_offset_t", 0.015), ("srz_offset_n", 0.015)):
-        assert getattr(c, name) == pytest.approx(getattr(TRUE, name), abs=tol), name
-    assert res.step1.values["rotation"] == pytest.approx(0, abs=0.05)
-    assert res.step1.values["scale_st"] == pytest.approx(1, abs=0.003)
-    assert not res.notes
+    t = truth()
+    result = fit(t, measure(t))
+    check(result, t)
+    assert result.values["frame.rotation"] == pytest.approx(0, abs=0.1)
+    assert result.values["frame.tilt_u"] == pytest.approx(0, abs=0.1)
+    assert result.rms < 0.005 and not result.notes and not result.kept
 
 
-def test_a_shifted_frame_moves_st0_sz0_and_the_axes_with_it():
-    """The frame is taken to be at the plate centre: a mounting shift (du, dv) is indistinguishable
-    from a shift of the whole plate, so ST0 / SZ0 and the axes (in plate coordinates) take it."""
-    du, dv = 0.3, -0.2
-    truth = Setup(TRUE, GoldFrame(u=du, v=dv, rotation=3.0), Instrument(counts=3000, **WIDE))
-    res, _ = run(truth, surface=True)
-    c = res.setup.config
-    assert c.st0 == pytest.approx(TRUE.st0 - du, abs=0.003)
-    assert c.sz0 == pytest.approx(TRUE.sz0 - dv, abs=0.003)
-    assert c.srn_axis_u == pytest.approx(TRUE.srn_axis_u - du, abs=0.005)
-    assert c.srn_axis_v == pytest.approx(TRUE.srn_axis_v - dv, abs=0.005)
-    assert c.srz_offset_t == pytest.approx(TRUE.srz_offset_t - du, abs=0.015)
-    assert c.srz_offset_n == pytest.approx(TRUE.srz_offset_n, abs=0.015)
-    assert res.step1.values["rotation"] == pytest.approx(3.0, abs=0.1)
+def test_a_shifted_turned_and_tilted_frame():
+    t = truth(GoldFrame(height=H, u=0.3, v=-0.2, rotation=3.0, tilt_u=1.5))
+    result = fit(t, measure(t, overview=True))
+    check(result, t)
+    assert result.values["frame.rotation"] == pytest.approx(3.0, abs=0.1)
+    assert result.values["frame.tilt_u"] == pytest.approx(1.5, abs=0.15)
+    assert result.overview is not None
+
+
+def test_ignoring_the_tilt_biases_the_srz_axis():
+    t = truth(GoldFrame(height=H, tilt_u=2.0))
+    scans = measure(t)
+    free = fit(t, scans)
+    fixed = fit(t, scans, free_tilt=False)
+    check(free, t)
+    assert abs(fixed.setup.config.srz_offset_t - TRUE.srz_offset_t) > 0.04
 
 
 def test_motor_scales_are_measured_and_reported():
-    truth = Setup(TRUE, GoldFrame(), Instrument(st_scale=1.02, sz_scale=0.99, counts=3000,
-                                                scale_st_ref=-0.95, scale_sz_ref=40.63, **WIDE))
-    scans = measure(truth)
-    r = fit_st_sz(scans["step1"])
-    # ST is the slow axis of the map (point by point): its edges are only known to a pixel (25 um on 2 mm)
-    assert r.values["scale_st"] == pytest.approx(1.02, abs=0.008)
-    assert r.values["scale_sz"] == pytest.approx(0.99, abs=0.003)
-    res = calibrate(scans["step1"], truth.frame_motors().sn, GoldFrame(), None, None)
-    assert any("ST scale" in n for n in res.notes) and any("SZ scale" in n for n in res.notes)
+    t = truth(st_scale=1.02, sz_scale=0.99)
+    result = fit(t, measure(t))
+    assert result.values["instrument.st_scale"] == pytest.approx(1.02, abs=0.003)
+    assert result.values["instrument.sz_scale"] == pytest.approx(0.99, abs=0.002)
+    assert any("ST scale" in n for n in result.notes) and any("SZ scale" in n for n in result.notes)
+    check(result, t)
 
 
-def test_a_narrow_analyzer_loses_lines_of_the_plain_st_scan_but_not_the_result():
-    truth = Setup(TRUE, GoldFrame(), Instrument(counts=3000, analyzer_fwhm_h=0.5, analyzer_fwhm_v=0.5))
-    plain, _ = run(truth)
-    along, _ = run(truth, surface=True)
-    assert plain.step3.used_lines < len(_["step3"].x)  # part of the frame not seen at large SRz
-    assert along.step3.used_lines == len(_["step3"].x)
-    for res in (plain, along):
-        assert res.setup.config.srz_offset_t == pytest.approx(TRUE.srz_offset_t, abs=0.03)
-        assert res.setup.config.srz_offset_n == pytest.approx(TRUE.srz_offset_n, abs=0.03)
+def test_a_narrow_analyzer_does_not_matter_for_sz_lines():
+    """SZ runs along the turned surface (and the SRz axis): the lit point does not slide along the beam."""
+    t = truth(analyzer_fwhm_h=0.5, analyzer_fwhm_v=0.5, analyzer_fwhm_axial=3.0)
+    result = fit(t, measure(t))
+    assert result.lines_used >= result.lines_total - 2  # at most a faint line or two left out
+    check(result, t)
 
 
-def test_a_tilted_gold_face_is_fitted_in_step_3():
-    truth = Setup(TRUE, GoldFrame(tilt_u=2.0), Instrument(counts=3000, **WIDE))
-    assert tilt_width_factor(truth) == pytest.approx(0.965, abs=0.003)
-    scans = measure(truth, surface=True)
-    sn = truth.frame_motors().sn
-    fixed = calibrate(scans["step1"], sn, GoldFrame(), None, scans["step3"], free_tilt=False)
-    free = calibrate(scans["step1"], sn, GoldFrame(), None, scans["step3"], free_tilt=True)
-    assert abs(fixed.setup.config.srz_offset_t - TRUE.srz_offset_t) > 0.05  # ignoring the tilt biases the axis
-    assert free.step3.values["frame.tilt_u"] == pytest.approx(2.0, abs=0.15)
-    assert free.setup.config.srz_offset_t == pytest.approx(TRUE.srz_offset_t, abs=0.015)
-    assert free.setup.instrument.st_scale == pytest.approx(1.0, abs=0.003)
+def test_what_the_data_cannot_fix_is_kept():
+    t = truth()
+    scans = {k: s for k, s in measure(t).items() if s.base["srz"][0] == 0}  # no SRz turned
+    result = fit(t, scans)
+    for name in ("srz_offset_t", "srz_offset_n", "frame.tilt_u"):
+        assert name in result.kept
+    assert result.setup.config.srz_offset_n == GUIDE.srz_offset_n
+    assert any("SRz axis kept" in n for n in result.notes)
+    check(result, t, {k: v for k, v in TOL.items() if not k.startswith("srz")})
+
+
+def _sn_peak(t: Setup, p: SNPoint) -> SNPoint:
+    """The SN (ST following) at which the gold under the beam is at the analyzer focus, as measured."""
+    e0 = sn_focus_error(t, p)
+    e1 = sn_focus_error(t, replace(p, sn=p.sn + 1.0, st=p.st - 1.0))
+    d = -e0 / (e1 - e0)
+    return replace(p, sn=p.sn + d, st=p.st - d)
+
+
+def test_sn_points_give_the_srz_axis_without_srz_lines():
+    t = truth()
+    scans = {k: s for k, s in measure(t).items() if s.base["srz"][0] == 0}
+    points = [_sn_peak(t, p) for p in sn_point_plan(Setup(GUIDE, GoldFrame(height=H)))]
+    result = fit(t, scans, sn_points=points)
+    assert "srz_offset_t" not in result.kept
+    check(result, t, {"srz_offset_t": 0.01, "srz_offset_n": 0.01})
+    assert max(abs(r) for r in result.sn_residuals) < 0.002
 
 
 def test_profile_edges():
@@ -110,45 +157,61 @@ def test_profile_edges():
 
 
 def test_the_record_is_a_valid_configuration(tmp_path):
-    res, _ = run(Setup(TRUE, GoldFrame(), Instrument(**WIDE)))
+    t = truth()
+    result = fit(t, measure(t))
     store = CalibrationStore(tmp_path)
-    saved = store.save(record_for(res, OpticsCalibration(optic_type="capillary"), "gold frame test"))
+    saved = store.save(record_for(result, OpticsCalibration(optic_type="capillary"), "gold frame test"))
     back = store.latest("capillary")
     assert back.path == saved.path
-    assert back.config == replace(res.setup.config, **{k: float(getattr(res.setup.config, k))
-                                                       for k in ("st0", "sz0", "sn_f")})
+    assert back.config == replace(result.setup.config, **{k: float(getattr(result.setup.config, k))
+                                                          for k in ("st0", "sz0", "sn_f")})
     assert back.check["type"].startswith("gold frame")
     assert isinstance(CalibrationRecord.from_dict(back.to_dict()), CalibrationRecord)
 
 
 def test_spem_files_round_trip(tmp_path):
     pytest.importorskip("h5py")
-    from quickalignment.spem_nxs import read_lines, read_scan, stage_of, write_scan
+    from quickalignment.spem_nxs import read_scan, stage_of, write_scan
 
     assert stage_of("i12-m-cx1/ex/sample-mt_srn/position") == "srn"
     assert stage_of("i12-m-cx1/ex/pi/x") == "pix"
     assert stage_of("i12-m-cx1/ex/heason/total_int") is None
-    truth = Setup(TRUE, GoldFrame(), Instrument(counts=3000, **WIDE))
-    scans = measure(truth)
+    t = truth()
+    scans = measure(t, overview=True, srn_sweep=True)
     for key, scan in scans.items():
         write_scan(tmp_path / f"{key}.nxs", scan, optic_position=60.3)
         back = read_scan(tmp_path / f"{key}.nxs")
-        assert back.kind == scan.kind
         assert back.intensity == pytest.approx(scan.intensity)
         assert back.info["optic_position"] == pytest.approx(60.3)
         for m in ("st", "sn", "sz", "srn", "srz"):
             assert back.motor_grid(m) == pytest.approx(scan.motor_grid(m), abs=1e-9), (key, m)
-    # step 2 as one SZ line per SRn
-    s2, paths = scans["step2"], []
-    for i in range(0, len(s2.x), 2):
-        line = make_scan("srn_sz", [s2.x[i]], s2.y, s2.motors(i, 0.0))
-        line.base["sz"][:], line.slope["sz"][:] = 0.0, 1.0
-        line.intensity = s2.intensity[:, i:i + 1]
-        write_scan(tmp_path / f"line{i}.nxs", line)
-        paths.append(tmp_path / f"line{i}.nxs")
-    lines = read_lines(paths[::-1])
-    assert lines.kind == "srn_sz" and lines.x == pytest.approx(s2.x[::2])
-    assert lines.intensity == pytest.approx(s2.intensity[:, ::2])
+    assert read_scan(tmp_path / "srn_sweep.nxs").kind == "srn_sz"
+    # one line per file is a scan of its own
+    s = scans["srn165_srz-25"]
+    line = Scan("sz_lines", s.x[:1], s.y, {k: v[:1] for k, v in s.base.items()}, {k: v[:1] for k, v in s.slope.items()},
+                s.intensity[:, :1])
+    write_scan(tmp_path / "line.nxs", line)
+    back = read_scan(tmp_path / "line.nxs")
+    assert back.kind == "sz_lines" and len(back.x) == 1
+    assert back.motor_grid("sz") == pytest.approx(line.motor_grid("sz"))
+    assert back.base["srz"][0] == pytest.approx(-25.0)
+
+
+def test_a_second_motor_that_does_not_move_on_a_line_is_read_as_fixed(tmp_path):
+    pytest.importorskip("h5py")
+    from quickalignment.spem_nxs import read_scan, write_scan
+
+    y = np.linspace(-1, 1, 51)
+    base = {k: np.zeros(2) for k in ("st", "sn", "sz", "srn", "srz", "pix", "piy")}
+    slope = {k: np.zeros(2) for k in base}
+    base.update(st=np.array([-1.0, -1.2]), sn=np.array([0.3, -0.4]), sz=np.array([40.0, 40.0]),
+                srn=np.full(2, 120.0), pix=np.full(2, 150.0), piy=np.full(2, 150.0))
+    slope.update(sz=np.ones(2), sn=np.array([0.2, 0.0]))  # SN moves with SZ on line 1 only
+    scan = Scan("lines", np.arange(2.0), y, base, slope, np.ones((len(y), 2)))
+    write_scan(tmp_path / "two.nxs", scan)
+    back = read_scan(tmp_path / "two.nxs")
+    for m in ("sz", "sn"):
+        assert back.motor_grid(m) == pytest.approx(scan.motor_grid(m), abs=1e-9), m
 
 
 def test_image32_is_summed_when_there_is_no_total_intensity(tmp_path):
@@ -172,41 +235,28 @@ def test_image32_is_summed_when_there_is_no_total_intensity(tmp_path):
     assert scan.info["channel"].endswith("image32")
 
 
-def test_command_line_fit_saves_a_configuration(tmp_path, capsys):
+def test_command_line_plan_and_fit(tmp_path, capsys):
     pytest.importorskip("h5py")
-    from quickalignment.gold_frame_cli import main
-    from quickalignment.spem_nxs import write_scan
+    from quickalignment.gold_frame_cli import main, read_sn_points, save_scan
 
-    truth = Setup(TRUE, GoldFrame(), Instrument(counts=3000, **WIDE))
-    scans = measure(truth)
-    files = {}
-    for key, scan in scans.items():
-        files[key] = str(tmp_path / f"{key}.nxs")
-        write_scan(files[key], scan, optic_position=60.3)
     configs = tmp_path / "configs"
     configs.mkdir()
-    assert main(["fit", "--step1", files["step1"], "--step2", files["step2"], "--step3", files["step3"],
-                 "--sn-gold", str(truth.frame_motors().sn), "--configs", str(configs), "--save"]) == 0
+    assert main(["plan", "--configs", str(configs), "--csv", str(tmp_path / "plan.csv")]) == 0
+    text = (tmp_path / "plan.csv").read_text(encoding="utf-8")
+    assert text.startswith("group,srn,srz,du,st,sn,sz_from,sz_to") and "," in text and ";" not in text
+    assert len(read_sn_points(tmp_path / "plan.csv")) == 0  # the SN rows come after the plan, not read as points
+
+    t = truth()
+    files = [str(save_scan(scan, tmp_path / key, optic=60.3)) for key, scan in measure(t, overview=True).items()]
+    points = tmp_path / "sn.csv"
+    points.write_text("srn,srz,st,sz,sn\n120,-20,-2.5,40.6,-0.7\n", encoding="utf-8")
+    assert main(["fit", *files, "--sn-gold", str(t.frame_motors().sn), "--configs", str(configs), "--save"]) == 0
     out = capsys.readouterr().out
     assert "saved:" in out
     record = CalibrationStore(configs).latest("capillary")
-    assert record.config.srz_offset_n == pytest.approx(TRUE.srz_offset_n, abs=0.015)
+    assert record.config.srz_offset_n == pytest.approx(TRUE.srz_offset_n, abs=0.025)
     assert record.optics.enabled and record.optics.optic_position == pytest.approx(60.3)
-
-
-def test_a_scan_along_the_surface_reads_back_at_srz_0(tmp_path):
-    """SN does not move on the SRz = 0 line of a scan along the surface: it is still read as SN, not as the
-    scanned position."""
-    pytest.importorskip("h5py")
-    from quickalignment.spem_nxs import read_scan, write_scan
-
-    scan = standard_scans(NOMINAL, step=0.05, surface=True)["step3"]
-    Setup(TRUE, GoldFrame(), Instrument(**WIDE)).simulate(scan)
-    write_scan(tmp_path / "step3.nxs", scan)
-    back = read_scan(tmp_path / "step3.nxs")
-    assert back.kind == "srz_surface"
-    for m in ("st", "sn"):
-        assert back.motor_grid(m) == pytest.approx(scan.motor_grid(m), abs=1e-9), m
+    assert len(read_sn_points(points)) == 1
 
 
 def test_calibration_window_loads_fits_and_saves(tmp_path, monkeypatch):
@@ -214,26 +264,34 @@ def test_calibration_window_loads_fits_and_saves(tmp_path, monkeypatch):
     import os
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     qt = pytest.importorskip("quickalignment.ui._qt")
-    from quickalignment.ui.gold_frame_window import GoldFrameWindow
+    from quickalignment.ui.gold_frame_window import GoldFrameWindow, PlanDialog, SNPointsDialog
 
     app = qt.QtWidgets.QApplication.instance() or qt.QtWidgets.QApplication([])
     monkeypatch.setattr(qt.QtWidgets.QMessageBox, "information", staticmethod(lambda *a, **k: 0))
     monkeypatch.setattr(qt.QtWidgets.QMessageBox, "warning", staticmethod(lambda *a, **k: 0))
     store = CalibrationStore(tmp_path)
     win = GoldFrameWindow(store)
+    plan = PlanDialog(win.guide(), win.newest_record(), win)
+    assert len(plan.plan) == 33
     assert not win.save_button.isEnabled()
-    win.load_example()  # simulated maps written as .nxs and loaded through the slots
-    assert all(slot.scan is not None for slot in win.slots.values())
+    win.load_example()  # the planned lines simulated, written as .nxs files and loaded
+    assert len(win.files) >= 9
+    # optional SN points: only in their dialog, rows without a measured SN are not used
+    dialog = SNPointsDialog(win.guide(), [], None, win)
+    dialog.fill_planned()
+    assert dialog.table.rowCount() == 6 and dialog.points() == []
+    dialog.table.item(0, 5).setText(dialog.table.item(0, 6).text())  # "measured" = expected
+    assert len(dialog.points()) == 1
     win.fit()
     app.processEvents()
     assert win.result is not None and win.save_button.isEnabled()
-    assert win.table.rowCount() == 7
+    assert win.table.rowCount() >= 7
     win.comment.setText("window test")
     win.save()
     record = store.latest("capillary")
     assert record.path is not None and record.comment.startswith("window test")
     assert record.optics.enabled
-    # loading another map invalidates the fit
-    win.slots["step2"].clear()
+    win.remove_selected()  # nothing selected: nothing removed
+    win.clear_files()
     assert win.result is None and not win.save_button.isEnabled()
     win.close()
