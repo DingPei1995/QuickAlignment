@@ -1,4 +1,5 @@
-"""Build the PDF guides in ``docs/pdf/``: user guide and beamline staff guide, in English, Chinese and French.
+"""Build the PDF guides in ``docs/pdf/``: user guide, beamline staff guide and the gold-frame report, in English,
+Chinese and French.
 
 Each ``docs/<GUIDE>_<lang>.md`` is turned into HTML by pandoc (GitHub flavour,
 so the section links work as on GitHub), styled for A4 print and printed to
@@ -13,7 +14,7 @@ Needs:  pandoc, and ``pip install playwright`` with a Chromium it can use
         (``playwright install chromium``, or set ``CHROMIUM`` to a Chrome or
         Chromium executable).
 
-Usage:  python devtools/build_guides.py [user|staff] [en|zh|fr] ...   (default: all)
+Usage:  python devtools/build_guides.py [user|staff|gold] [en|zh|fr] ...   (default: all)
 """
 
 from __future__ import annotations
@@ -40,6 +41,11 @@ GUIDES = {
         "en": "QuickAlignment — Beamline Staff Guide",
         "zh": "QuickAlignment 线站人员指南",
         "fr": "QuickAlignment — Guide du personnel de la ligne",
+    }),
+    "gold": ("GOLD_FRAME_REPORT", "GoldFrame_calibration_report", {
+        "en": "Gold-frame calibration — Report",
+        "zh": "金框标定 — 报告",
+        "fr": "Étalonnage par le cadre en or — Rapport",
     }),
 }
 HTML_LANG = {"en": "en", "zh": "zh-CN", "fr": "fr"}
