@@ -1,8 +1,8 @@
 # Configurations
 
 - `calibration_YYYY-MM-DD_HHMMSS_<optic>.json` (`<optic>`: `capillary` or `zone_plate`): one file per calibration made by
-  beamline staff with InitialCalibration.py, or with GoldFrameCalibration.py (`fit … --save`, from SPEM maps of the gold
-  frame; what was measured is kept in the file's `check` record). Older files are kept as history and can be selected again in
+  beamline staff with InitialCalibration.py, or with GoldFrameCalibration.py (`fit … --save` or its window, from SPEM lines over the
+  gold frame; what was measured is kept in the file's `check` record). Older files are kept as history and can be selected again in
   the Configuration window.
 
 QuickAlignment only reads configurations; it writes none.

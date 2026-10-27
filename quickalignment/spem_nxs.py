@@ -193,11 +193,13 @@ def read_scan(path, entry: str | None = None, channel: str | None = None, normal
 
 def _kind(stages) -> str:
     outer, inner = stages[0], set(stages[1:])
+    if "sz" not in inner:
+        return "lines"
     if outer == "srn":
         return "srn_sz"
-    if outer == "srz":
-        return "srz_surface" if {"st", "sn"} <= inner else "srz_st"
-    return "st_sz"
+    if outer == "st" and len(inner) == 1:
+        return "st_sz"
+    return "sz_lines"
 
 
 def read_lines(paths, channel: str | None = None, normalize: bool = False, angle: str | None = None) -> Scan:
@@ -225,7 +227,7 @@ def read_lines(paths, channel: str | None = None, normalize: bool = False, angle
     for m in MOTORS:  # all lines now share the first line's scanned path, at their own fixed motors
         if m == inner:
             base[m][:], slope[m][:] = base[m][0], slope[m][0]
-    kind = "srn_sz" if angle == "srn" else ("srz_surface" if lines[0].slope["sn"][0] else "srz_st")
+    kind = "srn_sz" if angle == "srn" and inner == "sz" else ("sz_lines" if inner == "sz" else "lines")
     return Scan(kind, x, y, base, slope, np.column_stack(cols), {"files": [str(p) for p in paths], "angle": angle})
 
 
@@ -242,7 +244,7 @@ def write_scan(path, scan: Scan, entry: str = "img1_0001", optic_position: float
     simulated maps can then go through exactly the path of measured ones."""
     h5py = _h5py()
     n2, n1 = len(scan.x), len(scan.y)
-    moving_inner = [m for m in MOTORS if np.any(scan.slope[m] != 0)]
+    moving_inner = sorted((m for m in MOTORS if np.any(scan.slope[m] != 0)), key=lambda m: m != "sz")  # SZ: the scan
     moving_outer = [m for m in MOTORS if m not in moving_inner and np.ptp(scan.base[m]) > 0]
     with h5py.File(path, "w") as f:
         g = f.create_group(entry)

@@ -230,25 +230,23 @@ points at other rotations are predicted: staff tick *Found* (within 0.05 mm) or 
 optic position, and the configuration is corrected with them, round after round, until it is good enough.
 Protocol: [`docs/initial_calibration_protocol.md`](docs/initial_calibration_protocol.md).
 
-### Gold-frame calibration (`GoldFrameCalibration.py`, `docs/images/gold_frame/calibration_results.png`)
+### Gold-frame calibration (`GoldFrameCalibration.py`, `docs/images/gold_frame/calibration_maps.png`)
 
-Another way to make a configuration: three total-intensity SPEM maps of the gold reference frame (2 × 2 mm, 1 × 1 mm
-hole, at the riser centre), SN at the gold focus found by an SN scan:
+Another way to make a configuration: total-intensity SPEM lines over the gold reference frame (2 × 2 mm, 1 × 1 mm
+hole, at the riser centre). SZ is the only fast motor, so every measurement is an SZ fly line; ST, SN, SRn, SRz only
+move between lines. With the frame turned by 45° (SRn 165 / 75) its edges are diagonal, so where an SZ line crosses
+them also gives the horizontal position. The plan (33 lines in 9 settings): A at SRn 120, B at SRn 165 and 75, C at
+SRn 165 and SRz −25 … +10. Every edge of every line is fitted at once (`fit_global` in `quickalignment/gold_frame.py`):
+ST0, SZ0, SRn axis, SRz axis offsets, frame rotation, tilt of the gold face, ST / SZ scales; SN_f from an SN scan on
+the gold. An ST × SZ overview map, an SZ × SRn sweep and, as an option, SN focus points at other SRz may be added.
 
-1. ST × SZ at SRn 120 / SRz 0: frame centre (ST0, SZ0; SN_f = SN_gold − gold height), in-plane rotation, ST / SZ scales;
-2. SZ line through the frame against SRn (e.g. 120 ± 60°): the SRn axis;
-3. ST line through the hole against SRz (SRn 120; better with SN following ST along the turned surface): the SRz
-   axis offsets, ST0 again, and the tilt of the gold face.
-
-The gold edges of every line are fitted with the stage model (they are where the beam crosses them, whatever the
-analyzer sees). Double-click `GoldFrameCalibration.py` (`.pyw`): the calibration window – load the three maps
-(ANTARES `.nxs`: one 2-D map, or one line file per angle; datasets found by their `long_name`, intensity
+Double-click `GoldFrameCalibration.py` (`.pyw`): *Measurement plan…* (the lines, checked against the motor ranges and
+the anti-collision model, CSV), *Add files…* (ANTARES `.nxs`, datasets found by their `long_name`, intensity
 `heason/total_int` or `image32` summed, `quickalignment/spem_nxs.py`; needs `h5py`), set SN gold and the gold height,
-*Fit*, check the constants / residuals / fitted edges, *Save as new configuration*. `GoldFrameSimulator.py` (`.pyw`) is
-the interactive simulator (frame offset / rotation / tilt, axes, scales, analyzer acceptance, beam offset). From a
-console: `GoldFrameCalibration.py simulate …` writes the maps for given faults, `fit --step1 … --step2 … --step3 …
-[--save]` fits them and saves a configuration. Method, simulations (frame and axis offsets against the perfect case), validity of step 3 and the
-role of the analyzer focus / beam position: the report above.
+*Fit*, check the constants / residuals / fitted edges, *Save as new configuration*. *SN at other SRz (optional)…* opens
+the SN points in their own dialog. `GoldFrameSimulator.py` (`.pyw`) is the interactive simulator. From a console:
+`GoldFrameCalibration.py plan`, `simulate …`, `fit FILE… [--sn-points CSV] [--save]`. Method, simulations, accuracy
+and the role of the analyzer focus / beam position: the report above.
 
 ### Configuration window (toolbar *Configuration…*, `docs/calibration_dialog.png`)
 
