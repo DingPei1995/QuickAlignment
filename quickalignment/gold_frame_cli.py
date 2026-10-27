@@ -1,6 +1,7 @@
-"""GoldFrameCalibration: simulate, fit and save a configuration from the gold-frame maps.
+"""GoldFrameCalibration: fit the gold-frame maps and save a configuration; simulate them.
 
-    python GoldFrameCalibration.py                      interactive simulator (sliders)
+    python GoldFrameCalibration.py                      calibration window (load the three maps, fit, save)
+    python GoldFrameSimulator.py                        interactive simulator (sliders); also: ... simulator
     python GoldFrameCalibration.py simulate [options]   the three maps for given imperfections (PNG + .nxs / .npz)
     python GoldFrameCalibration.py fit --step1 F [--step2 F ...] [--step3 F ...] [--save]
 
@@ -47,14 +48,15 @@ def true_setup(args, config: StageConfig) -> Setup:
     return Setup(cfg, frame, inst)
 
 
-def load_map(paths: list[str]) -> Scan:
-    """A map from one .npz / .nxs file, or from several .nxs line scans."""
+def load_map(paths: list[str], normalize: bool = False) -> Scan:
+    """A map from one .npz / .nxs file, or from several .nxs line scans (normalize: divide by the diode)."""
+    paths = [str(p) for p in paths]
     if len(paths) == 1 and paths[0].lower().endswith(".npz"):
         return Scan.load_npz(paths[0])
     from .spem_nxs import read_lines, read_scan
     if len(paths) == 1:
-        return read_scan(paths[0])
-    return read_lines(paths)
+        return read_scan(paths[0], normalize=normalize)
+    return read_lines(paths, normalize=normalize)
 
 
 def _save_scan(scan: Scan, stem: Path, optic: float | None = None) -> Path:
@@ -139,23 +141,32 @@ def cmd_fit(args) -> int:
         print(f"  figure: {args.plot}")
 
     if args.save:
-        optic_type = "capillary" if args.optic == "capillary" else OPTIC_TYPES[0]
-        optic_pos = args.optic_position if args.optic_position is not None else step1.info.get("optic_position")
-        if optic_pos is not None:
-            m = MotorPositions(st=res.step1.values["st_c"], sn=float(step1.base["sn"][0]), sz=res.step1.values["sz_c"],
-                               srn=c.srn_ref, srz=0.0, pix=c.pi_center, piy=c.pi_center)
-            optics = OpticsCalibration(enabled=True, motors=m, surface_w=res.setup.gold_w(), optic_position=float(optic_pos),
-                                       optic_sign=1, optic_type=optic_type)
-            optic_note = f"optic {optic_pos:.3f} at the gold frame centre"
-        else:
-            optics = replace(newest.optics, optic_type=optic_type)
-            optic_note = f"optic reference kept from {newest.label}"
         sources = {k: [str(p) for p in v] for k, v in (("step1", args.step1), ("step2", args.step2),
                                                        ("step3", args.step3)) if v}
-        comment = args.comment or f"Gold frame calibration (SPEM maps), SN gold {sn_gold:.4f}; {optic_note}."
-        saved = store.save(record_for(res, optics, comment, sources))
+        record = calibration_record(res, step1, sn_gold, newest, args.optic, args.optic_position, args.comment, sources)
+        saved = store.save(record)
         print(f"  saved: {saved.path}")
     return 0
+
+
+def calibration_record(res, step1: Scan, sn_gold: float, newest, optic: str = "capillary",
+                       optic_position: float | None = None, comment: str | None = None, sources: dict | None = None):
+    """The configuration to save from a fit: the optic reference is the optic position at the gold frame
+    centre (given, or recorded in the map 1 file), else the newest configuration's."""
+    c = res.setup.config
+    optic_type = "capillary" if optic == "capillary" else OPTIC_TYPES[0]
+    optic_pos = optic_position if optic_position is not None else step1.info.get("optic_position")
+    if optic_pos is not None:
+        m = MotorPositions(st=res.step1.values["st_c"], sn=float(step1.base["sn"][0]), sz=res.step1.values["sz_c"],
+                           srn=c.srn_ref, srz=0.0, pix=c.pi_center, piy=c.pi_center)
+        optics = OpticsCalibration(enabled=True, motors=m, surface_w=res.setup.gold_w(), optic_position=float(optic_pos),
+                                   optic_sign=1, optic_type=optic_type)
+        optic_note = f"optic {optic_pos:.3f} at the gold frame centre"
+    else:
+        optics = replace(newest.optics, optic_type=optic_type)
+        optic_note = f"optic reference kept from {newest.label}"
+    text = f"Gold frame calibration (SPEM maps), SN gold {sn_gold:.4f}; {optic_note}."
+    return record_for(res, optics, f"{comment.strip()} -- {text}" if comment and comment.strip() else text, sources)
 
 
 # -- interactive simulator -----------------------------------------------------------------------------------
@@ -232,7 +243,8 @@ def main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="GoldFrameCalibration", description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="command")
-    sub.add_parser("gui", help="interactive simulator (default)")
+    sub.add_parser("window", help="calibration window (default)")
+    sub.add_parser("simulator", aliases=["gui"], help="interactive simulator")
 
     sim = sub.add_parser("simulate", help="simulate the three maps for given imperfections")
     for k in FRAME_ARGS:
@@ -273,7 +285,10 @@ def main(argv=None) -> int:
         return cmd_simulate(args)
     if args.command == "fit":
         return cmd_fit(args)
-    return cmd_gui(args)
+    if args.command in ("simulator", "gui"):
+        return cmd_gui(args)
+    from .ui.gold_frame_window import main as window
+    return window()
 
 
 if __name__ == "__main__":

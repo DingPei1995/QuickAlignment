@@ -524,9 +524,17 @@ def fit_st_sz(scan: Scan, frame: GoldFrame | None = None, core: float = 0.6) -> 
         if len(a) < 6:
             raise ValueError("step 1: too few edge points for the frame fit")
         A = np.column_stack([-a[:, 0], -a[:, 1], np.ones(len(a))])
-        sol, *_ = np.linalg.lstsq(A, a[:, 2], rcond=None)
+        keep = np.ones(len(a), bool)
+        for _ in range(5):  # edges taken wrongly (a line grazing a corner of the hole) are left out
+            sol, *_ = np.linalg.lstsq(A[keep], a[keep, 2], rcond=None)
+            r_all = A @ sol - a[:, 2]
+            limit = max(5.0 * 1.4826 * float(np.median(np.abs(r_all[keep]))), 0.01)
+            new = np.abs(r_all) <= limit
+            if np.array_equal(new, keep) or new.sum() < 6:
+                break
+            keep = new
         H[axis], c[axis] = sol[:2], sol[2]
-        res.append(A @ sol - a[:, 2])
+        res.append(r_all[keep])
     G = np.linalg.inv(H)
     centre = G @ c
     r = np.concatenate(res)

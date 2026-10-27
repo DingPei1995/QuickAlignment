@@ -166,7 +166,7 @@ SN 扫描的宽度（这里 0.29 mm）就是分析器横向的接收范围。测
 | 情形 | 第 3 图可用线数 | ST0 | SZ0 | SN_f | SRn 轴 u, v | SRz 偏移 ST, SN (± σ) | 测试点：样品板 / 沿光束 |
 |---|---|---|---|---|---|---|---|
 | 完美金框 | 36/36 | 0 | 0 | 0 | +1, 0 | 0 ± 9, -10 ± 8 | 2 / -1 |
-| 金框偏移 (0.3, −0.2) mm、面内转 3° | 36/36 | +9 | -1 | 0 | -2, -4 | -1 ± 26, +17 ± 21 | 359 / -2 |
+| 金框偏移 (0.3, −0.2) mm、面内转 3° | 36/36 | 0 | 0 | 0 | 0, 0 | -5 ± 4, -6 ± 3 | 360 / -2 |
 | ST 比例 1.02、SZ 比例 0.99 | 36/36 | 0 | 0 | 0 | +1, 0 | +3 ± 3, +2 ± 3 | 38 / +15 |
 | 金面绕 v 倾斜 2°，不拟合倾斜 | 36/36 | 0 | 0 | 0 | +8, -2 | -89 ± 19, -3 ± 15 | 17 / -27 |
 | 金面绕 v 倾斜 2°，拟合倾斜 | 36/36 | 0 | 0 | 0 | +8, -2 | -19 ± 15, -6 ± 11 | 4 / -6 |
@@ -188,7 +188,7 @@ SN 扫描的宽度（这里 0.29 mm）就是分析器横向的接收范围。测
 2. **第 1 图**：ST × SZ，金框周围 ±2 mm，SN = SN_gold。SZ 为快轴（通常如此），ST 步长 10–20 µm（ST0 和 ST 比例会在第 3 图中细化）。
 3. **第 2 图**：ST 在第 1 图得到的金框中心，SZ ±2.5 mm（快轴，10 µm），SRn 60…180°，步长 2°。
 4. **第 3 图**：SRn 120，SZ 在金框中心（穿过孔），SRz −25…+10°，步长 1°，ST ±3.5 mm（快轴，10 µm）。最好 SN 沿表面随 ST 移动（ΔSN = ΔST · tan(−SRz)），或逐线设定 SN。分析器接收范围够宽（SN 扫描宽度 ≳ 1 mm）时，SN 固定也可以。
-5. `python GoldFrameCalibration.py fit --step1 … --step2 … --step3 … --sn-gold … --height … --plot fit.png`。检查：
+5. 打开 `GoldFrameCalibration.py`，读入三张图，设定 SN gold 和金的高度，按 *Fit*。检查：
    - 残差：几 µm；
    - 被剔除的线：只在金框丢失处；
    - 拟合的倾斜：≲ 2°；
@@ -200,19 +200,40 @@ SN 扫描的宽度（这里 0.29 mm）就是分析器横向的接收范围。测
 
 ## 程序
 
-`GoldFrameCalibration.py`（在 QuickAlignment 文件夹中；模块 `quickalignment/gold_frame.py`）：
+**`GoldFrameCalibration.py`**（双击；Windows 下也可双击 `GoldFrameCalibration.pyw`）打开标定界面：
 
-- **不带参数**（双击）：交互式模拟器。滑块用于：
-  - 金框：偏移、转角、倾斜、高度；
-  - 台子：SRn 轴、SRz 偏移、ST 比例；
-  - 光束与分析器：接收范围、光束偏移；
-  - 第三步沿表面扫描的开关。
+1. **读入**三张图（*Load…*）：一个二维 `.nxs` 文件，或同时选中的多个线扫描文件（每个 SRn / SRz 一个）。第 2、3 图可以不读入：没有图的轴沿用最新配置。每张图下方显示读到的内容（类型、大小、范围、固定的马达、强度通道、光学元件位置）。
+2. **设定：**
+   - SN gold（默认取第 1 图的 SN）；
+   - 金的高度；
+   - 金框在样品板上的假定位置（默认中心）、外边与孔的尺寸；
+   - 是否拟合金面倾斜；
+   - 是否用二极管归一；
+   - 光学元件及其在金焦点处的位置（默认取第 1 图的 zone plate 通道，否则沿用最新配置的参考）。
+3. **Fit（拟合）：**
+   - *Results* 页：七个常数及其不确定度、最新配置的值和变化量；每张图的细节（rms、使用和剔除的线、转角、比例、剪切、倾斜）和警告。
+   - *Maps* 页：各图及拟合出的边沿（橙色）。
+4. **Save as new configuration（保存为新配置）**（可加注释）：`configs/calibration_<时间>_<光学元件>.json`，QuickAlignment 下次启动时读入。测量与拟合的内容（比例、转角、倾斜、残差、文件）记在其 `check` 中。
 
-  三张图上画出完美金框的边沿（品红）。
-- `simulate [--frame-u … --srz-offset-n … --analyzer-fwhm-h … --surface]`：给定缺陷下的三张图，保存为 ANTARES `.nxs` 文件（无 h5py 时为 `.npz`），外加一张图和真实值。
-- `fit --step1 F --step2 F… --step3 F… [--sn-gold] [--height] [--no-tilt] [--optic capillary|zone_plate] [--optic-position] [--plot PNG] [--save]`：拟合，打印各常数及其不确定度和相对最新配置的变化，并保存 QuickAlignment 可读入的配置（`configs/calibration_<时间>_<光学元件>.json`）。测量与拟合的内容（比例、转角、倾斜、残差、文件）记在其 `check` 中。光学参考取第 1 图记录的 zone plate 位置，或 `--optic-position`，否则沿用最新配置。
+*Load a simulated example* 会模拟一个带已知小缺陷的金框的三张图并读入，真实值显示在状态栏中，用于试用界面。
+
+![标定界面：结果](images/gold_frame/calibration_results.png)
+
+![标定界面：图与拟合边沿](images/gold_frame/calibration_maps.png)
+
+**`GoldFrameSimulator.py`**（双击；`GoldFrameSimulator.pyw`；也可在标定界面中点 *Open the simulator…*）是交互式模拟器。滑块用于：
+- 金框：偏移、转角、倾斜、高度；
+- 台子：SRn 轴、SRz 偏移、ST 比例；
+- 光束与分析器：接收范围、光束偏移；
+- 第三步沿表面扫描的开关。
+
+三张图上画出完美金框的边沿（品红）。
 
 ![模拟器](images/gold_frame/simulator.png)
+
+不用界面时，在命令行中：
+- `python GoldFrameCalibration.py simulate [--frame-u … --srz-offset-n … --analyzer-fwhm-h … --surface]`：给定缺陷下的三张图，保存为 ANTARES `.nxs` 文件（无 h5py 时为 `.npz`），外加一张图和真实值。
+- `python GoldFrameCalibration.py fit --step1 F --step2 F… --step3 F… [--sn-gold] [--height] [--no-tilt] [--optic capillary|zone_plate] [--optic-position] [--plot PNG] [--save]`。
 
 **文件读取**（`quickalignment/spem_nxs.py`）按一个真实的 SZ × SRn 扫描（`Cp_2023-05-28_22-08-47.nxs`）编写：
 - *通道*：`scan_data/data_NN` 按其 `long_name` 识别（NN 编号随扫描配置而变）。

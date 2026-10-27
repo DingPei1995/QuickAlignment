@@ -225,7 +225,7 @@ Errors in µm (fitted − true).
 | case | map 3 lines | ST0 | SZ0 | SN_f | SRn axis u, v | SRz offset ST, SN (± σ) | test point: plate / beam |
 |---|---|---|---|---|---|---|---|
 | perfect frame | 36/36 | 0 | 0 | 0 | +1, 0 | 0 ± 9, -10 ± 8 | 2 / -1 |
-| frame shifted (0.3, −0.2) mm, turned 3° | 36/36 | +9 | -1 | 0 | -2, -4 | -1 ± 26, +17 ± 21 | 359 / -2 |
+| frame shifted (0.3, −0.2) mm, turned 3° | 36/36 | 0 | 0 | 0 | 0, 0 | -5 ± 4, -6 ± 3 | 360 / -2 |
 | ST scale 1.02, SZ scale 0.99 | 36/36 | 0 | 0 | 0 | +1, 0 | +3 ± 3, +2 ± 3 | 38 / +15 |
 | face tilted 2° about v, tilt not fitted | 36/36 | 0 | 0 | 0 | +8, -2 | -89 ± 19, -3 ± 15 | 17 / -27 |
 | face tilted 2° about v, tilt fitted | 36/36 | 0 | 0 | 0 | +8, -2 | -19 ± 15, -6 ± 11 | 4 / -6 |
@@ -255,8 +255,7 @@ Reading the table:
 4. **Map 3:** SRn 120, SZ at the frame centre (through the hole), SRz −25…+10° in steps of 1°, ST ±3.5 mm (fast,
    10 µm). Best with SN following ST along the surface (ΔSN = ΔST · tan(−SRz)), or SN set line by line. With SN
    fixed it still works if the analyzer acceptance is wide enough (SN scan width ≳ 1 mm).
-5. `python GoldFrameCalibration.py fit --step1 … --step2 … --step3 … --sn-gold … --height … --plot fit.png`.
-   Check:
+5. Open `GoldFrameCalibration.py`, load the three maps, set SN gold and the gold height, press *Fit*. Check:
    - the residuals: a few µm;
    - the lines left out: only where the frame is lost;
    - the fitted tilt: ≲ 2°;
@@ -269,25 +268,50 @@ Reading the table:
 
 ## The program
 
-`GoldFrameCalibration.py` (in the QuickAlignment folder; module `quickalignment/gold_frame.py`):
+**`GoldFrameCalibration.py`** (double-click; Windows: `GoldFrameCalibration.pyw`) opens the calibration window:
 
-- **no argument** (double-click): the interactive simulator. Sliders for:
-  - the frame: offset, rotation, tilts, height;
-  - the stage: SRn axis, SRz offsets, ST scale;
-  - the beam and analyzer: acceptance, beam offset;
-  - a switch for step 3 along the surface.
+1. **Load** the three maps (*Load…*): one 2-D `.nxs` file, or several line files (one per SRn / SRz) selected
+   together. Maps 2 and 3 are optional; an axis without its map is kept from the newest configuration. Under each
+   map: what was read (kind, size, ranges, fixed motors, intensity channel, optic position).
+2. **Settings:**
+   - SN gold (default: the SN of map 1);
+   - gold height;
+   - where the frame is taken to be on the plate (default the centre), its outer size and hole;
+   - fit the tilt of the gold face;
+   - divide by the diode;
+   - the optic and its position at the gold focus (default: the zone-plate channel of map 1, else the newest
+     configuration's reference).
+3. **Fit:**
+   - *Results* tab: the seven constants with their uncertainty, the newest configuration and the change;
+     the details of each map (rms, lines used and left out, rotation, scales, shear, tilt) and warnings.
+   - *Maps* tab: the maps with the fitted edges (orange).
+4. **Save as new configuration** (with a comment): `configs/calibration_<time>_<optic>.json`, which QuickAlignment
+   loads at its next start. What was measured and fitted (scales, rotation, tilt, residuals, files) goes into its
+   `check` record.
 
-  The three maps are drawn with the edges of the perfect frame (magenta).
-- `simulate [--frame-u … --srz-offset-n … --analyzer-fwhm-h … --surface]`: the three maps for the given faults, as
-  ANTARES `.nxs` files (or `.npz` without h5py), a figure and the true values.
-- `fit --step1 F --step2 F… --step3 F… [--sn-gold] [--height] [--no-tilt] [--optic capillary|zone_plate]
-  [--optic-position] [--plot PNG] [--save]`: fits, prints the constants with uncertainties and the change from the
-  newest configuration, and saves a configuration (`configs/calibration_<time>_<optic>.json`) that QuickAlignment
-  loads. What was measured and fitted (scales, rotation, tilt, residuals, files) goes into its `check` record.
-  The optic reference is the zone-plate position recorded in map 1, or `--optic-position`, or else the newest
-  configuration's.
+*Load a simulated example* simulates the three maps of a frame with small known faults and loads them, with the
+true values in the status bar, to try the window.
+
+![Calibration window: results](images/gold_frame/calibration_results.png)
+
+![Calibration window: maps with the fitted edges](images/gold_frame/calibration_maps.png)
+
+**`GoldFrameSimulator.py`** (double-click; `GoldFrameSimulator.pyw`; also *Open the simulator…* in the window) is the
+interactive simulator. Sliders for:
+- the frame: offset, rotation, tilts, height;
+- the stage: SRn axis, SRz offsets, ST scale;
+- the beam and analyzer: acceptance, beam offset;
+- a switch for step 3 along the surface.
+
+The three maps are drawn with the edges of the perfect frame (magenta).
 
 ![Simulator](images/gold_frame/simulator.png)
+
+From a console, the same without windows:
+- `python GoldFrameCalibration.py simulate [--frame-u … --srz-offset-n … --analyzer-fwhm-h … --surface]`: the three
+  maps for the given faults, as ANTARES `.nxs` files (or `.npz` without h5py), a figure and the true values.
+- `python GoldFrameCalibration.py fit --step1 F --step2 F… --step3 F… [--sn-gold] [--height] [--no-tilt]
+  [--optic capillary|zone_plate] [--optic-position] [--plot PNG] [--save]`.
 
 **Reading the files** (`quickalignment/spem_nxs.py`) follows a real SZ × SRn scan (`Cp_2023-05-28_22-08-47.nxs`).
 - *Channels:* the `scan_data/data_NN` are recognised by their `long_name` (the NN numbers change between scan

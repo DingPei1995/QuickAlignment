@@ -173,7 +173,7 @@ def read_scan(path, entry: str | None = None, channel: str | None = None, normal
     for stage, _, rb in axes[2]:
         if stage:
             base[stage] = np.asarray(rb, float).reshape(n2)
-    for stage, _, rb in axes[1]:
+    for k, (stage, _, rb) in enumerate(axes[1]):
         if not stage:
             continue
         rb = np.asarray(rb, float).reshape(n2, n1)
@@ -181,7 +181,9 @@ def read_scan(path, entry: str | None = None, channel: str | None = None, normal
             ok = np.isfinite(rb[i])
             if ok.sum() >= 2 and np.ptp(rb[i][ok]) > 0:
                 slope[stage][i], base[stage][i] = np.polyfit(y[ok], rb[i][ok], 1)
-            else:  # no usable readback: the nominal positions
+            elif ok.any() and k > 0:  # a second motor that did not move on this line (SN at SRz 0 along the surface)
+                slope[stage][i], base[stage][i] = 0.0, float(np.mean(rb[i][ok]))
+            else:  # no usable readback of the scanned motor: the nominal positions
                 slope[stage][i], base[stage][i] = 1.0, 0.0
     stages = ([a[0] for a in axes[2]][:1] or [None]) + [a[0] for a in axes[1]]
     info["kind_from"] = stages

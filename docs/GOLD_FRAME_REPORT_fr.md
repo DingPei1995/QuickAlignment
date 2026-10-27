@@ -236,7 +236,7 @@ Deux sortes de nombres :
 | cas | lignes carte 3 | ST0 | SZ0 | SN_f | axe SRn u, v | décalage SRz ST, SN (± σ) | point test : plaque / faisceau |
 |---|---|---|---|---|---|---|---|
 | cadre parfait | 36/36 | 0 | 0 | 0 | +1, 0 | 0 ± 9, -10 ± 8 | 2 / -1 |
-| cadre décalé (0,3 ; −0,2) mm, tourné de 3° | 36/36 | +9 | -1 | 0 | -2, -4 | -1 ± 26, +17 ± 21 | 359 / -2 |
+| cadre décalé (0,3 ; −0,2) mm, tourné de 3° | 36/36 | 0 | 0 | 0 | 0, 0 | -5 ± 4, -6 ± 3 | 360 / -2 |
 | échelle ST 1,02, SZ 0,99 | 36/36 | 0 | 0 | 0 | +1, 0 | +3 ± 3, +2 ± 3 | 38 / +15 |
 | face inclinée de 2° autour de v, inclinaison non ajustée | 36/36 | 0 | 0 | 0 | +8, -2 | -89 ± 19, -3 ± 15 | 17 / -27 |
 | face inclinée de 2° autour de v, inclinaison ajustée | 36/36 | 0 | 0 | 0 | +8, -2 | -19 ± 15, -6 ± 11 | 4 / -6 |
@@ -268,8 +268,8 @@ Lecture du tableau :
    (rapide, 10 µm). Au mieux avec SN suivant ST le long de la surface (ΔSN = ΔST · tan(−SRz)), ou SN réglé ligne par
    ligne. Avec SN fixé, cela marche encore si l'acceptance de l'analyseur est assez large (largeur du balayage SN
    ≳ 1 mm).
-5. `python GoldFrameCalibration.py fit --step1 … --step2 … --step3 … --sn-gold … --height … --plot fit.png`.
-   Vérifier :
+5. Ouvrir `GoldFrameCalibration.py`, charger les trois cartes, régler SN gold et la hauteur de l'or, appuyer sur
+   *Fit*. Vérifier :
    - les résidus : quelques µm ;
    - les lignes écartées : seulement là où le cadre est perdu ;
    - l'inclinaison ajustée : ≲ 2° ;
@@ -282,26 +282,52 @@ Lecture du tableau :
 
 ## Le programme
 
-`GoldFrameCalibration.py` (dans le dossier de QuickAlignment ; module `quickalignment/gold_frame.py`) :
+**`GoldFrameCalibration.py`** (double-clic ; Windows : `GoldFrameCalibration.pyw`) ouvre la fenêtre d'étalonnage :
 
-- **sans argument** (double-clic) : le simulateur interactif. Curseurs pour :
-  - le cadre : décalage, rotation, inclinaisons, hauteur ;
-  - la platine : axe SRn, décalages SRz, échelle ST ;
-  - le faisceau et l'analyseur : acceptance, décalage du faisceau ;
-  - un interrupteur pour l'étape 3 le long de la surface.
+1. **Charger** les trois cartes (*Load…*) : un fichier `.nxs` 2-D, ou plusieurs fichiers de lignes (un par SRn / SRz)
+   sélectionnés ensemble. Les cartes 2 et 3 sont facultatives ; un axe sans sa carte est gardé de la configuration la
+   plus récente. Sous chaque carte : ce qui a été lu (type, taille, plages, moteurs fixes, canal d'intensité, position
+   de l'optique).
+2. **Réglages :**
+   - SN gold (par défaut : le SN de la carte 1) ;
+   - hauteur de l'or ;
+   - où le cadre est supposé être sur la plaque (par défaut le centre), sa taille extérieure et celle du trou ;
+   - ajuster l'inclinaison de la face d'or ;
+   - diviser par la diode ;
+   - l'optique et sa position au foyer de l'or (par défaut : le canal zone plate de la carte 1, sinon la référence de
+     la configuration la plus récente).
+3. **Fit (ajuster) :**
+   - onglet *Results* : les sept constantes avec leur incertitude, la configuration la plus récente et le changement ;
+     le détail de chaque carte (rms, lignes utilisées et écartées, rotation, échelles, cisaillement, inclinaison) et
+     les avertissements.
+   - onglet *Maps* : les cartes avec les bords ajustés (orange).
+4. **Save as new configuration (enregistrer)** (avec un commentaire) : `configs/calibration_<heure>_<optique>.json`,
+   que QuickAlignment charge au démarrage suivant. Ce qui a été mesuré et ajusté (échelles, rotation, inclinaison,
+   résidus, fichiers) va dans son enregistrement `check`.
 
-  Les trois cartes sont dessinées avec les bords du cadre parfait (magenta).
-- `simulate [--frame-u … --srz-offset-n … --analyzer-fwhm-h … --surface]` : les trois cartes pour les défauts
-  donnés, en fichiers ANTARES `.nxs` (ou `.npz` sans h5py), une figure et les vraies valeurs.
-- `fit --step1 F --step2 F… --step3 F… [--sn-gold] [--height] [--no-tilt] [--optic capillary|zone_plate]
-  [--optic-position] [--plot PNG] [--save]` : ajuste, affiche les constantes avec leurs incertitudes et le changement
-  par rapport à la configuration la plus récente, et enregistre une configuration
-  (`configs/calibration_<heure>_<optique>.json`) que QuickAlignment charge. Ce qui a été mesuré et ajusté (échelles,
-  rotation, inclinaison, résidus, fichiers) va dans son enregistrement `check`. La référence de l'optique est la
-  position de la zone plate enregistrée dans la carte 1, ou `--optic-position`, sinon celle de la configuration la
-  plus récente.
+*Load a simulated example* simule les trois cartes d'un cadre avec de petits défauts connus et les charge, avec les
+vraies valeurs dans la barre d'état, pour essayer la fenêtre.
+
+![Fenêtre d'étalonnage : résultats](images/gold_frame/calibration_results.png)
+
+![Fenêtre d'étalonnage : cartes avec les bords ajustés](images/gold_frame/calibration_maps.png)
+
+**`GoldFrameSimulator.py`** (double-clic ; `GoldFrameSimulator.pyw` ; aussi *Open the simulator…* dans la fenêtre)
+est le simulateur interactif. Curseurs pour :
+- le cadre : décalage, rotation, inclinaisons, hauteur ;
+- la platine : axe SRn, décalages SRz, échelle ST ;
+- le faisceau et l'analyseur : acceptance, décalage du faisceau ;
+- un interrupteur pour l'étape 3 le long de la surface.
+
+Les trois cartes sont dessinées avec les bords du cadre parfait (magenta).
 
 ![Simulateur](images/gold_frame/simulator.png)
+
+En console, la même chose sans fenêtre :
+- `python GoldFrameCalibration.py simulate [--frame-u … --srz-offset-n … --analyzer-fwhm-h … --surface]` : les trois
+  cartes pour les défauts donnés, en fichiers ANTARES `.nxs` (ou `.npz` sans h5py), une figure et les vraies valeurs.
+- `python GoldFrameCalibration.py fit --step1 F --step2 F… --step3 F… [--sn-gold] [--height] [--no-tilt]
+  [--optic capillary|zone_plate] [--optic-position] [--plot PNG] [--save]`.
 
 **Lecture des fichiers** (`quickalignment/spem_nxs.py`), écrite d'après un vrai balayage SZ × SRn
 (`Cp_2023-05-28_22-08-47.nxs`) :

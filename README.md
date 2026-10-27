@@ -230,7 +230,7 @@ points at other rotations are predicted: staff tick *Found* (within 0.05 mm) or 
 optic position, and the configuration is corrected with them, round after round, until it is good enough.
 Protocol: [`docs/initial_calibration_protocol.md`](docs/initial_calibration_protocol.md).
 
-### Gold-frame calibration (`GoldFrameCalibration.py`, `quickalignment/gold_frame.py`)
+### Gold-frame calibration (`GoldFrameCalibration.py`, `docs/images/gold_frame/calibration_results.png`)
 
 Another way to make a configuration: three total-intensity SPEM maps of the gold reference frame (2 × 2 mm, 1 × 1 mm
 hole, at the riser centre), SN at the gold focus found by an SN scan:
@@ -241,11 +241,13 @@ hole, at the riser centre), SN at the gold focus found by an SN scan:
    axis offsets, ST0 again, and the tilt of the gold face.
 
 The gold edges of every line are fitted with the stage model (they are where the beam crosses them, whatever the
-analyzer sees). Without arguments the program is an interactive simulator (frame offset / rotation / tilt, axes,
-scales, analyzer acceptance, beam offset); `simulate` writes the maps for given faults, `fit --step1 … --step2 …
---step3 … [--save]` fits measured maps (ANTARES `.nxs`: one 2-D map or one line per angle; datasets found by their
-`long_name`, intensity `heason/total_int` or `image32` summed, `quickalignment/spem_nxs.py`; needs `h5py`) and saves
-a configuration. Method, simulations (frame and axis offsets against the perfect case), validity of step 3 and the
+analyzer sees). Double-click `GoldFrameCalibration.py` (`.pyw`): the calibration window – load the three maps
+(ANTARES `.nxs`: one 2-D map, or one line file per angle; datasets found by their `long_name`, intensity
+`heason/total_int` or `image32` summed, `quickalignment/spem_nxs.py`; needs `h5py`), set SN gold and the gold height,
+*Fit*, check the constants / residuals / fitted edges, *Save as new configuration*. `GoldFrameSimulator.py` (`.pyw`) is
+the interactive simulator (frame offset / rotation / tilt, axes, scales, analyzer acceptance, beam offset). From a
+console: `GoldFrameCalibration.py simulate …` writes the maps for given faults, `fit --step1 … --step2 … --step3 …
+[--save]` fits them and saves a configuration. Method, simulations (frame and axis offsets against the perfect case), validity of step 3 and the
 role of the analyzer focus / beam position: the report above.
 
 ### Configuration window (toolbar *Configuration…*, `docs/calibration_dialog.png`)
