@@ -192,3 +192,48 @@ def test_command_line_fit_saves_a_configuration(tmp_path, capsys):
     record = CalibrationStore(configs).latest("capillary")
     assert record.config.srz_offset_n == pytest.approx(TRUE.srz_offset_n, abs=0.015)
     assert record.optics.enabled and record.optics.optic_position == pytest.approx(60.3)
+
+
+def test_a_scan_along_the_surface_reads_back_at_srz_0(tmp_path):
+    """SN does not move on the SRz = 0 line of a scan along the surface: it is still read as SN, not as the
+    scanned position."""
+    pytest.importorskip("h5py")
+    from quickalignment.spem_nxs import read_scan, write_scan
+
+    scan = standard_scans(NOMINAL, step=0.05, surface=True)["step3"]
+    Setup(TRUE, GoldFrame(), Instrument(**WIDE)).simulate(scan)
+    write_scan(tmp_path / "step3.nxs", scan)
+    back = read_scan(tmp_path / "step3.nxs")
+    assert back.kind == "srz_surface"
+    for m in ("st", "sn"):
+        assert back.motor_grid(m) == pytest.approx(scan.motor_grid(m), abs=1e-9), m
+
+
+def test_calibration_window_loads_fits_and_saves(tmp_path, monkeypatch):
+    pytest.importorskip("h5py")
+    import os
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    qt = pytest.importorskip("quickalignment.ui._qt")
+    from quickalignment.ui.gold_frame_window import GoldFrameWindow
+
+    app = qt.QtWidgets.QApplication.instance() or qt.QtWidgets.QApplication([])
+    monkeypatch.setattr(qt.QtWidgets.QMessageBox, "information", staticmethod(lambda *a, **k: 0))
+    monkeypatch.setattr(qt.QtWidgets.QMessageBox, "warning", staticmethod(lambda *a, **k: 0))
+    store = CalibrationStore(tmp_path)
+    win = GoldFrameWindow(store)
+    assert not win.save_button.isEnabled()
+    win.load_example()  # simulated maps written as .nxs and loaded through the slots
+    assert all(slot.scan is not None for slot in win.slots.values())
+    win.fit()
+    app.processEvents()
+    assert win.result is not None and win.save_button.isEnabled()
+    assert win.table.rowCount() == 7
+    win.comment.setText("window test")
+    win.save()
+    record = store.latest("capillary")
+    assert record.path is not None and record.comment.startswith("window test")
+    assert record.optics.enabled
+    # loading another map invalidates the fit
+    win.slots["step2"].clear()
+    assert win.result is None and not win.save_button.isEnabled()
+    win.close()

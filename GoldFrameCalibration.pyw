@@ -1,4 +1,4 @@
-# Windows: double-click to start the gold-frame simulator without a console window.
+# Windows: double-click to open the gold-frame calibration window without a console window.
 import os
 import runpy
 

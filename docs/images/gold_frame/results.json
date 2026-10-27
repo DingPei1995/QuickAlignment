@@ -61,35 +61,32 @@
    "free_tilt": true,
    "lines_step3": "36/36",
    "error": {
-    "st0": 0.0091,
-    "sz0": -0.0012,
+    "st0": 0.0,
+    "sz0": -0.0003,
     "sn_f": -0.0,
-    "srn_axis_u": -0.0021,
-    "srn_axis_v": -0.0036,
-    "srz_offset_t": -0.0012,
-    "srz_offset_n": 0.0173
+    "srn_axis_u": -0.0001,
+    "srn_axis_v": 0.0001,
+    "srz_offset_t": -0.0054,
+    "srz_offset_n": -0.006
    },
    "sigma_srz": [
-    0.026,
-    0.0207
+    0.0036,
+    0.0028
    ],
    "step1": {
-    "st_c": -1.2643,
-    "sz_c": 40.8288,
-    "scale_st": 0.9864,
-    "scale_sz": 0.9963,
-    "rotation": 0.4789,
-    "shear": -5.0814
+    "st_c": -1.2485,
+    "sz_c": 40.8297,
+    "scale_st": 1.001,
+    "scale_sz": 1.0002,
+    "rotation": 3.0266,
+    "shear": 0.014
    },
    "test_point": {
-    "plate_mm": 0.3592,
-    "along_beam_mm": -0.0024
+    "plate_mm": 0.36,
+    "along_beam_mm": -0.0019
    },
-   "notes": [
-    "ST scale 0.9864: more than 1 % from 1 (motor scale, or the gold face tilted about the vertical); QuickAlignment assumes 1",
-    "shear -5.08 deg between the ST and SZ edges (gold face tilted about the horizontal, or ST / SZ not at right angles)"
-   ],
-   "tilt_fitted": -1.304
+   "notes": [],
+   "tilt_fitted": 0.059
   },
   {
    "case": "ST scale 1.02, SZ scale 0.99",
