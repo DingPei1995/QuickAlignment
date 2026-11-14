@@ -1,0 +1,126 @@
+{
+  "created": "2026-11-14 17:37:43",
+  "comment": "Gating plate + capillary, full real-sample calibration 2026-11-14 on one feature: top-right corner of the lower-right gold pad of the device on Si (photo 20261111_103232, plate x 1.284 / y 0.775 mm, H 0.500 mm). Set 1 (SRn 120 / SRz 0) at the analyzer focus: ST -2.90, SZ 40.24, SN -0.30, CPS 61.45. Rotated sets with SN kept at -0.30 and the capillary refocused: SRn 140 (ST -2.50, SZ 39.80, CPS 61.45), SRz -10 (ST -3.76, SZ 40.24, CPS 62.05), SRn 100 (ST -3.12, SZ 40.80, CPS not noted), SRn 100 / SRz -5 (ST -3.54, SZ 40.78, CPS 61.76); positions +-0.02 mm. SRn 100 and SRn 100 / SRz -5 were predicted from the first three sets within 0.034 mm. 5 sets, 7 redundant equations, rms 6.7 um, largest residual 0.016 mm. Against 2026-10-24 23:55: ST0 -0.66, SZ0 +0.39, CPS at the analyzer focus +1.76 (capillary realigned), SN_f -0.30 (now measured; was assumed), SRn axis ~0.1 mm, SRz axis +-0.06/0.08 mm (was +-0.4); the SRz offset change mostly follows the new ST0 / SN_f reference. Fitted with the SN-kept sets of the real-sample calibration (sn_kept). SRz kept <= 0 by choice. Refitted 2026-11-14 with the right substrate thickness: the calibration Si substrate is 0.5 mm thick (reference w 5.500, was 5.525); same sets. Supersedes 2026-11-14 17:22:37. CPS at the analyzer focus corrected by hand to 61.51 (fit gave 61.4511).",
+  "stage_config": {
+    "st0": -1.6127389262697402,
+    "sz0": 41.015885840956955,
+    "sn_f": -0.798260207455943,
+    "srn_ref": 120.0,
+    "pi_center": 150.0,
+    "srn_axis_u": -0.1662835196962328,
+    "srn_axis_v": -0.10684132702050304,
+    "srz_offset_t": -0.9241933441322954,
+    "srz_offset_n": 2.1884818117188054
+  },
+  "optics": {
+    "enabled": true,
+    "motors": {
+      "st": -2.9,
+      "sn": -0.3,
+      "sz": 40.24,
+      "srn": 120.0,
+      "srz": 0.0,
+      "pix": 150.0,
+      "piy": 150.0
+    },
+    "surface_w": 5.5,
+    "optic_position": 61.50753956178848,
+    "optic_sign": 1,
+    "optic_type": "capillary",
+    "last_position": null
+  },
+  "check": {
+    "type": "real-sample calibration",
+    "mode": "full",
+    "plate": "gating",
+    "reference_uvw": [
+      1.284,
+      0.775,
+      5.5
+    ],
+    "sets": [
+      {
+        "name": "1 reference",
+        "srn": 120.0,
+        "srz": 0.0,
+        "st": -2.9,
+        "sz": 40.24,
+        "sn": -0.3,
+        "pix": 150.0,
+        "piy": 150.0,
+        "use": true,
+        "optic": 61.45,
+        "sn_kept": false
+      },
+      {
+        "name": "2 SRn rotated",
+        "srn": 140.0,
+        "srz": 0.0,
+        "st": -2.5,
+        "sz": 39.8,
+        "sn": -0.3,
+        "pix": 150.0,
+        "piy": 150.0,
+        "use": true,
+        "optic": 61.45,
+        "sn_kept": true
+      },
+      {
+        "name": "3 SRz rotated",
+        "srn": 120.0,
+        "srz": -10.0,
+        "st": -3.76,
+        "sz": 40.24,
+        "sn": -0.3,
+        "pix": 150.0,
+        "piy": 150.0,
+        "use": true,
+        "optic": 62.05,
+        "sn_kept": true
+      },
+      {
+        "name": "4 SRn rotated (check)",
+        "srn": 100.0,
+        "srz": 0.0,
+        "st": -3.12,
+        "sz": 40.8,
+        "sn": -0.3,
+        "pix": 150.0,
+        "piy": 150.0,
+        "use": true,
+        "optic": null,
+        "sn_kept": true
+      },
+      {
+        "name": "6 SRn 100 SRz -5",
+        "srn": 100.0,
+        "srz": -5.0,
+        "st": -3.54,
+        "sz": 40.78,
+        "sn": -0.3,
+        "pix": 150.0,
+        "piy": 150.0,
+        "use": true,
+        "optic": 61.76,
+        "sn_kept": true
+      }
+    ],
+    "fitted": [
+      "st0",
+      "sz0",
+      "sn_f",
+      "srn_axis_u",
+      "srn_axis_v",
+      "srz_offset_t",
+      "srz_offset_n",
+      "optic_focus"
+    ],
+    "optic_focus": 61.51,
+    "rms_mm": 0.006721692453276347,
+    "test_rounds": 0,
+    "test_points": [],
+    "test_points_fitted": 0,
+    "previous": "2026-11-14 17:22:37 capillary",
+    "optic_focus_before_correction": 61.451075708241746
+  }
+}
