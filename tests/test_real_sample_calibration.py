@@ -205,6 +205,45 @@ def test_optics_only_fits_st0_sz0_and_optic_keeping_the_mechanics():
     assert optic_focus_of(rec, GATING_PLATE) == pytest.approx(FOCUS)
 
 
+def _sn_kept_sets(truth, focus, plate=GATING_PLATE):
+    """Full protocol as run at the beamline: set 1 at the analyzer focus, the others with its SN kept and the optic
+    refocused."""
+    sets = protocol_sets(mode="full", sn_kept=True)
+    model = StageModel(truth, plate)
+    ref = model.motors_for_target(*REF, srn=sets[0].srn, srz=sets[0].srz)
+    for s in sets:
+        s.sn = ref.sn
+        s.st, s.sz, s.optic = on_beam(model, REF, s.srn, s.srz, ref.sn, s.pix, s.piy, focus)
+    return sets
+
+
+def test_full_fit_with_sn_kept_sets():
+    sets = _sn_kept_sets(TRUE, FOCUS)
+    assert [s.sn_kept for s in sets] == [False, True, True, True, True]
+    res = fit_real_sample_calibration(sets[:3], GATING_PLATE, REF, base=StageConfig())
+    assert np.allclose(params(res.config), params(TRUE), atol=1e-7) and res.optic_focus == pytest.approx(FOCUS)
+    assert res.residuals[0][3] is not None and res.residuals[2][3] is None
+    # the same SN-kept numbers fitted as if they were at the analyzer focus: the SRz axis goes wrong
+    wrong = fit_real_sample_calibration([replace(s, sn_kept=False) for s in sets[:3]], GATING_PLATE, REF,
+                                        base=StageConfig())
+    assert abs(wrong.config.srz_offset_n - TRUE.srz_offset_n) > 0.1 and wrong.rms > 0.01
+
+
+def test_sn_kept_srz_set_needs_the_optic():
+    sets = _sn_kept_sets(TRUE, FOCUS)[:3]
+    sets[2].optic = None
+    with pytest.raises(NotEnoughData) as err:
+        fit_real_sample_calibration(sets, GATING_PLATE, REF, base=StageConfig())
+    assert "SRz offset SN" in str(err.value)
+
+
+def test_test_points_can_keep_sn():
+    model = StageModel(TRUE, GATING_PLATE)
+    t = predict_test_point(model, REF, TestPoint("x", 100.0, -5.0), FOCUS, sn=0.2)
+    assert t.sn == 0.2
+    assert (t.pred_st, t.pred_sz, t.pred_optic) == pytest.approx(on_beam(model, REF, 100.0, -5.0, 0.2, 150, 150, FOCUS))
+
+
 def test_optics_only_check_sets_show_changed_mechanics():
     sets = _optics_sets(replace(TRUE, srz_offset_n=TRUE.srz_offset_n + 1.0), FOCUS)  # SRz axis moved
     res = fit_real_sample_calibration(sets, GATING_PLATE, REF, base=TRUE, mode="optics")

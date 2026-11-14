@@ -13,8 +13,9 @@ import pytest
 from quickalignment.agent import AgentAPI, APIError
 from quickalignment.agent.mcp_server import TOOLS, Server
 from quickalignment.core.calibration import CalibrationStore
+from quickalignment.core.geometry import GATING_PLATE
 from quickalignment.core.stage import MotorPositions, StageModel
-from quickalignment.realsample.fit import protocol_sets
+from quickalignment.realsample.fit import on_beam, protocol_sets
 
 ROOT = Path(__file__).resolve().parent.parent
 PHOTO = ROOT / "tests" / "data" / "gating_plate_photo.jpg"
@@ -112,18 +113,19 @@ def test_samples_positions_and_found_here(api):
 def test_bring_to_beam_rotate_and_edge(api):
     a = started(api)
     a.add_sample(2.0, 3.0, 3.0, 2.0, 0.525, name="S1")
-    a.set_position({"st": 0.0, "sn": 0.0, "sz": 40.0, "srn": 120.0, "srz": 0.0})
+    sn_focus = round(a.record.config.sn_f + 0.525, 3)  # S1's surface at the analyzer focus (newest config)
+    a.set_position({"st": 0.0, "sn": sn_focus, "sz": 40.0, "srn": 120.0, "srz": 0.0})
     on = a.bring_to_beam("S1")
     m = MotorPositions(**on["stage"])
     hit = a.beam_on({k: on["stage"][k] for k in ("st", "sn", "sz", "srn", "srz")})
     assert hit["beam_lands_on"] == "S1" and hit["plate_mm"] == pytest.approx([2.0, 3.0], abs=1e-3)
-    assert m.sn == 0.0 and on["focus_ok"]
+    assert m.sn == sn_focus and on["focus_ok"]
     far = a.bring_to_beam("S1", {"sn": 1.0})
     assert not far["focus_ok"] and "correct_sn" in far["advice"]
     focus = a.bring_to_beam("S1", {"sn": 1.0}, correct_sn=True)
     assert focus["distance_from_analyzer_focus_um"] == 0
     rot = a.rotate(140.0, -10.0, motors=on["stage"])
-    assert rot["point"]["on"] == "S1" and rot["sn_kept"]["stage"]["sn"] == pytest.approx(0.0)
+    assert rot["point"]["on"] == "S1" and rot["sn_kept"]["stage"]["sn"] == pytest.approx(sn_focus)
     assert rot["sn_corrected"]["distance_from_analyzer_focus_um"] == 0
     assert rot["recommended"] in ("sn_kept", "sn_corrected")
     new = MotorPositions(**rot["sn_corrected"]["stage"])
@@ -199,9 +201,39 @@ def test_real_sample_optics_mode_needs_a_configuration(api, configs, tmp_path):
     with pytest.raises(APIError, match="full"):
         empty.start("optics", "capillary", "standard", 0, 0, 0)
     out = api.real_sample.start("optics", "capillary", "gating", 1.5, 2.8, 0.525)
-    assert out["kept_from_previous"] and out["sets"][0]["expected_from_newest_configuration"]["SN"] == "leave as it is"
+    assert out["kept_from_previous"] and out["sets"][0]["sn"].startswith("kept")
+    assert out["sets"][0]["expected_from"] == "newest configuration"
     with pytest.raises(APIError, match="Not enough data|set"):
         api.real_sample.fit()
+
+
+def test_real_sample_full_mode_sn_kept(api, configs):
+    """As at the beamline: set 1 at the analyzer focus, rotated sets with SN kept and the optic refocused; the
+    expected positions follow set 1 once it is measured; test points keep SN."""
+    r = api.real_sample
+    r.start("full", "capillary", "gating", 1.284, 0.775, 0.525)
+    newest = CalibrationStore(configs).latest("capillary")
+    true = replace(newest.config, st0=newest.config.st0 - 0.6, sz0=newest.config.sz0 + 0.4, sn_f=-0.825,
+                   srn_axis_u=-0.1, srz_offset_n=2.3)
+    plate = GATING_PLATE
+    model, uvw, focus = StageModel(true, plate), (1.284, 0.775, plate.total_thickness + 0.525), 61.45
+    ref = model.motors_for_target(*uvw, srn=120.0, srz=0.0)
+    r.measure_set("1", ref.st, ref.sz, ref.sn, optic=focus)
+    table = r.status()["sets"]
+    assert table[1]["expected_from"].startswith("set 1") and table[1]["expected"]["SN"] == pytest.approx(ref.sn)
+    with pytest.raises(APIError, match="optic"):
+        r.measure_set("3", -3.0, 40.0, ref.sn)
+    r.add_set("6 SRn and SRz", 100.0, -5.0)
+    for s in r.sets[1:]:
+        if s.srz > 0:
+            continue  # leave the positive SRz set unmeasured
+        st, sz, optic = on_beam(model, uvw, s.srn, s.srz, ref.sn, 150.0, 150.0, focus)
+        r.measure_set(s.name.split(" ")[0], st, sz, ref.sn, optic=optic)
+    fit = r.fit()
+    assert fit["rms_mm"] < 1e-6
+    values = {c["name"]: c["value"] for c in fit["constants"]}
+    assert values["SN_f"] == pytest.approx(-0.825, abs=1e-4) and values["SRz offset SN"] == pytest.approx(2.3, abs=1e-4)
+    assert all(t["go_to"]["SN"] == pytest.approx(ref.sn) for t in fit["test_points"])
 
 
 # -- gold-frame calibration ----------------------------------------------------------------------------------

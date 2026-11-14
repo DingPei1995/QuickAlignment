@@ -54,8 +54,8 @@ def test_gating_capillary_configuration_reproduces_its_measurements():
     from quickalignment.alignment.rotation import relocate
     from quickalignment.core.stage import MotorPositions, StageModel
 
-    record = CalibrationStore().latest("capillary")
-    assert record.path.name == "calibration_2026-10-24_235500_capillary.json"
+    record = next(r for r in CalibrationStore().records()
+                  if r.path.name == "calibration_2026-10-24_235500_capillary.json")  # not the newest any more
     rg = SampleLayout(GATING_PLATE, [Sample("SampleA", u=1.65, v=2.75, length=7.7, width=7.7, height=0.525, devices=[
         Device("D1", x_edge="right", dx=3.99, y_edge="bottom", dy=3.92, length=0.05, width=0.05)])])
     cav = SampleLayout(GATING_PLATE, [Sample("SampleB", *record.check["devices"]["SampleB"]["uv"], length=0.2, width=0.2,
