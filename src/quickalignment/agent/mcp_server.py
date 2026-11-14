@@ -7,6 +7,13 @@ The Model Context Protocol over stdio is newline-delimited JSON-RPC 2.0. This mo
 tool server needs (initialize, ping, tools/list, tools/call, prompts/list, prompts/get) with the standard
 library only, so it runs on the beamline PC without the MCP SDK and does not break when the SDK changes.
 
+It follows the MCP server of ARPES viewer (arpes_viewer/agent/protocol.py), the reference for Ding's programs:
+the same protocol versions, `readOnlyHint` on every tool, a tool error (isError, with the text of the error)
+for anything that goes wrong inside a tool and a protocol error only for a bad request, the same error
+texts, JSON results written with indent=1, `python -m quickalignment.agent`, and a generated reference for
+agents: src/quickalignment/agent/API.md (python -m quickalignment.agent.catalog --write; a test fails when it
+is out of date). In addition to ARPES viewer: prompts (workflow.py).
+
 Tools are grouped by prefix: `align_*` (find samples), `rsc_*` (real-sample calibration), `gfc_*` (gold-frame
 calibration). The server keeps one session of each in memory while the client is connected.
 """
@@ -20,7 +27,7 @@ import os
 import sys
 import traceback
 
-PROTOCOL_VERSIONS = ("2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05")
+PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")  # as ARPES viewer (agent/protocol.py)
 SERVER_NAME = "quickalignment"
 SERVER_VERSION = "2.0.0"
 
@@ -180,15 +187,20 @@ TOOLS = [
          "Start a real-sample calibration with one reference feature.",
          {"mode": d("'optics' (optic realigned, usual) or 'full' (optics + motors)", **STR), "optic": OPTIC,
           "plate": d("'standard' or 'gating'", **STR), "feature_x": d("plate x (mm)", **NUM),
-          "feature_y": d("plate y (mm)", **NUM), "feature_height": d("H above the plate surface (mm)", **NUM)},
+          "feature_y": d("plate y (mm)", **NUM), "feature_height": d("H above the plate surface (mm)", **NUM),
+          "sn_kept": d("full mode: rotated sets keep the SN of set 1 and refocus the optic (default true); "
+                       "false: every set moved to the analyzer focus with SN", **BOOL)},
          ["mode", "optic", "plate", "feature_x", "feature_y", "feature_height"]),
     tool("rsc_status", "real_sample", "status", "The sets, what is measured, where the feature is expected."),
     tool("rsc_add_set", "real_sample", "add_set", "Another measurement set at other angles.",
-         {"name": STR, "srn": NUM, "srz": NUM}, ["name", "srn", "srz"]),
+         {"name": STR, "srn": NUM, "srz": NUM, "sn_kept": d("SN kept as in set 1 (default: as the session)", **BOOL)},
+         ["name", "srn", "srz"]),
     tool("rsc_measure_set", "real_sample", "measure_set", "The values read for a set.",
          {"name": d("set name or number ('1')", **STR), "st": NUM, "sz": NUM, "sn": NUM,
           "optic": d("optic position at best focus", **NUM), "pix": NUM, "piy": NUM, "srn": NUM, "srz": NUM,
-          "use": BOOL}, ["name", "st", "sz", "sn"]),
+          "use": BOOL, "sn_kept": d("how this set was measured: true = SN kept, optic refocused; false = SN moved "
+                                    "to the analyzer focus (default: as planned for the set)", **BOOL)},
+         ["name", "st", "sz", "sn"]),
     tool("rsc_fit", "real_sample", "fit", "Fit the constants; predicts a round of test points."),
     tool("rsc_test_points", "real_sample", "test_points", "The open test points: where to go."),
     tool("rsc_answer_test", "real_sample", "answer_test",
@@ -222,6 +234,25 @@ TOOLS = [
          "Write a simulated measurement (known faults) to try the steps without beam time.", {"folder": STR}),
 ]
 TOOL_INDEX = {t["name"]: t for t in TOOLS}
+
+#: tools that change something (the session, a file, a window on screen); every other tool only reads
+#: (MCP readOnlyHint, as ARPES viewer)
+ACTING = {
+    "align_start", "align_register_photo", "align_register_photo_3d", "align_manual_annotation",
+    "align_load_annotation", "align_add_sample", "align_add_sample_from_photo", "align_update_sample",
+    "align_remove_sample", "align_clear_samples", "align_add_device", "align_remove_device",
+    "align_register_device_photo", "align_set_position", "align_found_here", "align_save_session",
+    "align_load_session",
+    "rsc_start", "rsc_add_set", "rsc_measure_set", "rsc_fit", "rsc_answer_test", "rsc_change_test_angles", "rsc_save",
+    "gfc_start", "gfc_plan", "gfc_add_files", "gfc_remove_file", "gfc_set_sn_points", "gfc_fit", "gfc_save",
+    "gfc_simulate_example",
+}
+
+
+def tool_spec(t: dict) -> dict:
+    """What tools/list sends for one tool (the same keys as ARPES viewer's Tool.spec())."""
+    return {"name": t["name"], "description": t["description"], "inputSchema": t["inputSchema"],
+            "annotations": {"readOnlyHint": t["name"] not in ACTING}}
 
 
 # -- the server --------------------------------------------------------------------------------------------
@@ -267,8 +298,7 @@ class Server:
         if method == "ping":
             return {}
         if method == "tools/list":
-            return {"tools": [{"name": t["name"], "description": t["description"], "inputSchema": t["inputSchema"]}
-                              for t in TOOLS]}
+            return {"tools": [tool_spec(t) for t in TOOLS]}
         if method == "tools/call":
             return self.call_tool(params.get("name"), params.get("arguments") or {})
         if method == "prompts/list":
@@ -289,12 +319,12 @@ class Server:
             return {"resourceTemplates": []}
         if method == "logging/setLevel":
             return {}
-        raise _RpcError(-32601, f"Method not found: {method}")
+        raise _RpcError(-32601, f"method not found: {method}")
 
     def call_tool(self, name: str, arguments: dict) -> dict:
         spec = TOOL_INDEX.get(name)
         if spec is None:
-            raise _RpcError(-32602, f"Unknown tool: {name}")
+            raise _RpcError(-32602, f"no tool called {name!r}")
         if not isinstance(arguments, dict):
             raise _RpcError(-32602, "arguments must be an object")
         from .common import APIError
@@ -303,17 +333,19 @@ class Server:
         allowed = spec["inputSchema"]["properties"]
         unknown = [k for k in arguments if k not in allowed]
         missing = [k for k in spec["inputSchema"]["required"] if arguments.get(k) is None]
-        if unknown or missing:
+        if unknown or missing:  # as ARPES viewer: say what the tool takes
             text = (f"Unknown argument(s) {unknown}. " if unknown else "") + \
-                   (f"Missing argument(s) {missing}. " if missing else "") + f"Arguments: {sorted(allowed)}."
+                   (f"Missing argument(s) {missing}. " if missing else "") + \
+                   f"{name} takes: {', '.join(allowed) or 'nothing'}"
             return {"content": [{"type": "text", "text": text}], "isError": True}
         try:
             result = getattr(target, spec["method"])(**{k: v for k, v in arguments.items() if v is not None})
-        except APIError as exc:
+        except APIError as exc:  # a message for the user, as it is
             return {"content": [{"type": "text", "text": str(exc)}], "isError": True}
-        except (TypeError, ValueError, KeyError, IndexError, OSError) as exc:
+        except Exception as exc:  # noqa: BLE001 -- as ARPES viewer: every error inside a tool is a tool error
             traceback.print_exc(file=sys.stderr)
-            return {"content": [{"type": "text", "text": f"{type(exc).__name__}: {exc}"}], "isError": True}
+            detail = "".join(traceback.format_exception_only(type(exc), exc)).strip()
+            return {"content": [{"type": "text", "text": detail}], "isError": True}
         return tool_result(result)
 
 
@@ -334,7 +366,7 @@ def tool_result(result) -> dict:
         result = dict(result)
         png = result.pop("image_png")
         content.append({"type": "image", "data": base64.b64encode(png).decode("ascii"), "mimeType": "image/png"})
-    text = json.dumps(result, ensure_ascii=False, default=str)
+    text = json.dumps(result, ensure_ascii=False, indent=1, default=str)
     content.insert(0, {"type": "text", "text": text})
     return {"content": content, "isError": False}
 
@@ -357,8 +389,8 @@ def serve(configs=None, stdin=None, stdout=None) -> int:
             continue
         try:
             msg = json.loads(line)
-        except json.JSONDecodeError:
-            send(_error(None, -32700, "Parse error"))
+        except json.JSONDecodeError as exc:
+            send(_error(None, -32700, f"parse error: {exc}"))
             continue
         if isinstance(msg, list):  # a batch (protocol 2025-03-26)
             replies = [r for r in (server.handle(m) for m in msg) if r is not None]
@@ -379,7 +411,7 @@ def main(argv=None) -> int:
     args = p.parse_args(argv)
     if args.list_tools:
         for t in TOOLS:
-            print(f"{t['name']:30s} {t['description']}")
+            print(f"{t['name']:30s} {'ACT' if t['name'] in ACTING else '   '} {t['description']}")
         return 0
     return serve(args.configs)
 

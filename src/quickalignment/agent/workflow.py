@@ -65,6 +65,12 @@ START OF A CONVERSATION (also when the user just sends photos of a sample plate)
   set tell the user exactly what to set and measure (the result says where the feature is expected), collect the
   numbers they read, rsc_measure_set, then rsc_fit; go through the test points one by one (rsc_answer_test), fit
   again, until a round is all found. rsc_save only after the user confirms.
+  Full mode, how each set is measured matters: set 1 goes to the analyzer focus with SN (it fixes SN_f); the
+  rotated sets keep that SN and refocus the optic (sn_kept, the default). If the user measured a set the other way,
+  say so in rsc_measure_set(sn_kept=...): a set read with SN kept but fitted as "at the analyzer focus" gives a wrong
+  SRz axis. Always ask for the optic position. Each measured set updates the expected positions of the others
+  (expected_from): give the user the new ones. If they want other angles (e.g. no positive SRz), rsc_add_set
+  (it returns the expected position; a planned set left unmeasured is not fitted) instead of predicting by hand.
 - Gold frame (GoldFrameCalibration, SPEM total-intensity SZ lines over the 2 x 2 mm gold frame): gfc_start(optic,
   gold_height, frame position), give the protocol step by step (gfc_guide), gfc_plan (33 SZ lines, CSV), then
   gfc_add_files(paths of the .nxs files), gfc_fit, show gfc_plot and the quality checks, gfc_save after the user

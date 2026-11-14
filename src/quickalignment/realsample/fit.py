@@ -33,6 +33,14 @@ focus), the feature brought onto the beam with ST / SZ and the optic
 refocused; every set gives ST, SZ (and optic) like an answered test point.
 One set is enough; more sets at other rotations check the kept mechanics.
 
+Full mode with SN kept (`MeasurementSet.sn_kept`, the usual way of working at
+the beamline): set 1 (SRn = ref, SRz = 0) is brought to the analyzer focus with
+SN, which fixes SN_f; the rotated sets keep that SN, the feature is brought onto
+the beam with ST / SZ and the optic refocused. Such a set gives ST, SZ and the
+optic position (where the feature is along the beam) instead of ST, SZ, SN, so
+the optic position is needed in it (an SRz set without it leaves the SRz axis
+offset along SN undetermined). Sets of both kinds can be mixed.
+
 Test points: after a fit, the feature is predicted at other rotations (ST, SZ,
 SN and optic). Beamline staff go there; if the feature is not on the beam in
 focus, they keep SRn, SRz and SN, bring it onto the beam with ST / SZ, focus
@@ -73,11 +81,11 @@ PARAM_LABELS = {
 MISSING_HINT = {
     "st0": "a set at SRn = ref, SRz = 0",
     "sz0": "a set at SRn = ref, SRz = 0",
-    "sn_f": "a set at SRn = ref, SRz = 0",
+    "sn_f": "a set at SRn = ref, SRz = 0 moved to the analyzer focus with SN (not SN kept)",
     "srn_axis_u": "a set with SRn rotated (SRz = 0)",
     "srn_axis_v": "a set with SRn rotated (SRz = 0)",
     "srz_offset_t": "a set with SRz rotated (SRn = ref)",
-    "srz_offset_n": "a set with SRz rotated (SRn = ref)",
+    "srz_offset_n": "a set with SRz rotated (SRn = ref), at the analyzer focus or with its optic position noted",
     OPTIC_PARAM: "an optic position in a set",
 }
 
@@ -94,14 +102,20 @@ class MeasurementSet:
     piy: float = 150.0
     use: bool = True
     optic: float | None = None  # optic position at best focus, if noted
+    # SN left as it was (feature NOT moved to the analyzer focus), feature brought onto the beam with ST / SZ and the
+    # optic refocused: the set gives ST, SZ and optic (like an answered test point) instead of ST, SZ, SN. This is how
+    # the stage is usually run; the optic position is then needed to see where the feature is along the beam.
+    sn_kept: bool = False
 
     def motors(self) -> MotorPositions:
         return MotorPositions(st=self.st, sn=self.sn, sz=self.sz, srn=self.srn, srz=self.srz, pix=self.pix, piy=self.piy)
 
 
-def protocol_sets(srn_ref: float = 120.0, mode: str = "full") -> list[MeasurementSet]:
+def protocol_sets(srn_ref: float = 120.0, mode: str = "full", sn_kept: bool = False) -> list[MeasurementSet]:
     """The recommended sets. Full: 1-3 are the minimum, 4-5 add redundancy.
-    Optics only: set 1 is enough, 2-3 check the kept SRn / SRz axes."""
+    Optics only: set 1 is enough, 2-3 check the kept SRn / SRz axes.
+    `sn_kept` (full mode): the rotated sets (2-5) are measured with SN as in set 1 and the optic refocused; set 1
+    stays at the analyzer focus (it alone fixes SN_f)."""
     if mode == "optics":
         return [
             MeasurementSet("1 reference", srn_ref, 0.0),
@@ -110,10 +124,10 @@ def protocol_sets(srn_ref: float = 120.0, mode: str = "full") -> list[Measuremen
         ]
     return [
         MeasurementSet("1 reference", srn_ref, 0.0),
-        MeasurementSet("2 SRn rotated", srn_ref + 20.0, 0.0),
-        MeasurementSet("3 SRz rotated", srn_ref, -10.0),
-        MeasurementSet("4 SRn rotated (check)", srn_ref - 20.0, 0.0),
-        MeasurementSet("5 SRz rotated (check)", srn_ref, 10.0),
+        MeasurementSet("2 SRn rotated", srn_ref + 20.0, 0.0, sn_kept=sn_kept),
+        MeasurementSet("3 SRz rotated", srn_ref, -10.0, sn_kept=sn_kept),
+        MeasurementSet("4 SRn rotated (check)", srn_ref - 20.0, 0.0, sn_kept=sn_kept),
+        MeasurementSet("5 SRz rotated (check)", srn_ref, 10.0, sn_kept=sn_kept),
     ]
 
 
@@ -205,8 +219,13 @@ def on_beam(
     return float(st), float(sz), optic
 
 
-def predict_test_point(model: StageModel, uvw, t: TestPoint, optic_focus: float | None) -> TestPoint:
-    """The test point with the configuration's prediction (feature at the analyzer focus); answer cleared."""
+def predict_test_point(model: StageModel, uvw, t: TestPoint, optic_focus: float | None,
+                       sn: float | None = None) -> TestPoint:
+    """The test point with the configuration's prediction (feature at the analyzer focus); answer cleared.
+    `sn`: keep SN at this value instead (feature on the beam, optic refocused there, not at the analyzer focus)."""
+    if sn is not None:
+        st, sz, optic = on_beam(model, uvw, t.srn, t.srz, sn, t.pix, t.piy, optic_focus)
+        return replace(t, sn=sn, pred_st=st, pred_sz=sz, pred_optic=optic, found=False, st=None, sz=None, optic=None)
     m = model.motors_for_target(*uvw, srn=t.srn, srz=t.srz, pix=t.pix, piy=t.piy)
     return replace(t, sn=m.sn, pred_st=m.st, pred_sz=m.sz, pred_optic=optic_focus, found=False, st=None, sz=None, optic=None)
 
@@ -233,7 +252,7 @@ def _residual_vector(config, optic_focus, plate, uvw, sets, tests, keep_sn=False
     model = StageModel(config, plate)
     out = []
     for s in sets:
-        if keep_sn:
+        if keep_sn or s.sn_kept:
             st, sz, _ = on_beam(model, uvw, s.srn, s.srz, s.sn, s.pix, s.piy, None)
             out += [st - s.st, sz - s.sz]
         else:
@@ -241,7 +260,8 @@ def _residual_vector(config, optic_focus, plate, uvw, sets, tests, keep_sn=False
             out += [m.st - s.st, m.sz - s.sz, m.sn - s.sn]
     for s in sets:
         if optic_focus is not None and s.optic is not None:
-            optic = on_beam(model, uvw, s.srn, s.srz, s.sn, s.pix, s.piy, optic_focus)[2] if keep_sn else optic_focus
+            optic = (on_beam(model, uvw, s.srn, s.srz, s.sn, s.pix, s.piy, optic_focus)[2] if keep_sn or s.sn_kept
+                     else optic_focus)
             out.append(optic - s.optic)
     for t in tests:
         st, sz, optic = on_beam(model, uvw, t.srn, t.srz, t.sn, t.pix, t.piy, optic_focus)
@@ -259,14 +279,16 @@ def fit_real_sample_calibration(
     base: StageConfig | None = None,
     tests: list[TestPoint] | None = None,
     mode: str = "full",
+    params: tuple[str, ...] | None = None,
 ) -> FitResult:
     """Least-squares fit of the stage constants of `mode` (full: all 7; optics: ST0, SZ0, with the
     sets measured at the SN they had) and the optic focus position, if any optic position was
     noted, to the sets and the answered test points (Gauss-Newton, numerical Jacobian); `base`
     gives the start values and the constants that are not fitted (optics: from the newest
-    configuration)."""
+    configuration). Sets with `sn_kept` give ST, SZ, optic like in mode optics. `params`: fit only these
+    constants (e.g. ST0, SZ0, SN_f from set 1 alone, to update the expected positions of the other sets)."""
     base = base or StageConfig()
-    fit_params, keep_sn = MODE_PARAMS[mode], mode == "optics"
+    fit_params, keep_sn = tuple(params) if params else MODE_PARAMS[mode], mode == "optics"
     sets = [s for s in sets if s.use]
     tests = [t for t in tests or [] if t.measured]  # found points only confirm
     optics = [s.optic for s in sets if s.optic is not None] + [t.real()[2] for t in tests if t.real()[2] is not None]
@@ -315,10 +337,15 @@ def fit_real_sample_calibration(
         sigma = {p: float(np.sqrt(max(cov[i, i], 0.0))) for i, p in enumerate(params)}
     config, optic_focus = unpack(x)
 
-    # per-measurement residuals, in the order of _residual_vector
-    n = 2 if keep_sn else 3
-    per_set = [(s.name, *map(float, r[n * i: n * i + n]), *([None] if keep_sn else [])) for i, s in enumerate(sets)]
-    k = n * len(sets)
+    # per-measurement residuals, in the order of _residual_vector (SN None: SN kept as measured)
+    per_set, k = [], 0
+    for s in sets:
+        if keep_sn or s.sn_kept:
+            per_set.append((s.name, float(r[k]), float(r[k + 1]), None))
+            k += 2
+        else:
+            per_set.append((s.name, float(r[k]), float(r[k + 1]), float(r[k + 2])))
+            k += 3
     optic_res = []
     for s in sets:
         if optic_focus is not None and s.optic is not None:

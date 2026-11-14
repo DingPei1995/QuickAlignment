@@ -52,7 +52,11 @@ def main(argv: list[str] | None = None) -> int:
         dialog.set_corners(pts3d)
     elif args.corners:
         dialog.set_corners(_points(args.corners))
-    ok = dialog.exec() if hasattr(dialog, "exec") else dialog.exec_()
+    # started from a background process (the assistant's server): bring the window to the front
+    dialog.show()
+    dialog.raise_()
+    dialog.activateWindow()
+    ok =dialog.exec() if hasattr(dialog, "exec") else dialog.exec_()
     result = {"accepted": bool(ok)}
     if ok:
         result["replace"] = dialog.replace_existing()

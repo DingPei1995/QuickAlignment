@@ -36,10 +36,12 @@ from .common import APIError, number, optic_short, optic_type, rounded
 RMS_WARNING = 0.02  # mm, as in the window
 
 HOW_TO_MEASURE = {
-    "full": ("Set SRn and SRz to the values of the set, PIX = PIY = 150 µm. Bring the feature onto the beam with "
-             "ST / SZ (scan across it, take the centre of the edge / feature), bring it to the analyzer focus with SN; "
-             "repeat until both are stable. Write down ST, SZ, SN, and the optic position at best focus (at least in "
-             "set 1, better in every set)."),
+    "full": ("Set SRn and SRz to the values of the set, PIX = PIY = 150 µm. Set 1 (and any set with sn_kept false): "
+             "bring the feature onto the beam with ST / SZ (scan across it, take the centre of the edge / feature), "
+             "bring it to the analyzer focus with SN; repeat until both are stable. Sets with sn_kept true: LEAVE SN "
+             "AS IN SET 1, bring the feature onto the beam with ST / SZ and refocus the optic. Write down ST, SZ, SN "
+             "and the optic position at best focus in every set (needed in the SN-kept sets). After each set the "
+             "expected positions of the other sets are recomputed from what was measured (expected_from)."),
     "optics": ("Set SRn and SRz to the values of the set, PIX = PIY = 150 µm. LEAVE SN AS IT IS. Bring the feature "
                "onto the beam with ST / SZ, refocus the optic. Write down ST, SZ, SN and the optic position."),
 }
@@ -57,13 +59,18 @@ class RealSampleCalibrationSession:
         self.result = None
         self.saved = None
         self.measured: set[str] = set()  # names of the sets with entered values
+        self.sn_kept = True  # full mode: rotated sets measured with SN as in set 1 and the optic refocused
+        self.last_fit = None  # the newest fit, kept for the expected positions when sets change afterwards
 
     # --------------------------------------------------------------------------------------------- setup
     def start(self, mode: str = "optics", optic: str | None = None, plate: str = "standard",
-              feature_x: float = 0.0, feature_y: float = 0.0, feature_height: float = 0.0) -> dict:
+              feature_x: float = 0.0, feature_y: float = 0.0, feature_height: float = 0.0,
+              sn_kept: bool = True) -> dict:
         """Begin a calibration: mode "optics" (optic realigned: ST0, SZ0, optic reference; the mechanics are kept
         from the newest configuration) or "full" (optics + motors: all constants), the optic, the plate and the
-        reference feature (plate x, y in mm and its height H above the plate surface)."""
+        reference feature (plate x, y in mm and its height H above the plate surface). `sn_kept` (full mode): the
+        rotated sets keep the SN of set 1 and refocus the optic (usual); false: every set is moved to the analyzer
+        focus with SN."""
         mode = str(mode).strip().lower()
         mode = "optics" if mode.startswith("opt") else "full" if mode in ("full", "all", "motors", "optics + motors") \
             else mode
@@ -81,9 +88,11 @@ class RealSampleCalibrationSession:
         self.mode, self.plate = mode, PLATES[key]
         x, y, h = number(feature_x, "x"), number(feature_y, "y"), number(feature_height, "H")
         self.uvw = (x, y, self.plate.total_thickness + h)
-        self.sets = protocol_sets(prev.config.srn_ref, mode)
-        self.tests, self.result, self.saved, self.measured = [], None, None, set()
+        self.sn_kept = mode == "full" and bool(sn_kept)
+        self.sets = protocol_sets(prev.config.srn_ref, mode, sn_kept=self.sn_kept)
+        self.tests, self.result, self.saved, self.measured, self.last_fit = [], None, None, set(), None
         out = {"mode": mode, "optic": self.optic, "plate": self.plate.name, "feature": {"x": x, "y": y, "H": h},
+               "sn_kept": self.sn_kept,
                "feature_warnings": feature_warnings(self.plate, x, y),
                "previous_configuration": prev.label,
                "kept_from_previous": ([PARAM_LABELS[p] for p in FIT_PARAMS if p not in ("st0", "sz0")]
@@ -99,22 +108,57 @@ class RealSampleCalibrationSession:
     def previous(self):
         return self.store.latest(self.optic)
 
-    def sets_table(self) -> list[dict]:
-        """The sets with where the newest configuration expects the feature (a start for the search)."""
+    def _reference_set(self) -> MeasurementSet | None:
+        """The measured set 1 (SRn = ref, SRz = 0), if any."""
         prev = self.previous()
-        model = StageModel(prev.config, self.plate)
+        for s in self.sets:
+            if s.use and self._measured(s) and abs(s.srn - prev.config.srn_ref) < 1e-9 and abs(s.srz) < 1e-9:
+                return s
+        return None
+
+    def _expectation(self):
+        """(model, optic focus, source) giving the expected positions: the fit if there is one, else the newest
+        configuration moved onto the measured set 1 (ST0, SZ0, SN_f and the optic from it, mechanics kept), else
+        the newest configuration."""
+        prev = self.previous()
         focus = optic_focus_of(prev, self.plate) if prev.optic_name == optic_short(self.optic) else None
+        fitted = self.result or self.last_fit  # the last fit stays the best guess after a set is added / changed
+        if fitted is not None:
+            return StageModel(fitted.config, self.plate), fitted.optic_focus, "fit"
+        ref = self._reference_set()
+        if ref is not None:
+            kept = self.mode == "optics" or ref.sn_kept
+            try:
+                res = fit_real_sample_calibration([ref], self.plate, self.uvw, base=prev.config, mode=self.mode,
+                                                  params=("st0", "sz0") if kept else ("st0", "sz0", "sn_f"))
+                return (StageModel(res.config, self.plate), focus if res.optic_focus is None else res.optic_focus,
+                        f"set {ref.name.split(' ')[0]} measured + newest configuration's rotation axes")
+            except (NotEnoughData, np.linalg.LinAlgError, ValueError):
+                pass
+        return StageModel(prev.config, self.plate), focus, "newest configuration"
+
+    def _kept_sn(self, model: StageModel) -> float:
+        """SN of the SN-kept sets: that of the measured set 1, else the analyzer focus at the reference rotation."""
+        ref = self._reference_set()
+        return ref.sn if ref is not None else model.config.sn_f + self.uvw[2] - SN_REFERENCE_W
+
+    def sets_table(self) -> list[dict]:
+        """The sets with where the feature is expected (a start for the search): from the newest configuration,
+        from set 1 once it is measured, from the fit once there is one."""
+        model, focus, source = self._expectation()
         rows = []
         for s in self.sets:
-            if self.mode == "optics":
-                st, sz, optic = on_beam(model, self.uvw, s.srn, s.srz, prev.config.sn_f + self.uvw[2] - SN_REFERENCE_W,
-                                        s.pix, s.piy, focus)
-                expect = {"ST": st, "SZ": sz, "optic": optic, "SN": "leave as it is"}
+            if self.mode == "optics" or s.sn_kept:
+                sn = self._kept_sn(model)
+                st, sz, optic = on_beam(model, self.uvw, s.srn, s.srz, sn, s.pix, s.piy, focus)
+                expect = {"ST": st, "SZ": sz, "SN": sn, "optic": optic}
             else:
                 m = model.motors_for_target(*self.uvw, srn=s.srn, srz=s.srz, pix=s.pix, piy=s.piy)
                 expect = {"ST": m.st, "SZ": m.sz, "SN": m.sn, "optic": focus}
-            row = {"name": s.name, "SRn": s.srn, "SRz": s.srz, "measured": self._measured(s), "use": s.use,
-                   "expected_from_newest_configuration": rounded(expect)}
+            row = {"name": s.name, "SRn": s.srn, "SRz": s.srz,
+                   "sn": "kept (as in set 1), refocus the optic" if self.mode == "optics" or s.sn_kept
+                   else "to the analyzer focus",
+                   "measured": self._measured(s), "use": s.use, "expected": rounded(expect), "expected_from": source}
             if row["measured"]:
                 row["entered"] = rounded({"ST": s.st, "SZ": s.sz, "SN": s.sn, "optic": s.optic})
             rows.append(row)
@@ -167,21 +211,29 @@ class RealSampleCalibrationSession:
                 return s
         raise APIError(f"No set {name!r}; sets: {[s.name for s in self.sets]} (or add_set).")
 
-    def add_set(self, name: str, srn: float, srz: float) -> dict:
-        """Another set at other angles (more redundancy)."""
+    def add_set(self, name: str, srn: float, srz: float, sn_kept: bool | None = None) -> dict:
+        """Another set at other angles (more redundancy); `sn_kept` default: as the session (start)."""
         self._need_start()
         if any(s.name == name for s in self.sets):
             raise APIError(f"Set {name!r} exists.")
-        self.sets.append(MeasurementSet(str(name), number(srn, "SRn"), number(srz, "SRz")))
+        kept = self.sn_kept if sn_kept is None else bool(sn_kept)
+        self.sets.append(MeasurementSet(str(name), number(srn, "SRn"), number(srz, "SRz"),
+                                        sn_kept=self.mode == "full" and kept))
         self.result = None
         return {"sets": self.sets_table()}
 
     def measure_set(self, name: str, st: float, sz: float, sn: float, optic: float | None = None,
                     pix: float = 150.0, piy: float = 150.0, srn: float | None = None, srz: float | None = None,
-                    use: bool = True) -> dict:
-        """The values read for a set (the feature on the beam; at the analyzer focus in mode 'full')."""
+                    use: bool = True, sn_kept: bool | None = None) -> dict:
+        """The values read for a set (the feature on the beam; in mode 'full' at the analyzer focus, or with SN kept
+        and the optic refocused when the set is sn_kept). `sn_kept` overrides how this set was measured."""
         self._need_start()
         s = self._set(name)
+        kept = s.sn_kept if sn_kept is None else bool(sn_kept)
+        if self.mode == "full" and kept and optic is None:
+            raise APIError(f"Set {s.name} is measured with SN kept: give the optic position at best focus (it tells "
+                           "where the feature is along the beam), or sn_kept=false if SN was moved to the analyzer "
+                           "focus.")
         s.st, s.sz, s.sn = number(st, "ST"), number(sz, "SZ"), number(sn, "SN")
         s.optic = None if optic is None else number(optic, "optic")
         s.pix, s.piy = number(pix, "PIX"), number(piy, "PIY")
@@ -190,6 +242,7 @@ class RealSampleCalibrationSession:
         if srz is not None:
             s.srz = number(srz, "SRz")
         s.use = bool(use)
+        s.sn_kept = self.mode == "full" and kept
         self.measured.add(s.name)
         self.result = None
         bad = out_of_range(s.motors())
@@ -211,7 +264,7 @@ class RealSampleCalibrationSession:
                 from None
         except (np.linalg.LinAlgError, FloatingPointError, ValueError) as exc:
             raise APIError(f"The fit failed ({exc}): check the entered numbers.") from None
-        self.result = res
+        self.result = self.last_fit = res
         prev_focus = optic_focus_of(prev, self.plate) if prev.optic_name == optic_short(self.optic) else None
         constants = []
         for p in res.params:
@@ -247,9 +300,17 @@ class RealSampleCalibrationSession:
         self.tests = [t for t in self.tests if t.answered]
         n = max((t.round for t in self.tests), default=0) + 1
         model = StageModel(self.result.config, self.plate)
+        sn = self._test_sn(model)
         for i, (name, srn, srz) in enumerate(verification_angles(self.result.config.srn_ref), 1):
             t = TestPoint(f"{n}.{i} {name}", srn, srz, round=n)
-            self.tests.append(predict_test_point(model, self.uvw, t, self.result.optic_focus))
+            self.tests.append(predict_test_point(model, self.uvw, t, self.result.optic_focus, sn=sn))
+
+    def _test_sn(self, model: StageModel) -> float | None:
+        """SN of the test points: kept as in set 1 when the sets were measured that way (full mode, SN kept),
+        else None (moved to the analyzer focus)."""
+        if self.mode == "full" and any(s.sn_kept for s in self.sets if s.use and self._measured(s)):
+            return self._kept_sn(model)
+        return None
 
     def _round_summary(self) -> list[str]:
         answered = [t for t in self.tests if t.answered]
@@ -304,9 +365,9 @@ class RealSampleCalibrationSession:
         if t is None or self.result is None:
             raise APIError(f"No open test point {name!r}.")
         i = self.tests.index(t)
-        self.tests[i] = predict_test_point(StageModel(self.result.config, self.plate), self.uvw,
-                                           replace(t, srn=number(srn, "SRn"), srz=number(srz, "SRz")),
-                                           self.result.optic_focus)
+        model = StageModel(self.result.config, self.plate)
+        self.tests[i] = predict_test_point(model, self.uvw, replace(t, srn=number(srn, "SRn"), srz=number(srz, "SRz")),
+                                           self.result.optic_focus, sn=self._test_sn(model))
         return self.test_points()
 
     def save(self, comment: str = "") -> dict:

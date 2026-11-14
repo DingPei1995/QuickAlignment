@@ -429,8 +429,24 @@ class AlignmentSession:
             args += ["--corners", ";".join(f"{x:.2f},{y:.2f}" for x, y in photo.corners)]
         src = str(Path(__file__).resolve().parents[2])
         env = dict(__import__("os").environ, PYTHONPATH=src)
-        self._annotation = (subprocess.Popen(args, env=env), out)
-        return {"opened": True, "result_file": str(out),
+        log = folder / "window.log"
+        # The MCP server talks over stdin / stdout: the window must not inherit them. On Windows a child sharing a
+        # synchronous pipe that the server is reading hangs at start-up (no window ever shows), and anything it
+        # printed would corrupt the protocol. Its errors go to window.log instead.
+        flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) | getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        with open(log, "w", encoding="utf-8") as err:
+            proc = subprocess.Popen(args, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=err,
+                                    close_fds=True, creationflags=flags)
+        self._annotation = (proc, out)
+        try:  # a window that fails to start (missing module, bad photo...) usually exits within a few seconds
+            code = proc.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            code = None
+        if code is not None:
+            self._annotation = (None, None)
+            raise APIError(f"The annotation window failed to start (exit code {code}): "
+                           f"{log.read_text(encoding='utf-8', errors='replace').strip()[-1500:] or 'no error text'}")
+        return {"opened": True, "result_file": str(out), "log_file": str(log),
                 "tell_the_user": "A window 'Samples from a photo — manual annotation' is open with your photo, already "
                                  "registered. Draw boxes on the samples (Draw box), delete or merge wrong ones, set the "
                                  "names and heights H, add devices in tab 2 if needed, then press OK.",
@@ -449,7 +465,10 @@ class AlignmentSession:
                 return {"done": False, "note": "The window is still open: ask the user to press OK (or Cancel)."}
             proc.wait()
         if not Path(out).exists():
-            raise APIError("The window was closed without a result (it may have failed to start).")
+            log = Path(out).with_name("window.log")
+            text = log.read_text(encoding="utf-8", errors="replace").strip()[-1500:] if log.exists() else ""
+            raise APIError("The window was closed without a result (it may have failed to start)."
+                           + (f" Its errors: {text}" if text else ""))
         from ..core.fileio import read_json
         data = read_json(out)
         if not data.get("accepted"):
